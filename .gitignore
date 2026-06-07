@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets / local config (keys live in ~/.deepseek, never commit any that leak in)
+.env
+*.pem
+*.key
+id_rsa*
+credentials*
+*secret*
+*.token
+
+# Local probe / scratch files
+_probe_*.py
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
