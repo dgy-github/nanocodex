@@ -1,5 +1,7 @@
 # nanocodex
 
+English | [简体中文](README.zh-CN.md)
+
 `nanocodex` is a small Codex-style coding agent for local experiments. It keeps
 the core loop intentionally simple: a chat-completions model proposes tool calls,
 the agent executes safe file/shell tools, records the session, and asks the model
