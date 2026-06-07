@@ -269,6 +269,10 @@ class NanocodexGUI:
         # folded into the Settings window's "MCP servers" section.
         self.settings_btn = flat_btn(top, "Settings", self._open_settings)
         self.settings_btn.pack(side=tk.LEFT, padx=(8, 0))
+        # A/B: run one task under two configs in isolated git worktrees, then
+        # adopt the better side's changes. Requires a clean git workspace.
+        self.ab_btn = flat_btn(top, "A/B", self._on_ab_compare)
+        self.ab_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.ws_label = tk.Label(top, text="", anchor="w", bg=P["bg"],
                                  fg=P["muted"], font=("Segoe UI", 9))
         self.ws_label.pack(side=tk.LEFT, padx=(12, 0), fill=tk.X, expand=True)
@@ -2417,6 +2421,335 @@ class NanocodexGUI:
 
         dlg.bind("<Escape>", lambda e: _use(None))
 
+    # --- A/B configuration comparison ------------------------------------
+
+    def _on_ab_compare(self) -> None:
+        """Open the A/B setup dialog: two configs + one prompt, run isolated.
+
+        Disabled while busy (an A/B run rebuilds loops and drives files, same
+        as a turn). Requires a clean git workspace — checked here so the user
+        gets a clear reason instead of a mid-run failure.
+        """
+        if self._busy:
+            self._append("\n[busy — wait for the current turn to finish]\n", "system")
+            return
+        if getattr(self, "_ab_running", False):
+            self._append("\n[an A/B comparison is already running]\n", "system")
+            return
+        from nanocodex.agent.ab_compare import ensure_clean_git_workspace, ABGitError
+        try:
+            ensure_clean_git_workspace(self._workspace)
+        except ABGitError as exc:
+            self._append(
+                f"\n[A/B needs a clean git workspace: {exc}]\n", "result_err",
+            )
+            return
+        self._show_ab_setup_dialog()
+
+    def _show_ab_setup_dialog(self) -> None:
+        """Two columns of config controls + a shared prompt box + Run button."""
+        tk = self._tk
+        P = self._palette
+
+        prev = getattr(self, "_ab_setup_dlg", None)
+        if prev is not None:
+            try:
+                prev.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+
+        cfg = getattr(self._loop, "_cfg", None) if self._loop else None
+        info = cfg.redacted() if cfg is not None else {}
+        cur_model = info.get("model", "")
+        cur_sandbox = info.get("sandbox_mode", "workspace-write")
+        cur_approval = info.get("approval_policy", "on-request")
+        cur_reasoning = info.get("reasoning_effort", "auto")
+        models = list(getattr(cfg, "available_models", []) or [])
+        if cur_model and cur_model not in models:
+            models = [cur_model, *models]
+        if not models:
+            models = [cur_model or "deepseek-v4-pro"]
+
+        from nanocodex.config import VALID_SANDBOX_MODES, VALID_APPROVAL_POLICIES
+
+        dlg = tk.Toplevel(self.root, bg=P["bg"])
+        self._ab_setup_dlg = dlg
+        dlg.title("A/B compare")
+        dlg.transient(self.root)
+        dlg.resizable(True, True)
+        dlg.geometry("680x560")
+
+        status = tk.Label(dlg, text="", anchor="w", bg=P["bg"], fg=P["err"],
+                          font=("Segoe UI", 9), wraplength=620, justify="left")
+        status.pack(side="bottom", fill="x", padx=16, pady=(0, 6))
+
+        btns = tk.Frame(dlg, bg=P["bg"])
+        btns.pack(side="bottom", fill="x", padx=16, pady=(0, 14))
+
+        # Two side-by-side config columns.
+        cols = tk.Frame(dlg, bg=P["bg"])
+        cols.pack(side="top", fill="x", padx=16, pady=(14, 8))
+        cols.columnconfigure(0, weight=1)
+        cols.columnconfigure(1, weight=1)
+
+        def _make_column(parent, title, *, col):
+            box = tk.Frame(parent, bg=P["bg"])
+            box.grid(row=0, column=col, sticky="we", padx=(0, 8) if col == 0 else (8, 0))
+            box.columnconfigure(1, weight=1)
+            tk.Label(box, text=title, anchor="w", bg=P["bg"], fg=P["accent"],
+                     font=("Segoe UI", 10, "bold")).grid(
+                row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+            r = [1]
+
+            def _opt(label, choices, current):
+                tk.Label(box, text=label, anchor="w", bg=P["bg"], fg=P["muted"],
+                         font=("Segoe UI", 9)).grid(row=r[0], column=0, sticky="w",
+                                                    padx=(0, 8), pady=3)
+                var = tk.StringVar(value=current if current in choices else choices[0])
+                om = tk.OptionMenu(box, var, *choices)
+                om.config(bg=P["panel"], fg=P["fg"], activebackground=P["border"],
+                          activeforeground=P["fg"], relief="flat", bd=0,
+                          highlightthickness=0, font=("Segoe UI", 9), anchor="w")
+                om["menu"].config(bg=P["panel"], fg=P["fg"],
+                                  activebackground=P["accent"],
+                                  activeforeground=P["accent_fg"])
+                om.grid(row=r[0], column=1, sticky="we", pady=3)
+                r[0] += 1
+                return var
+
+            return {
+                "model": _opt("model", tuple(models), cur_model),
+                "sandbox": _opt("sandbox", VALID_SANDBOX_MODES, cur_sandbox),
+                "approval": _opt("approval", VALID_APPROVAL_POLICIES, cur_approval),
+                "reasoning": _opt("reasoning", _REASONING_CHOICES, cur_reasoning),
+            }
+
+        vars_a = _make_column(cols, "Config A", col=0)
+        vars_b = _make_column(cols, "Config B", col=1)
+
+        # Shared prompt.
+        tk.Label(dlg, text="Task prompt (runs in both, in isolated worktrees)",
+                 anchor="w", bg=P["bg"], fg=P["muted"],
+                 font=("Segoe UI", 9, "bold")).pack(side="top", fill="x", padx=16)
+        prompt_box = tk.Text(dlg, height=6, wrap="word", bg=P["panel"], fg=P["fg"],
+                             relief="flat", bd=0, padx=10, pady=8,
+                             font=("Cascadia Code", 10), highlightthickness=0,
+                             insertbackground=P["fg"])
+        prompt_box.pack(side="top", fill="both", expand=True, padx=16, pady=(2, 8))
+
+        def _overrides_from(v):
+            return {
+                "model": v["model"].get().strip(),
+                "sandbox_mode": v["sandbox"].get().strip(),
+                "approval_policy": v["approval"].get().strip(),
+                "reasoning_effort": v["reasoning"].get().strip(),
+            }
+
+        def _run() -> None:
+            prompt = prompt_box.get("1.0", "end").strip()
+            if not prompt:
+                status.config(text="Enter a task prompt.", fg=P["err"])
+                return
+            ov_a = _overrides_from(vars_a)
+            ov_b = _overrides_from(vars_b)
+            dlg.destroy()
+            self._start_ab_run(prompt, ov_a, ov_b)
+
+        def ab_btn(label, command, *, accent=False):
+            bg = P["accent"] if accent else P["panel"]
+            fg = P["accent_fg"] if accent else P["fg"]
+            return tk.Button(
+                btns, text=label, command=command, bg=bg, fg=fg,
+                activebackground=P["border"] if not accent else P["accent"],
+                activeforeground=fg, relief="flat", bd=0, padx=14, pady=6,
+                font=("Segoe UI", 9, "bold"), cursor="hand2", highlightthickness=0,
+            )
+
+        ab_btn("Run A/B", _run, accent=True).pack(side="right")
+        ab_btn("Cancel", dlg.destroy).pack(side="right", padx=(0, 8))
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+
+    def _start_ab_run(self, prompt: str, ov_a: dict, ov_b: dict) -> None:
+        """Kick off the A/B worker thread (mirrors _start_turn's setup)."""
+        from nanocodex.agent.ab_compare import ABConfig
+        cfg_a = ABConfig(label="A", overrides=ov_a)
+        cfg_b = ABConfig(label="B", overrides=ov_b)
+        self._ab_running = True
+        self._cancel_event.clear()
+        self._set_busy(True)
+        self._append(
+            f"\n[A/B] running the task under two configs in isolated worktrees…\n"
+            f"  A: model={ov_a.get('model')} reasoning={ov_a.get('reasoning_effort')}\n"
+            f"  B: model={ov_b.get('model')} reasoning={ov_b.get('reasoning_effort')}\n",
+            "system",
+        )
+        threading.Thread(
+            target=self._run_ab_thread, args=(prompt, cfg_a, cfg_b), daemon=True,
+        ).start()
+
+    def _run_ab_thread(self, prompt: str, cfg_a, cfg_b) -> None:
+        """Daemon thread: run both sides serially in isolated worktrees.
+
+        Mirrors _run_turn_thread (own asyncio loop, desktop lock, results via
+        the UI queue). Worktrees are NOT cleaned here — they're kept so the
+        result dialog can adopt one side's diff; cleanup happens after the user
+        picks (or on a hard failure below).
+        """
+        import time
+        import tempfile
+        import asyncio
+        from pathlib import Path as _Path
+        from nanocodex.cli import _build_loop, _auto_approve_approver
+        from nanocodex.agent.ab_compare import (
+            ensure_clean_git_workspace, create_worktree, collect_worktree_diff,
+            cleanup_worktree, build_result, worktree_name, ABGitError,
+        )
+
+        got_lock = self._desktop_lock.acquire(blocking=False)
+        if not got_lock:
+            self._ui_queue.put(_UiEvent(
+                "system_text",
+                "\n[A/B waiting for a background scheduled task to finish…]\n",
+            ))
+            self._desktop_lock.acquire()
+            got_lock = True
+
+        worktrees: list[_Path] = []
+        try:
+            base_commit = ensure_clean_git_workspace(self._workspace)
+            tmp_root = _Path(tempfile.mkdtemp(prefix="nanocodex-ab-"))
+            token = str(int(time.time()))
+
+            def _run_side(cfg):
+                name = worktree_name(cfg.label, token)
+                wt = create_worktree(self._workspace, base_commit, name, tmp_root)
+                worktrees.append(wt)
+                loop = _build_loop(
+                    dict(cfg.overrides), wt, resume=False,
+                    approver_factory=lambda _p: _auto_approve_approver(),
+                    log_path=None,  # ephemeral: A/B runs never touch session history
+                )
+                start = time.time()
+                tr = asyncio.run(loop.run_turn(
+                    prompt, cancel_check=self._cancel_event.is_set,
+                ))
+                elapsed = time.time() - start
+                diff = collect_worktree_diff(wt)
+                return build_result(
+                    cfg, tr, elapsed_s=elapsed, diff=diff, worktree_path=str(wt),
+                )
+
+            res_a = _run_side(cfg_a)
+            res_b = _run_side(cfg_b)
+            self._ui_queue.put(_UiEvent("ab_result", (res_a, res_b)))
+        except ABGitError as exc:
+            self._ui_queue.put(_UiEvent("error", f"A/B aborted: {exc}"))
+            for wt in worktrees:
+                cleanup_worktree(self._workspace, wt)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+            self._ui_queue.put(_UiEvent("error", f"A/B failed: {type(exc).__name__}: {exc}"))
+            for wt in worktrees:
+                cleanup_worktree(self._workspace, wt)
+        finally:
+            if got_lock:
+                self._desktop_lock.release()
+            self._ui_queue.put(_UiEvent("ab_done"))
+
+    def _show_ab_result_dialog(self, res_a, res_b) -> None:
+        """Show both sides' summary + diff; adopt one or discard both.
+
+        Adopting applies the chosen side's diff onto the real workspace; then
+        BOTH worktrees are cleaned up. Discarding cleans both and changes
+        nothing.
+        """
+        tk = self._tk
+        P = self._palette
+        from nanocodex.agent.ab_compare import (
+            format_ab_comparison, adopt_diff, cleanup_worktree, ABGitError,
+        )
+
+        prev = getattr(self, "_ab_result_dlg", None)
+        if prev is not None:
+            try:
+                prev.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+
+        dlg = tk.Toplevel(self.root, bg=P["bg"])
+        self._ab_result_dlg = dlg
+        dlg.title("A/B result")
+        dlg.transient(self.root)
+        dlg.resizable(True, True)
+        dlg.geometry("820x620")
+
+        def _cleanup_both() -> None:
+            for r in (res_a, res_b):
+                wt = getattr(r, "worktree_path", "")
+                if wt:
+                    cleanup_worktree(self._workspace, Path(wt))
+
+        def _adopt(chosen) -> None:
+            try:
+                adopt_diff(self._workspace, chosen.diff)
+            except ABGitError as exc:
+                self._append(f"\n[A/B adopt failed: {exc}]\n", "result_err")
+                return
+            _cleanup_both()
+            self._append(
+                f"\n[A/B] adopted config {chosen.label}'s changes into the "
+                f"workspace ({len(chosen.diff.splitlines())} diff lines).\n",
+                "system",
+            )
+            dlg.destroy()
+
+        def _discard() -> None:
+            _cleanup_both()
+            self._append("\n[A/B] discarded both sides; workspace unchanged.\n", "system")
+            dlg.destroy()
+
+        btns = tk.Frame(dlg, bg=P["bg"])
+        btns.pack(side="bottom", fill="x", padx=16, pady=(0, 14))
+
+        def rb(label, command, *, accent=False):
+            bg = P["accent"] if accent else P["panel"]
+            fg = P["accent_fg"] if accent else P["fg"]
+            return tk.Button(
+                btns, text=label, command=command, bg=bg, fg=fg,
+                activebackground=P["border"] if not accent else P["accent"],
+                activeforeground=fg, relief="flat", bd=0, padx=14, pady=6,
+                font=("Segoe UI", 9, "bold"), cursor="hand2", highlightthickness=0,
+            )
+
+        rb(f"Adopt A", lambda: _adopt(res_a), accent=True).pack(side="right")
+        rb(f"Adopt B", lambda: _adopt(res_b), accent=True).pack(side="right", padx=(0, 8))
+        rb("Discard both", _discard).pack(side="right", padx=(0, 8))
+
+        # Summary line on top.
+        tk.Label(dlg, text=format_ab_comparison(res_a, res_b), anchor="w",
+                 justify="left", bg=P["bg"], fg=P["fg"], font=("Cascadia Code", 9),
+                 wraplength=780).pack(side="top", fill="x", padx=16, pady=(14, 8))
+
+        # Two diff panes side by side.
+        panes = tk.Frame(dlg, bg=P["bg"])
+        panes.pack(side="top", fill="both", expand=True, padx=16, pady=(0, 8))
+        panes.columnconfigure(0, weight=1)
+        panes.columnconfigure(1, weight=1)
+        panes.rowconfigure(1, weight=1)
+
+        for col, r in ((0, res_a), (1, res_b)):
+            tk.Label(panes, text=f"Config {r.label} diff", anchor="w", bg=P["bg"],
+                     fg=P["accent"], font=("Segoe UI", 9, "bold")).grid(
+                row=0, column=col, sticky="w", padx=(0, 6) if col == 0 else (6, 0))
+            box = tk.Text(panes, wrap="none", bg=P["panel"], fg=P["fg"], relief="flat",
+                          bd=0, padx=10, pady=8, font=("Cascadia Code", 9),
+                          highlightthickness=0)
+            box.grid(row=1, column=col, sticky="nsew",
+                     padx=(0, 6) if col == 0 else (6, 0))
+            box.insert("1.0", r.diff or "(no file changes)")
+            box.config(state="disabled")
+
+        dlg.bind("<Escape>", lambda e: _discard())
+
     def _start_turn(self, text: str) -> None:
         """Echo the prompt and kick off a worker turn for it (idle path).
 
@@ -2582,6 +2915,15 @@ class NanocodexGUI:
             self._enhancing = False
             self._refresh_enhance_label()
             self._append(f"\n[enhance failed: {ev.payload}]\n", "result_err")
+        elif ev.kind == "ab_result":
+            res_a, res_b = ev.payload
+            self._show_ab_result_dialog(res_a, res_b)
+        elif ev.kind == "ab_done":
+            # A/B finished (success, abort, or error). Clear the in-flight flags
+            # so the UI unlocks; the result dialog (if any) was already shown by
+            # the ab_result event that preceded this one.
+            self._ab_running = False
+            self._set_busy(False)
         elif ev.kind == "turn_end":
             self._announce_turn_end(ev.payload)
         elif ev.kind == "done":

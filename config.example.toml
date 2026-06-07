@@ -1,0 +1,21 @@
+# Copy this file to ~/.nanocodex/config.toml and fill in your own values.
+# Do not commit the real config file or any real API key.
+
+# DeepSeek hosted API:
+api_key = "sk-your-real-key"
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-chat"
+
+# Local OpenAI-compatible model example:
+# api_key = "local-dev-key"
+# base_url = "http://127.0.0.1:8005/v1"
+# model = "Qwen3.6-27B-Q4_K_M"
+
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+reasoning_effort = "auto"
+
+# Optional:
+# context_token_budget = 512000
+# context_window = 1048576
+# available_models = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"]

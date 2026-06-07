@@ -30,6 +30,8 @@ credentials*
 # Local probe / scratch files
 _probe_*.py
 *.log
+HANDOFF.md
+.claude/worktrees/
 
 # OS / editor
 .DS_Store

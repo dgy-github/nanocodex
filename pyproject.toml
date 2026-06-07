@@ -1,7 +1,7 @@
 [project]
 name = "nanocodex"
 version = "0.1.0"
-description = "A minimal Codex-style coding agent: Codex tool layer (apply_patch / shell / update_plan) on a DeepSeek backend. Inspired by nanobot's agent loop."
+description = "A minimal Codex-style coding agent with DeepSeek/OpenAI-compatible backends, MCP, skills, sandbox approvals, and a Windows GUI."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

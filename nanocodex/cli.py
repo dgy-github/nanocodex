@@ -580,5 +580,21 @@ def _desktop_only_approver() -> Approver:
     return Approver("on-request", _allow_mcp_only)
 
 
+def _auto_approve_approver() -> Approver:
+    """Approver that grants every escalation without asking.
+
+    Used for A/B comparison runs: each side runs inside its OWN throwaway git
+    worktree, so file writes are already isolated from the real workspace and
+    from each other. Auto-approving avoids a per-step prompt storm during the
+    comparison. NOTE this does not disable SandboxPolicy — the run's writable
+    root is still the worktree; this only skips the human prompt on escalation.
+    Never wire this into the interactive conversation or an unattended scheduled
+    task; it is scoped to the user-initiated, worktree-isolated A/B flow.
+    """
+    async def _allow_all(_req: ApprovalRequest) -> bool:
+        return True
+    return Approver("on-request", _allow_all)
+
+
 if __name__ == "__main__":
     app()
