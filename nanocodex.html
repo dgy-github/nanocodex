@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>nanocodex · 设计思想与核心</title>
+<title>nanocodex · Codex 能力覆盖与 DeepSeek 优化</title>
 <style>
   :root {
     --bg: #0d1117;
@@ -226,19 +226,34 @@
     margin-top: 72px; padding-top: 24px; border-top: 1px solid var(--border);
   }
   footer a { font-family: var(--mono); }
+
+  @media (max-width: 700px) {
+    .wrap { padding: 0 16px 72px; }
+    header.hero { padding: 56px 18px 44px; }
+    .hero h1 { font-size: 42px; }
+    .hero p.tag { font-size: 16px; }
+    h2 { font-size: 24px; }
+    h2 .num { font-size: 18px; }
+    th, td { padding: 10px 11px; overflow-wrap: anywhere; word-break: break-word; }
+    td code { white-space: normal; overflow-wrap: anywhere; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+    .loop .step { width: 100%; text-align: center; }
+    .loop .arrow { line-height: 1; transform: rotate(90deg); }
+  }
 </style>
 </head>
 <body>
 
 <header class="hero">
   <h1>nanocodex</h1>
-  <p class="tag">一个刻意保持精简、但链路完整的 Codex 风格编码 Agent。它不是聊天壳，而是把模型工具调用、文件修改、命令执行、沙箱审批、会话记忆、MCP 扩展、上下文压缩和成本统计串成一条可运行的本地工程链路。</p>
+  <p class="tag">一个面向 DeepSeek 的 Codex-style 本地 coding agent。它不是官方 Codex 的复制品，而是把编码 Agent 最关键的工程机制重建成可读、可测、可替换模型后端的 harness：工具调用、文件修改、命令执行、沙箱审批、会话恢复、MCP、Skills、上下文压缩和成本统计。</p>
   <div class="badges">
-    <span class="badge">DeepSeek / OpenAI 兼容</span>
+    <span class="badge">Codex-style tool loop</span>
+    <span class="badge">DeepSeek reasoner fixes</span>
     <span class="badge">MCP</span>
     <span class="badge">Skills</span>
-    <span class="badge">沙箱审批</span>
-    <span class="badge">~10.8k 行</span>
+    <span class="badge">sandbox approval</span>
+    <span class="badge">JSONL resume</span>
     <span class="badge">420 离线测试</span>
   </div>
   <a class="cta" href="https://github.com/dgy-github/nanocodex" target="_blank" rel="noopener">
@@ -249,66 +264,69 @@
 
 <figure class="screenshot">
   <div class="frame">
-    <img src="assets/nanocodex-ui-preview.svg" alt="nanocodex GUI 截图预览：会话列表、模型工具调用、MCP、skills、成本统计与测试结果">
+    <img src="assets/nanocodex-ui-preview.svg" alt="nanocodex GUI 截图预览：会话列表、模型工具调用、MCP、Skills、成本统计与测试结果">
   </div>
-  <figcaption>界面截图预览：GUI 会话、工具调用、MCP / Skills、成本统计与 420 项离线测试状态。</figcaption>
+  <figcaption>GUI 预览：会话历史、工具调用、MCP / Skills、成本统计与离线测试状态。页面重点不是炫 UI，而是说明这个 agent harness 覆盖了哪些能力。</figcaption>
 </figure>
 
 <div class="wrap">
 
-  <h2><span class="num">01</span>项目定位</h2>
+  <h2><span class="num">01</span>这个项目到底是什么</h2>
   <div class="intro">
-    <p class="lead">nanocodex 的目标不是复刻一个庞大的商业 IDE Agent，而是把 coding agent 最关键的工程机制拆开、写清楚、测扎实。</p>
-    <p>模型负责理解任务、规划下一步和提出工具调用；程序负责把工具调用变成真实的文件读写、patch、shell、计划更新、记忆写入和 MCP 调用。所有越权动作都会先经过沙箱策略与审批状态机，所有会话都会落到本地 JSONL 和快照里，方便回放、恢复和排查。</p>
-    <p>它更像一个“可研究、可调试、可替换后端”的 agent harness：你可以接 DeepSeek 托管 API，也可以把 <code>base_url</code> 指到本地 vLLM、llama-server、LM Studio 或其它 OpenAI 兼容服务，用同一套工具协议验证模型的 coding 能力。</p>
+    <p class="lead">nanocodex 是一个 DeepSeek-oriented 的本地 coding agent harness，用来验证“一个模型怎样在受控环境里持续读代码、改文件、跑命令、看结果、再修正”。</p>
+    <p>它对齐的是 Codex 类工具的工程能力，而不是外观：交互式编码循环、工具协议、仓库读写、命令执行、审批/沙箱、会话恢复、AGENTS.md、Skills、MCP、上下文压缩、成本统计和 worktree 隔离实验。</p>
+    <p>后端只要求 OpenAI 兼容 <code>/v1/chat/completions</code>，所以可以接 DeepSeek 托管 API，也可以把 <code>base_url</code> 指到本地 vLLM、llama-server、LM Studio 或企业内网模型服务。</p>
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="value">420</div><div class="label">离线自动化测试，无真实 API / 网络依赖</div></div>
-    <div class="stat"><div class="value">8+</div><div class="label">内置工具，另可通过 MCP 动态扩展</div></div>
-    <div class="stat"><div class="value">3 x 4</div><div class="label">沙箱模式 x 审批策略的动作闸门</div></div>
-    <div class="stat"><div class="value">JSONL</div><div class="label">会话、快照、记忆均可读可迁移</div></div>
+    <div class="stat"><div class="value">10+</div><div class="label">Codex-style 能力被拆成可测试模块</div></div>
+    <div class="stat"><div class="value">8+</div><div class="label">内置工具，MCP 可继续扩展</div></div>
+    <div class="stat"><div class="value">6+</div><div class="label">DeepSeek-specific 适配与稳定性修复</div></div>
+    <div class="stat"><div class="value">420</div><div class="label">离线测试，无真实 API / 网络依赖</div></div>
   </div>
 
   <div class="cards">
     <div class="card">
-      <h3>它解决什么问题</h3>
-      <p>把“模型会写代码”推进到“模型能在受控环境里持续读文件、改代码、跑命令、看结果、再修正”，并且每一步都能审计。</p>
+      <h3>不是聊天壳</h3>
+      <p>模型不能直接碰文件系统。它必须输出结构化 tool call，由工具层执行，再把结果喂回模型形成闭环。</p>
     </div>
     <div class="card">
-      <h3>它为什么适合本地模型</h3>
-      <p>后端只要求 OpenAI 兼容 <code>/v1/chat/completions</code>，所以可以在同一套 agent 工具链下比较 DeepSeek、Qwen、本地量化模型或企业内网模型。</p>
+      <h3>不是官方克隆</h3>
+      <p>不宣称复刻 Codex 云端、PR review 或官方系统沙箱；它聚焦本地 coding agent 的核心可运行链路。</p>
     </div>
     <div class="card">
-      <h3>它为什么适合讲工程能力</h3>
-      <p>重点不在“套 API”，而在工具协议、权限边界、状态持久化、上下文压缩、成本统计、失败可恢复和可测试性。</p>
+      <h3>适合放 GitHub 的点</h3>
+      <p>它展示的是 agent 工程化：协议、权限、上下文、成本、状态恢复、DeepSeek 兼容性和离线可回归测试。</p>
     </div>
   </div>
 
-  <h2><span class="num">02</span>设计思想</h2>
-  <p class="lead">nanocodex 不是要做「功能最全的 Agent」，而是用最少的概念把一个编码 Agent 的关键链路跑通、且每一步都可解释、可测试、可信任。整套代码贯穿四条原则。</p>
+  <h2><span class="num">02</span>Codex-style 能力覆盖</h2>
+  <p class="lead">官方 Codex 的关键体验是：读仓库、解释计划、调用工具改代码、跑命令验证、在权限边界内持续迭代，并能通过 AGENTS.md、Skills、MCP、会话历史等机制长期工作。nanocodex 把这些能力拆成了本地可运行模块。</p>
 
-  <div class="principles">
-    <div class="pcard">
-      <h3><span class="dot"></span>核心循环刻意精简</h3>
-      <p>一个回合就是「调用模型 → 执行工具 → 把结果喂回 → 继续」直到任务完成。Agent 不知道控制台、不知道 GUI，渲染靠 hook 注入，循环本身只关心推进任务。</p>
-    </div>
-    <div class="pcard">
-      <h3><span class="dot"></span>纯函数 + 可注入 I/O</h3>
-      <p>schedule、memory、skills、compaction、pricing、marketplace 的核心逻辑都是对数据的纯函数，时间、网络、文件都从外部注入。结果是整套 420 个测试全离线、不碰真实 API 与网络。</p>
-    </div>
-    <div class="pcard">
-      <h3><span class="dot"></span>对局限性诚实</h3>
-      <p>价格表是硬编码快照、带 as-of 日期，未知模型返回「成本未知」而不是错数；Windows 沙箱明说是策略级、非内核隔离；视觉模型支持标注为未验证。不假装能力。</p>
-    </div>
-    <div class="pcard">
-      <h3><span class="dot"></span>无隐藏状态</h3>
-      <p>会话是可读的 JSONL、记忆是用户自己的 markdown 文件、定时任务是一份 JSON。没有黑盒数据库，用户能直接看到、编辑、删除 Agent 依赖的一切。</p>
-    </div>
+  <table>
+    <thead><tr><th>Codex 类能力</th><th>nanocodex 做到了什么</th><th>实现程度</th></tr></thead>
+    <tbody>
+      <tr><td>交互式编码循环</td><td><code>AgentLoop.run_turn()</code> 执行“模型 → 工具 → 结果 → 再模型”的多轮循环，CLI 和 GUI 都只是渲染层。</td><td>已实现</td></tr>
+      <tr><td>读仓库 / 改文件 / 跑命令</td><td><code>read_file</code>、<code>apply_patch</code>、<code>shell</code> 统一经 ToolRegistry 派发，模型只提交结构化工具调用。</td><td>已实现</td></tr>
+      <tr><td>计划与过程可见</td><td><code>update_plan</code> 记录多步骤任务状态；GUI/CLI hook 展示流式输出、reasoning、tool call 和结果。</td><td>已实现</td></tr>
+      <tr><td>沙箱与审批</td><td><code>read-only</code> / <code>workspace-write</code> / <code>danger-full-access</code> 三档沙箱，加 <code>untrusted</code> / <code>on-failure</code> / <code>on-request</code> / <code>never</code> 四档审批。</td><td>已实现，Windows 为策略级边界</td></tr>
+      <tr><td>会话恢复与历史</td><td>全量对话写入 JSONL；按 session_id 保存快照，支持 <code>--resume</code>、GUI 会话列表和 fork。</td><td>已实现</td></tr>
+      <tr><td>AGENTS.md 项目指令</td><td><code>agents_md.py</code> 分层读取项目指令并注入 system prompt，让仓库约定持续生效。</td><td>已实现</td></tr>
+      <tr><td>Skills 渐进加载</td><td>用户 skill + 内置 <code>code-review</code> / <code>debug</code> / <code>write-tests</code>；默认只注入名称和描述，需要时再读正文。</td><td>已实现</td></tr>
+      <tr><td>MCP 扩展工具</td><td>从 <code>~/.nanocodex/mcp.toml</code> 连接服务，工具暴露为 <code>mcp__server__tool</code>；附带本地/远程 catalog。</td><td>已实现</td></tr>
+      <tr><td>上下文压缩</td><td>默认 deterministic 零成本摘要，也支持 opt-in 模型 summarizer；保留 system 与最近用户上下文。</td><td>已实现</td></tr>
+      <tr><td>记忆</td><td><code>remember</code> 工具写入 <code>~/.nanocodex/memory.md</code>，用于跨会话保存稳定偏好和项目事实。</td><td>已实现</td></tr>
+      <tr><td>Git worktree 实验</td><td><code>ab_compare.py</code> 用两个隔离 worktree 跑同一 prompt，比较 diff、成本和延迟，再采纳一侧。</td><td>实验性实现</td></tr>
+      <tr><td>GUI / 调度 / 图片输入</td><td>Tkinter GUI、一次性/周期任务、图片 block 支持、prompt 增强和成本显示。</td><td>已实现或局部实现</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout blue">
+    <b>边界：</b>这里说的“Codex-style”是工程机制对齐，不是 OpenAI 官方 Codex 产品，也不包含云端托管任务、GitHub PR 自动 review、Computer Use 或官方 OS 级沙箱的完整能力。
   </div>
 
-  <h2><span class="num">03</span>核心：一个回合的循环</h2>
-  <p><code>AgentLoop.run_turn()</code> 驱动单个用户回合直到完成。一个回合内可能发生多轮模型调用（每次工具使用算一轮），token 用量逐轮累计、折算成本。</p>
+  <h2><span class="num">03</span>核心循环怎么跑</h2>
+  <p><code>AgentLoop.run_turn()</code> 驱动单个用户回合直到完成。一个回合内可能发生多轮模型调用；每轮可产生工具调用，工具结果再进入下一轮上下文，token 用量逐轮累计。</p>
 
   <div class="loop">
     <span class="step">用户输入</span>
@@ -333,44 +351,45 @@
     usage: dict[str, int]    <span class="c"># 真实 token 累计 → 折算成本</span></pre>
 
   <div class="flow-detail">
-    <div class="flow-item"><b>1. 组装上下文</b><span>读取 system prompt、AGENTS.md、记忆、可用 skills、MCP 工具 schema 和会话历史。</span></div>
-    <div class="flow-item"><b>2. 调用模型</b><span>走 DeepSeek / OpenAI 兼容 provider，支持流式输出、tool_calls 和 token usage。</span></div>
+    <div class="flow-item"><b>1. 组装上下文</b><span>system prompt、AGENTS.md、memory、skills 描述、MCP schema 和历史消息一起进入模型。</span></div>
+    <div class="flow-item"><b>2. 调用模型</b><span>DeepSeek provider 发起 chat/completions；支持非流式和流式 tool_calls。</span></div>
     <div class="flow-item"><b>3. 工具派发</b><span>ToolRegistry 按名称路由到 shell、apply_patch、read_file、remember 或 MCP 工具。</span></div>
-    <div class="flow-item"><b>4. 权限判断</b><span>沙箱策略判断可读、可写、可联网，审批策略决定 ASK / AUTO_DENY / AUTO_APPROVE。</span></div>
-    <div class="flow-item"><b>5. 结果回填</b><span>工具结果以 tool message 回到模型上下文，模型继续决定下一步。</span></div>
-    <div class="flow-item"><b>6. 持久化</b><span>最终答案、工具轨迹、token 用量和会话快照写入本地，GUI 可回放。</span></div>
+    <div class="flow-item"><b>4. 权限判断</b><span>沙箱策略判断可读、可写、可联网；审批策略决定 ASK / AUTO_DENY / AUTO_APPROVE。</span></div>
+    <div class="flow-item"><b>5. 结果回填</b><span>工具结果以 tool message 回到模型上下文，模型根据真实输出继续修正。</span></div>
+    <div class="flow-item"><b>6. 持久化</b><span>最终答案、工具轨迹、reasoning、token usage 和会话快照写入本地。</span></div>
   </div>
 
-  <h2><span class="num">04</span>核心能力</h2>
+  <h2><span class="num">04</span>针对 DeepSeek 做了哪些优化</h2>
+  <p class="lead">DeepSeek/OpenAI 兼容接口能跑起来只是第一步。真正做 coding agent 时，reasoner、tool call 历史、流式超时、usage 字段和成本统计都会踩坑。nanocodex 把这些处理放在 <code>provider/deepseek.py</code>、<code>auto_reasoning.py</code> 和 <code>pricing.py</code> 里。</p>
+
   <table>
-    <thead><tr><th>能力</th><th>做法</th></tr></thead>
+    <thead><tr><th>优化点</th><th>为什么需要</th><th>实现位置</th></tr></thead>
     <tbody>
-      <tr><td>模型后端</td><td>DeepSeek / 任意 OpenAI 兼容 <code>/v1/chat/completions</code>，支持流式；改 <code>base_url</code> 即可指向本地模型（vLLM / llama-server / LM Studio）。</td></tr>
-      <tr><td>工具集</td><td><code>shell</code> · <code>apply_patch</code> · <code>update_plan</code> · <code>read_file</code> · <code>web_search</code> · <code>manage_schedule</code> · <code>manage_skills</code> · <code>remember</code>，统一经 ToolRegistry 派发。</td></tr>
-      <tr><td>沙箱策略</td><td>三种模式 <code>read-only</code> / <code>workspace-write</code> / <code>danger-full-access</code>，决定可写根目录与网络；策略与执行分离。</td></tr>
-      <tr><td>审批状态机</td><td>四档 <code>untrusted</code> / <code>on-failure</code> / <code>on-request</code> / <code>never</code>，越权操作（含联网搜索）走 ASK / AUTO_DENY / AUTO_APPROVE。</td></tr>
-      <tr><td>上下文压缩</td><td>deterministic（零成本规则摘要，默认）或 summarizer（消耗 token，opt-in）；保留 system + 近期尾部，且尾部必须从 user 消息开始。</td></tr>
-      <tr><td>自适应推理档</td><td>按用户输入选 max / low / high；关键词表覆盖中日英（"报错""调试""デバッグ" 都能命中）。</td></tr>
-      <tr><td>成本统计</td><td>cache-aware：命中 token 比未命中便宜约 120×，有拆分时分别计费，无拆分时按未命中保守计，从不低估。</td></tr>
-      <tr><td>会话历史</td><td>JSONL 持久化；按 session_id 存全量快照，可在 GUI 左栏点选回放真实对话；支持 <code>--resume</code>。</td></tr>
-      <tr><td>记忆 / AGENTS.md / Skills</td><td>memory 记「谁/什么」（用户偏好），skills 记「怎么做」，AGENTS.md 是项目级指令；skills 只注入名称+描述，正文按需读取。</td></tr>
-      <tr><td>MCP + 市场</td><td>来自 <code>~/.nanocodex/mcp.toml</code>，以 <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> 暴露；运行在沙箱外，内置 catalog + 远程 catalog（按不可信数据处理）。</td></tr>
-      <tr><td>GUI 特性</td><td>prompt 增强（✨）、<code>#</code> 快速记忆、定时任务、A/B worktree 对比（两套配置同 prompt 各跑一遍，对比 diff/成本/延迟，采纳其一）。</td></tr>
+      <tr><td><code>reasoning_content</code> 回放</td><td>DeepSeek V4/reasoner 在 assistant 历史里有 <code>tool_calls</code> 但缺 reasoning 时可能拒绝后续请求；nanocodex 会为旧会话补 <code>(reasoning omitted)</code> 占位。</td><td><code>_sanitize_reasoning_replay()</code></td></tr>
+      <tr><td>reasoning 字段兼容</td><td>不同兼容网关可能返回 <code>reasoning_content</code> 或 <code>reasoning</code>；统一抽取后 CLI/GUI 可把思考流和正文流分开显示。</td><td><code>_extract_reasoning()</code></td></tr>
+      <tr><td>DeepSeek thinking 参数映射</td><td><code>off</code> 映射到 <code>thinking: disabled</code>，<code>max/high</code> 映射到 DeepSeek thinking-mode 的 <code>extra_body</code>，避免配置写了但请求没带。</td><td><code>_apply_reasoning_effort()</code></td></tr>
+      <tr><td>自适应推理档</td><td><code>auto</code> 不再只是 no-op；遇到“报错/调试/debug/エラー”走 <code>max</code>，搜索类任务走 <code>low</code>，普通开发默认 <code>high</code>。</td><td><code>agent/auto_reasoning.py</code></td></tr>
+      <tr><td>流式首包超时</td><td>Windows / 代理网络下，流式请求可能在首个 chunk 前卡住。默认 45 秒未拿到 response headers 就明确报错，可用环境变量调到 5-300 秒。</td><td><code>NANOCODEX_STREAM_OPEN_TIMEOUT_S</code></td></tr>
+      <tr><td>流式 tool call 聚合</td><td>tool call 在 stream 里按 index 分片到达；nanocodex 聚合 id、name、arguments 后再交给 ToolRegistry，避免半截 JSON 直接执行。</td><td><code>chat_stream()</code></td></tr>
+      <tr><td>DeepSeek cache-aware usage</td><td>DeepSeek 的 <code>prompt_cache_hit_tokens</code> / <code>prompt_cache_miss_tokens</code> 可能在 SDK 的 <code>model_extra</code> 里；nanocodex 会读出来做命中/未命中分开计价。</td><td><code>_extract_usage()</code> + <code>pricing.py</code></td></tr>
+      <tr><td>托管 / 本地双模式</td><td>同一套工具协议可以接 DeepSeek 官方 API，也可以接本地 vLLM / llama-server / LM Studio / Qwen endpoint，用于比较模型 coding agent 能力。</td><td><code>base_url</code> + <code>model</code> 配置</td></tr>
     </tbody>
   </table>
 
-  <h2><span class="num">05</span>工程取舍</h2>
+  <h2><span class="num">05</span>工程取舍与边界</h2>
   <ul class="detail-list">
-    <li><b>核心循环小：</b>AgentLoop 只关心“模型、工具、结果、继续”，GUI、CLI、调度器都通过边界层装配，避免把展示逻辑塞进 agent 内核。</li>
-    <li><b>工具协议显式：</b>每个工具有 schema、参数校验和统一返回格式，模型不会直接碰文件系统或系统命令，必须通过工具层。</li>
-    <li><b>安全不吹大：</b>Windows 侧是策略级沙箱，不宣称内核隔离；MCP 明确运行在沙箱外，远程 marketplace catalog 按不可信数据处理。</li>
-    <li><b>上下文压缩可控：</b>默认 deterministic compaction，不额外花 token；需要更自然摘要时才 opt-in 模型 summarizer，避免长会话成本失控。</li>
-    <li><b>成本统计保守：</b>能拿到 cache hit / miss 就分别计费，拿不到就按未命中保守估算，宁可偏高，不给用户一个虚假的低成本。</li>
-    <li><b>测试优先：</b>provider、时间、文件、网络都可注入 mock，420 个测试离线跑通，保证 agent 行为可回归，而不是只靠手工试用。</li>
+    <li><b>核心循环小：</b>AgentLoop 只关心“模型、工具、结果、继续”，GUI、CLI、调度器都通过 hook 或边界层装配。</li>
+    <li><b>工具协议显式：</b>每个工具有 schema、参数校验和统一返回格式；模型不能绕过工具层直接写文件或跑命令。</li>
+    <li><b>DeepSeek 优先：</b>provider 命名为 DeepSeekProvider，但保持 OpenAI-compatible 形状，方便接本地模型和企业网关。</li>
+    <li><b>安全不吹大：</b>Windows 侧是策略级沙箱，不宣称内核隔离；MCP 子进程运行在沙箱外，只应启用可信服务。</li>
+    <li><b>上下文压缩可控：</b>默认 deterministic compaction，不额外花 token；需要自然摘要时才 opt-in 模型 summarizer。</li>
+    <li><b>成本统计保守：</b>能拿到 cache hit / miss 就分别计费，拿不到就按未命中估算，避免给出虚假的低成本。</li>
+    <li><b>测试优先：</b>provider、时间、文件、网络都可注入 mock，420 个测试离线跑通，保证行为可回归。</li>
+    <li><b>没有覆盖的能力：</b>尚未实现官方 Codex 的云端容器、GitHub PR review、完整 Computer Use、子代理编排和 OS 级强沙箱。</li>
   </ul>
 
   <div class="callout blue">
-    <b>一句话项目价值：</b>nanocodex 展示的是 AI Agent 工程化能力：不是让模型“说会写代码”，而是让模型在可审计、可恢复、可限权、可测量成本的环境里完成真实编码任务。
+    <b>一句话价值：</b>nanocodex 证明的是“DeepSeek 也可以接进一套 Codex-style coding agent 工具链”，而且这套链路有权限边界、会话恢复、上下文管理、成本统计和离线测试。
   </div>
 
   <h2><span class="num">06</span>模块地图</h2>
@@ -395,6 +414,12 @@
   <pre><span class="c"># 安装（含开发依赖）</span>
 python -m pip install -e <span class="s">".[dev]"</span>
 
+<span class="c"># DeepSeek 托管 API 配置示例：~/.nanocodex/config.toml</span>
+api_key = <span class="s">"sk-..."</span>
+base_url = <span class="s">"https://api.deepseek.com/v1"</span>
+model = <span class="s">"deepseek-chat"</span>
+reasoning_effort = <span class="s">"auto"</span>
+
 <span class="c"># CLI</span>
 nanocodex --cd .
 nanocodex <span class="s">"add a --json flag to the CLI"</span>
@@ -410,7 +435,7 @@ python -m pytest -q</pre>
   </div>
 
   <footer>
-    nanocodex · Codex 风格编码 Agent ·
+    nanocodex · Codex-style local coding agent for DeepSeek ·
     <a href="https://github.com/dgy-github/nanocodex" target="_blank" rel="noopener">github.com/dgy-github/nanocodex</a>
   </footer>
 
