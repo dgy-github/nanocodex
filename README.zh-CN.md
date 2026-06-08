@@ -2,6 +2,12 @@
 
 [English](README.md) | 简体中文
 
+## 项目展示页
+
+[打开在线项目展示页](https://dgy-github.github.io/nanocodex/nanocodex.html) · [查看仓库内 HTML](nanocodex.html)
+
+[![nanocodex GUI 预览：会话、工具调用、MCP、Skills、成本统计与测试状态](assets/nanocodex-ui-preview.svg)](https://dgy-github.github.io/nanocodex/nanocodex.html)
+
 `nanocodex` 是一个小而完整的 Codex 风格编码 agent。一个 chat-completions 模型
 提出工具调用，agent 在沙箱内执行文件/shell 工具，记录会话，并循环直到任务完成。
 它可以对接 DeepSeek 托管 API，也可以对接任意 OpenAI 兼容的本地模型，并自带

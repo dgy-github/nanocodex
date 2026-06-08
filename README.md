@@ -2,6 +2,12 @@
 
 English | [简体中文](README.zh-CN.md)
 
+## Visual Project Page
+
+[Open the live project page](https://dgy-github.github.io/nanocodex/nanocodex.html) · [View the HTML in this repo](nanocodex.html)
+
+[![nanocodex GUI preview: sessions, tool calls, MCP, skills, cost, and tests](assets/nanocodex-ui-preview.svg)](https://dgy-github.github.io/nanocodex/nanocodex.html)
+
 `nanocodex` is a compact but full-featured Codex-style coding agent. A
 chat-completions model proposes tool calls, the agent runs sandboxed
 file/shell tools, records the session, and loops until the task is done. It
