@@ -50,7 +50,7 @@
     background-clip: text;
     -webkit-text-fill-color: transparent;
   }
-  .hero p.tag { color: var(--muted); font-size: 19px; margin: 0 auto 28px; max-width: 640px; }
+  .hero p.tag { color: var(--muted); font-size: 19px; margin: 0 auto 28px; max-width: 760px; }
   .badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 26px; }
   .badge {
     background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
@@ -101,6 +101,70 @@
   h3 { font-size: 20px; margin: 30px 0 10px; color: #fff; }
   p { color: #c9d4df; }
   .lead { font-size: 18px; color: var(--fg); }
+
+  .intro {
+    background: linear-gradient(145deg, rgba(88,166,255,0.1), rgba(126,231,135,0.06));
+    border: 1px solid rgba(88,166,255,0.22);
+    border-radius: 16px;
+    padding: 24px;
+    margin-top: 8px;
+  }
+  .intro p { margin: 10px 0 0; }
+  .intro p:first-child { margin-top: 0; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 22px 0; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px;
+  }
+  .stat .value { font-family: var(--mono); color: var(--accent-2); font-size: 24px; font-weight: 700; }
+  .stat .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 18px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px;
+  }
+  .card h3 { margin-top: 0; font-size: 17px; }
+  .card p { margin-bottom: 0; color: var(--muted); font-size: 14px; }
+
+  .detail-list {
+    margin: 18px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .detail-list li {
+    position: relative;
+    padding: 10px 0 10px 22px;
+    border-bottom: 1px solid rgba(48,54,61,0.55);
+    color: #c9d4df;
+  }
+  .detail-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 21px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .detail-list li:last-child { border-bottom: 0; }
+
+  .flow-detail {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .flow-item {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .flow-item b { color: var(--accent); font-family: var(--mono); display: block; margin-bottom: 6px; }
+  .flow-item span { color: var(--muted); font-size: 13.5px; }
 
   /* design principles cards */
   .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 22px; }
@@ -154,6 +218,8 @@
     padding: 12px 18px; border-radius: 0 8px 8px 0; margin-top: 18px; font-size: 14.5px;
   }
   .callout b { color: var(--warn); }
+  .callout.blue { border-left-color: var(--accent); background: rgba(88,166,255,0.08); }
+  .callout.blue b { color: var(--accent); }
 
   footer {
     text-align: center; color: var(--muted); font-size: 13px;
@@ -166,7 +232,7 @@
 
 <header class="hero">
   <h1>nanocodex</h1>
-  <p class="tag">一个刻意保持精简的 Codex 风格编码 Agent —— 用最小的核心循环，跑通模型、工具、沙箱、记忆与可观测成本。</p>
+  <p class="tag">一个刻意保持精简、但链路完整的 Codex 风格编码 Agent。它不是聊天壳，而是把模型工具调用、文件修改、命令执行、沙箱审批、会话记忆、MCP 扩展、上下文压缩和成本统计串成一条可运行的本地工程链路。</p>
   <div class="badges">
     <span class="badge">DeepSeek / OpenAI 兼容</span>
     <span class="badge">MCP</span>
@@ -190,7 +256,36 @@
 
 <div class="wrap">
 
-  <h2><span class="num">01</span>设计思想</h2>
+  <h2><span class="num">01</span>项目定位</h2>
+  <div class="intro">
+    <p class="lead">nanocodex 的目标不是复刻一个庞大的商业 IDE Agent，而是把 coding agent 最关键的工程机制拆开、写清楚、测扎实。</p>
+    <p>模型负责理解任务、规划下一步和提出工具调用；程序负责把工具调用变成真实的文件读写、patch、shell、计划更新、记忆写入和 MCP 调用。所有越权动作都会先经过沙箱策略与审批状态机，所有会话都会落到本地 JSONL 和快照里，方便回放、恢复和排查。</p>
+    <p>它更像一个“可研究、可调试、可替换后端”的 agent harness：你可以接 DeepSeek 托管 API，也可以把 <code>base_url</code> 指到本地 vLLM、llama-server、LM Studio 或其它 OpenAI 兼容服务，用同一套工具协议验证模型的 coding 能力。</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="value">420</div><div class="label">离线自动化测试，无真实 API / 网络依赖</div></div>
+    <div class="stat"><div class="value">8+</div><div class="label">内置工具，另可通过 MCP 动态扩展</div></div>
+    <div class="stat"><div class="value">3 x 4</div><div class="label">沙箱模式 x 审批策略的动作闸门</div></div>
+    <div class="stat"><div class="value">JSONL</div><div class="label">会话、快照、记忆均可读可迁移</div></div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h3>它解决什么问题</h3>
+      <p>把“模型会写代码”推进到“模型能在受控环境里持续读文件、改代码、跑命令、看结果、再修正”，并且每一步都能审计。</p>
+    </div>
+    <div class="card">
+      <h3>它为什么适合本地模型</h3>
+      <p>后端只要求 OpenAI 兼容 <code>/v1/chat/completions</code>，所以可以在同一套 agent 工具链下比较 DeepSeek、Qwen、本地量化模型或企业内网模型。</p>
+    </div>
+    <div class="card">
+      <h3>它为什么适合讲工程能力</h3>
+      <p>重点不在“套 API”，而在工具协议、权限边界、状态持久化、上下文压缩、成本统计、失败可恢复和可测试性。</p>
+    </div>
+  </div>
+
+  <h2><span class="num">02</span>设计思想</h2>
   <p class="lead">nanocodex 不是要做「功能最全的 Agent」，而是用最少的概念把一个编码 Agent 的关键链路跑通、且每一步都可解释、可测试、可信任。整套代码贯穿四条原则。</p>
 
   <div class="principles">
@@ -212,7 +307,7 @@
     </div>
   </div>
 
-  <h2><span class="num">02</span>核心：一个回合的循环</h2>
+  <h2><span class="num">03</span>核心：一个回合的循环</h2>
   <p><code>AgentLoop.run_turn()</code> 驱动单个用户回合直到完成。一个回合内可能发生多轮模型调用（每次工具使用算一轮），token 用量逐轮累计、折算成本。</p>
 
   <div class="loop">
@@ -237,7 +332,16 @@
     tools_used: list[str]
     usage: dict[str, int]    <span class="c"># 真实 token 累计 → 折算成本</span></pre>
 
-  <h2><span class="num">03</span>核心能力</h2>
+  <div class="flow-detail">
+    <div class="flow-item"><b>1. 组装上下文</b><span>读取 system prompt、AGENTS.md、记忆、可用 skills、MCP 工具 schema 和会话历史。</span></div>
+    <div class="flow-item"><b>2. 调用模型</b><span>走 DeepSeek / OpenAI 兼容 provider，支持流式输出、tool_calls 和 token usage。</span></div>
+    <div class="flow-item"><b>3. 工具派发</b><span>ToolRegistry 按名称路由到 shell、apply_patch、read_file、remember 或 MCP 工具。</span></div>
+    <div class="flow-item"><b>4. 权限判断</b><span>沙箱策略判断可读、可写、可联网，审批策略决定 ASK / AUTO_DENY / AUTO_APPROVE。</span></div>
+    <div class="flow-item"><b>5. 结果回填</b><span>工具结果以 tool message 回到模型上下文，模型继续决定下一步。</span></div>
+    <div class="flow-item"><b>6. 持久化</b><span>最终答案、工具轨迹、token 用量和会话快照写入本地，GUI 可回放。</span></div>
+  </div>
+
+  <h2><span class="num">04</span>核心能力</h2>
   <table>
     <thead><tr><th>能力</th><th>做法</th></tr></thead>
     <tbody>
@@ -255,7 +359,21 @@
     </tbody>
   </table>
 
-  <h2><span class="num">04</span>模块地图</h2>
+  <h2><span class="num">05</span>工程取舍</h2>
+  <ul class="detail-list">
+    <li><b>核心循环小：</b>AgentLoop 只关心“模型、工具、结果、继续”，GUI、CLI、调度器都通过边界层装配，避免把展示逻辑塞进 agent 内核。</li>
+    <li><b>工具协议显式：</b>每个工具有 schema、参数校验和统一返回格式，模型不会直接碰文件系统或系统命令，必须通过工具层。</li>
+    <li><b>安全不吹大：</b>Windows 侧是策略级沙箱，不宣称内核隔离；MCP 明确运行在沙箱外，远程 marketplace catalog 按不可信数据处理。</li>
+    <li><b>上下文压缩可控：</b>默认 deterministic compaction，不额外花 token；需要更自然摘要时才 opt-in 模型 summarizer，避免长会话成本失控。</li>
+    <li><b>成本统计保守：</b>能拿到 cache hit / miss 就分别计费，拿不到就按未命中保守估算，宁可偏高，不给用户一个虚假的低成本。</li>
+    <li><b>测试优先：</b>provider、时间、文件、网络都可注入 mock，420 个测试离线跑通，保证 agent 行为可回归，而不是只靠手工试用。</li>
+  </ul>
+
+  <div class="callout blue">
+    <b>一句话项目价值：</b>nanocodex 展示的是 AI Agent 工程化能力：不是让模型“说会写代码”，而是让模型在可审计、可恢复、可限权、可测量成本的环境里完成真实编码任务。
+  </div>
+
+  <h2><span class="num">06</span>模块地图</h2>
   <div class="modules">
     <div class="mod"><span class="path">agent/loop.py</span><div class="desc">回合循环，模型↔工具的推进引擎。</div></div>
     <div class="mod"><span class="path">provider/deepseek.py</span><div class="desc">OpenAI 兼容后端 + 流式 + 用量提取。</div></div>
@@ -273,7 +391,23 @@
     <div class="mod"><span class="path">cli.py</span><div class="desc">命令行入口与 loop 装配。</div></div>
   </div>
 
-  <h2><span class="num">05</span>快速开始</h2>
+  <h2><span class="num">07</span>适合怎么展示</h2>
+  <div class="cards">
+    <div class="card">
+      <h3>面试里可以讲</h3>
+      <p>“我不是只调 LLM API，而是做了一套 coding agent harness：模型负责决策，工具层负责执行，沙箱和审批负责边界，JSONL 负责可恢复，会话压缩和成本统计负责长任务可持续。”</p>
+    </div>
+    <div class="card">
+      <h3>Demo 可以演示</h3>
+      <p>给一个小需求，让 agent 读文件、改代码、跑测试、失败后修正，再展示 session history、工具轨迹和成本统计。</p>
+    </div>
+    <div class="card">
+      <h3>继续迭代方向</h3>
+      <p>更完整的 tool repair loop、多模型路由、computer-use MCP、真实 GUI 截图、以及与本地 Qwen 27B 的稳定端到端评测。</p>
+    </div>
+  </div>
+
+  <h2><span class="num">08</span>快速开始</h2>
   <pre><span class="c"># 安装（含开发依赖）</span>
 python -m pip install -e <span class="s">".[dev]"</span>
 
