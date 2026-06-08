@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">nanocodex UI preview</title>
+  <desc id="desc">A stylized screenshot of the nanocodex desktop coding agent with sessions, chat, tool calls, MCP, skills, and test status.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="0.52" stop-color="#101827"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#58a6ff"/>
+      <stop offset="1" stop-color="#7ee787"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#020817" flood-opacity="0.55"/>
+    </filter>
+    <style>
+      .mono { font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace; }
+      .sans { font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif; }
+      .muted { fill: #8b949e; }
+      .fg { fill: #e6edf3; }
+      .blue { fill: #58a6ff; }
+      .green { fill: #7ee787; }
+      .orange { fill: #f0883e; }
+      .line { stroke: #30363d; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="760" fill="url(#bg)"/>
+  <circle cx="1080" cy="80" r="230" fill="#1f6feb" opacity="0.12"/>
+  <circle cx="180" cy="660" r="280" fill="#238636" opacity="0.12"/>
+
+  <g filter="url(#shadow)">
+    <rect x="64" y="54" width="1152" height="652" rx="24" fill="#161b22" stroke="#30363d"/>
+    <rect x="64" y="54" width="1152" height="54" rx="24" fill="#0d1117"/>
+    <path d="M64 84 Q64 54 94 54 H1186 Q1216 54 1216 84 V108 H64 Z" fill="#0d1117"/>
+    <circle cx="96" cy="82" r="7" fill="#ff5f57"/>
+    <circle cx="120" cy="82" r="7" fill="#febc2e"/>
+    <circle cx="144" cy="82" r="7" fill="#28c840"/>
+    <text x="180" y="88" class="mono fg" font-size="15">nanocodex-gui --cd D:\agent_prac\nanocodex</text>
+    <rect x="1066" y="68" width="150" height="28" rx="14" fill="#0f172a" stroke="#30363d"/>
+    <text x="1082" y="87" class="mono muted" font-size="12">model: deepseek</text>
+
+    <rect x="64" y="108" width="250" height="598" fill="#0f172a"/>
+    <line x1="314" y1="108" x2="314" y2="706" class="line"/>
+    <text x="90" y="148" class="sans fg" font-size="18" font-weight="700">Sessions</text>
+    <rect x="88" y="168" width="206" height="36" rx="10" fill="#1c2230" stroke="#30363d"/>
+    <text x="106" y="191" class="mono blue" font-size="13">+ New session</text>
+
+    <g class="sans" font-size="13">
+      <rect x="88" y="226" width="206" height="66" rx="12" fill="#1f6feb" opacity="0.18" stroke="#58a6ff"/>
+      <text x="106" y="250" class="fg" font-weight="700">A/B worktree compare</text>
+      <text x="106" y="272" class="muted">2 configs · same prompt</text>
+      <rect x="88" y="308" width="206" height="58" rx="12" fill="#161b22" stroke="#30363d"/>
+      <text x="106" y="332" class="fg">Fix provider timeout</text>
+      <text x="106" y="352" class="muted">stream open timeout</text>
+      <rect x="88" y="382" width="206" height="58" rx="12" fill="#161b22" stroke="#30363d"/>
+      <text x="106" y="406" class="fg">Write tests</text>
+      <text x="106" y="426" class="muted">420 offline checks</text>
+    </g>
+
+    <rect x="314" y="108" width="902" height="598" fill="#0d1117"/>
+    <rect x="340" y="132" width="850" height="58" rx="16" fill="#161b22" stroke="#30363d"/>
+    <text x="364" y="157" class="sans fg" font-size="16" font-weight="700">Codex-style coding agent</text>
+    <text x="364" y="178" class="mono muted" font-size="12">DeepSeek / OpenAI-compatible · MCP · Skills · sandbox approval · compact</text>
+    <g class="mono" font-size="12">
+      <rect x="1010" y="145" width="72" height="24" rx="12" fill="#10223a" stroke="#1f6feb"/>
+      <text x="1024" y="162" class="blue">MCP on</text>
+      <rect x="1092" y="145" width="90" height="24" rx="12" fill="#12301e" stroke="#238636"/>
+      <text x="1108" y="162" class="green">420 passed</text>
+    </g>
+
+    <g class="sans">
+      <rect x="340" y="222" width="620" height="98" rx="16" fill="#161b22" stroke="#30363d"/>
+      <text x="364" y="252" class="fg" font-size="15" font-weight="700">User</text>
+      <text x="364" y="278" class="fg" font-size="15">帮我给 provider 增加本地 Qwen 27B 的 OpenAI-compatible 配置说明。</text>
+      <rect x="340" y="342" width="760" height="128" rx="16" fill="#101827" stroke="#30363d"/>
+      <text x="364" y="372" class="blue" font-size="15" font-weight="700">nanocodex</text>
+      <text x="364" y="398" class="fg" font-size="15">我会先读 README 和 config.py，然后用 apply_patch 写配置样例，最后跑测试。</text>
+      <text x="364" y="428" class="mono muted" font-size="13">tools: update_plan → read_file → apply_patch → shell</text>
+      <rect x="364" y="442" width="124" height="24" rx="12" fill="#10223a" stroke="#1f6feb"/>
+      <text x="382" y="459" class="mono blue" font-size="12">approval: ask</text>
+    </g>
+
+    <g>
+      <rect x="340" y="494" width="760" height="156" rx="16" fill="#070b11" stroke="#30363d"/>
+      <text x="364" y="526" class="mono green" font-size="14">$ python -m pytest -q</text>
+      <text x="364" y="558" class="mono fg" font-size="14">........................................................................ [ 17%]</text>
+      <text x="364" y="584" class="mono fg" font-size="14">........................................................................ [ 85%]</text>
+      <text x="364" y="610" class="mono green" font-size="14">420 passed in 6.68s</text>
+      <text x="364" y="634" class="mono muted" font-size="12">No real API key · no network · mocked providers</text>
+    </g>
+
+    <g class="sans">
+      <rect x="982" y="222" width="208" height="198" rx="16" fill="#161b22" stroke="#30363d"/>
+      <text x="1004" y="252" class="fg" font-size="15" font-weight="700">Live context</text>
+      <text x="1004" y="282" class="muted" font-size="13">tokens used</text>
+      <rect x="1004" y="296" width="148" height="8" rx="4" fill="#30363d"/>
+      <rect x="1004" y="296" width="82" height="8" rx="4" fill="url(#accent)"/>
+      <text x="1004" y="330" class="muted" font-size="13">cost estimate</text>
+      <text x="1004" y="355" class="mono green" font-size="18">$0.0041</text>
+      <text x="1004" y="390" class="mono muted" font-size="12">cache-aware pricing</text>
+
+      <rect x="982" y="444" width="208" height="206" rx="16" fill="#161b22" stroke="#30363d"/>
+      <text x="1004" y="474" class="fg" font-size="15" font-weight="700">Installed skills</text>
+      <text x="1004" y="506" class="mono blue" font-size="13">code-review</text>
+      <text x="1004" y="532" class="mono blue" font-size="13">debug</text>
+      <text x="1004" y="558" class="mono blue" font-size="13">write-tests</text>
+      <line x1="1004" y1="582" x2="1164" y2="582" class="line"/>
+      <text x="1004" y="612" class="mono green" font-size="13">mcp__fetch__url</text>
+    </g>
+  </g>
+</svg>

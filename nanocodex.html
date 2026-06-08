@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nanocodex · 设计思想与核心</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #2d333b;
+    --fg: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --accent-2: #7ee787;
+    --warn: #f0883e;
+    --code-bg: #0a0e14;
+    --mono: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.7;
+    font-size: 16px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: var(--mono); }
+
+  /* layout */
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px 96px; }
+  header.hero {
+    background: radial-gradient(1200px 400px at 50% -120px, #1b3a5c 0%, var(--bg) 60%);
+    border-bottom: 1px solid var(--border);
+    padding: 72px 24px 56px;
+    text-align: center;
+  }
+  .hero h1 {
+    font-size: 56px;
+    margin: 0 0 8px;
+    font-family: var(--mono);
+    letter-spacing: -1px;
+    background: linear-gradient(90deg, #58a6ff, #7ee787);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero p.tag { color: var(--muted); font-size: 19px; margin: 0 auto 28px; max-width: 640px; }
+  .badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 26px; }
+  .badge {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 14px; font-size: 13px; color: var(--muted); font-family: var(--mono);
+  }
+  .cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent); color: #04101f; font-weight: 600;
+    padding: 11px 22px; border-radius: 8px; font-size: 15px;
+  }
+  .cta:hover { text-decoration: none; filter: brightness(1.08); }
+  .cta .gh { font-family: var(--mono); }
+
+  .screenshot {
+    margin: -28px auto 44px;
+    max-width: 1040px;
+    padding: 0 24px;
+  }
+  .screenshot .frame {
+    background:
+      linear-gradient(145deg, rgba(88,166,255,0.18), rgba(126,231,135,0.1)),
+      var(--panel);
+    border: 1px solid rgba(88,166,255,0.28);
+    border-radius: 18px;
+    padding: 10px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.34);
+  }
+  .screenshot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: #0d1117;
+  }
+  .screenshot figcaption {
+    margin-top: 12px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  h2 {
+    font-size: 28px; margin: 56px 0 18px; padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  h2 .num { color: var(--accent); font-family: var(--mono); margin-right: 10px; font-size: 22px; }
+  h3 { font-size: 20px; margin: 30px 0 10px; color: #fff; }
+  p { color: #c9d4df; }
+  .lead { font-size: 18px; color: var(--fg); }
+
+  /* design principles cards */
+  .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 22px; }
+  .pcard {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px;
+  }
+  .pcard h3 { margin: 0 0 8px; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+  .pcard h3 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-2); flex: none; }
+  .pcard p { margin: 0; font-size: 14px; color: var(--muted); }
+
+  /* loop diagram */
+  .loop {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    flex-wrap: wrap; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 26px 18px; margin-top: 20px; font-family: var(--mono);
+  }
+  .loop .step {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 16px; font-size: 14px; color: var(--fg);
+  }
+  .loop .arrow { color: var(--accent); font-size: 20px; }
+  .loop .step.done { border-color: var(--accent-2); color: var(--accent-2); }
+
+  /* feature table */
+  table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 14.5px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--accent); font-weight: 600; background: var(--panel); }
+  td code { background: var(--code-bg); padding: 2px 6px; border-radius: 5px; color: var(--accent-2); font-size: 13px; }
+  tr:hover td { background: var(--panel); }
+
+  /* module grid */
+  .modules { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 20px; }
+  .mod {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px;
+  }
+  .mod .path { font-family: var(--mono); font-size: 13px; color: var(--accent); word-break: break-all; }
+  .mod .desc { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
+
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font-family: var(--mono); font-size: 13.5px;
+    color: #c9d4df; line-height: 1.55;
+  }
+  pre .c { color: var(--muted); }
+  pre .k { color: #ff7b72; }
+  pre .s { color: var(--accent-2); }
+
+  .callout {
+    border-left: 3px solid var(--warn); background: rgba(240,136,62,0.08);
+    padding: 12px 18px; border-radius: 0 8px 8px 0; margin-top: 18px; font-size: 14.5px;
+  }
+  .callout b { color: var(--warn); }
+
+  footer {
+    text-align: center; color: var(--muted); font-size: 13px;
+    margin-top: 72px; padding-top: 24px; border-top: 1px solid var(--border);
+  }
+  footer a { font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>nanocodex</h1>
+  <p class="tag">一个刻意保持精简的 Codex 风格编码 Agent —— 用最小的核心循环，跑通模型、工具、沙箱、记忆与可观测成本。</p>
+  <div class="badges">
+    <span class="badge">DeepSeek / OpenAI 兼容</span>
+    <span class="badge">MCP</span>
+    <span class="badge">Skills</span>
+    <span class="badge">沙箱审批</span>
+    <span class="badge">~10.8k 行</span>
+    <span class="badge">420 离线测试</span>
+  </div>
+  <a class="cta" href="https://github.com/dgy-github/nanocodex" target="_blank" rel="noopener">
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="#04101f" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+    github.com/dgy-github/nanocodex
+  </a>
+</header>
+
+<figure class="screenshot">
+  <div class="frame">
+    <img src="assets/nanocodex-ui-preview.svg" alt="nanocodex GUI 截图预览：会话列表、模型工具调用、MCP、skills、成本统计与测试结果">
+  </div>
+  <figcaption>界面截图预览：GUI 会话、工具调用、MCP / Skills、成本统计与 420 项离线测试状态。</figcaption>
+</figure>
+
+<div class="wrap">
+
+  <h2><span class="num">01</span>设计思想</h2>
+  <p class="lead">nanocodex 不是要做「功能最全的 Agent」，而是用最少的概念把一个编码 Agent 的关键链路跑通、且每一步都可解释、可测试、可信任。整套代码贯穿四条原则。</p>
+
+  <div class="principles">
+    <div class="pcard">
+      <h3><span class="dot"></span>核心循环刻意精简</h3>
+      <p>一个回合就是「调用模型 → 执行工具 → 把结果喂回 → 继续」直到任务完成。Agent 不知道控制台、不知道 GUI，渲染靠 hook 注入，循环本身只关心推进任务。</p>
+    </div>
+    <div class="pcard">
+      <h3><span class="dot"></span>纯函数 + 可注入 I/O</h3>
+      <p>schedule、memory、skills、compaction、pricing、marketplace 的核心逻辑都是对数据的纯函数，时间、网络、文件都从外部注入。结果是整套 420 个测试全离线、不碰真实 API 与网络。</p>
+    </div>
+    <div class="pcard">
+      <h3><span class="dot"></span>对局限性诚实</h3>
+      <p>价格表是硬编码快照、带 as-of 日期，未知模型返回「成本未知」而不是错数；Windows 沙箱明说是策略级、非内核隔离；视觉模型支持标注为未验证。不假装能力。</p>
+    </div>
+    <div class="pcard">
+      <h3><span class="dot"></span>无隐藏状态</h3>
+      <p>会话是可读的 JSONL、记忆是用户自己的 markdown 文件、定时任务是一份 JSON。没有黑盒数据库，用户能直接看到、编辑、删除 Agent 依赖的一切。</p>
+    </div>
+  </div>
+
+  <h2><span class="num">02</span>核心：一个回合的循环</h2>
+  <p><code>AgentLoop.run_turn()</code> 驱动单个用户回合直到完成。一个回合内可能发生多轮模型调用（每次工具使用算一轮），token 用量逐轮累计、折算成本。</p>
+
+  <div class="loop">
+    <span class="step">用户输入</span>
+    <span class="arrow">→</span>
+    <span class="step">调用模型</span>
+    <span class="arrow">→</span>
+    <span class="step">解析工具调用</span>
+    <span class="arrow">→</span>
+    <span class="step">沙箱/审批闸门</span>
+    <span class="arrow">→</span>
+    <span class="step">执行工具</span>
+    <span class="arrow">↺</span>
+    <span class="step done">回合完成</span>
+  </div>
+
+  <pre><span class="c"># agent/loop.py — 回合产物</span>
+<span class="k">class</span> TurnResult:
+    final_text: str
+    iterations: int          <span class="c"># 本回合循环了几轮</span>
+    stop_reason: str
+    tools_used: list[str]
+    usage: dict[str, int]    <span class="c"># 真实 token 累计 → 折算成本</span></pre>
+
+  <h2><span class="num">03</span>核心能力</h2>
+  <table>
+    <thead><tr><th>能力</th><th>做法</th></tr></thead>
+    <tbody>
+      <tr><td>模型后端</td><td>DeepSeek / 任意 OpenAI 兼容 <code>/v1/chat/completions</code>，支持流式；改 <code>base_url</code> 即可指向本地模型（vLLM / llama-server / LM Studio）。</td></tr>
+      <tr><td>工具集</td><td><code>shell</code> · <code>apply_patch</code> · <code>update_plan</code> · <code>read_file</code> · <code>web_search</code> · <code>manage_schedule</code> · <code>manage_skills</code> · <code>remember</code>，统一经 ToolRegistry 派发。</td></tr>
+      <tr><td>沙箱策略</td><td>三种模式 <code>read-only</code> / <code>workspace-write</code> / <code>danger-full-access</code>，决定可写根目录与网络；策略与执行分离。</td></tr>
+      <tr><td>审批状态机</td><td>四档 <code>untrusted</code> / <code>on-failure</code> / <code>on-request</code> / <code>never</code>，越权操作（含联网搜索）走 ASK / AUTO_DENY / AUTO_APPROVE。</td></tr>
+      <tr><td>上下文压缩</td><td>deterministic（零成本规则摘要，默认）或 summarizer（消耗 token，opt-in）；保留 system + 近期尾部，且尾部必须从 user 消息开始。</td></tr>
+      <tr><td>自适应推理档</td><td>按用户输入选 max / low / high；关键词表覆盖中日英（"报错""调试""デバッグ" 都能命中）。</td></tr>
+      <tr><td>成本统计</td><td>cache-aware：命中 token 比未命中便宜约 120×，有拆分时分别计费，无拆分时按未命中保守计，从不低估。</td></tr>
+      <tr><td>会话历史</td><td>JSONL 持久化；按 session_id 存全量快照，可在 GUI 左栏点选回放真实对话；支持 <code>--resume</code>。</td></tr>
+      <tr><td>记忆 / AGENTS.md / Skills</td><td>memory 记「谁/什么」（用户偏好），skills 记「怎么做」，AGENTS.md 是项目级指令；skills 只注入名称+描述，正文按需读取。</td></tr>
+      <tr><td>MCP + 市场</td><td>来自 <code>~/.nanocodex/mcp.toml</code>，以 <code>mcp__&lt;server&gt;__&lt;tool&gt;</code> 暴露；运行在沙箱外，内置 catalog + 远程 catalog（按不可信数据处理）。</td></tr>
+      <tr><td>GUI 特性</td><td>prompt 增强（✨）、<code>#</code> 快速记忆、定时任务、A/B worktree 对比（两套配置同 prompt 各跑一遍，对比 diff/成本/延迟，采纳其一）。</td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">04</span>模块地图</h2>
+  <div class="modules">
+    <div class="mod"><span class="path">agent/loop.py</span><div class="desc">回合循环，模型↔工具的推进引擎。</div></div>
+    <div class="mod"><span class="path">provider/deepseek.py</span><div class="desc">OpenAI 兼容后端 + 流式 + 用量提取。</div></div>
+    <div class="mod"><span class="path">tools/</span><div class="desc">8 个内置工具 + 注册派发。</div></div>
+    <div class="mod"><span class="path">sandbox/</span><div class="desc">策略 + 审批 + 执行三分离。</div></div>
+    <div class="mod"><span class="path">agent/compaction.py</span><div class="desc">上下文压缩，零成本/摘要双策略。</div></div>
+    <div class="mod"><span class="path">agent/auto_reasoning.py</span><div class="desc">自适应推理档（中日英关键词）。</div></div>
+    <div class="mod"><span class="path">agent/pricing.py</span><div class="desc">cache-aware 成本折算。</div></div>
+    <div class="mod"><span class="path">agent/session_index.py</span><div class="desc">会话索引 + 快照回放。</div></div>
+    <div class="mod"><span class="path">agent/memory_store.py</span><div class="desc">跨会话用户记忆。</div></div>
+    <div class="mod"><span class="path">agent/skills_store.py</span><div class="desc">用户 + 内置双根 skill 发现。</div></div>
+    <div class="mod"><span class="path">tools/mcp.py</span><div class="desc">MCP 桥接，沙箱外子进程。</div></div>
+    <div class="mod"><span class="path">agent/ab_compare.py</span><div class="desc">A/B worktree 隔离对比。</div></div>
+    <div class="mod"><span class="path">gui.py</span><div class="desc">Windows Tkinter GUI（~3972 行）。</div></div>
+    <div class="mod"><span class="path">cli.py</span><div class="desc">命令行入口与 loop 装配。</div></div>
+  </div>
+
+  <h2><span class="num">05</span>快速开始</h2>
+  <pre><span class="c"># 安装（含开发依赖）</span>
+python -m pip install -e <span class="s">".[dev]"</span>
+
+<span class="c"># CLI</span>
+nanocodex --cd .
+nanocodex <span class="s">"add a --json flag to the CLI"</span>
+
+<span class="c"># GUI</span>
+nanocodex-gui --cd .
+
+<span class="c"># 全套离线测试（无需真实 key / 网络）</span>
+python -m pytest -q</pre>
+
+  <div class="callout">
+    <b>安全：</b>真实 API key 永远留在仓库外（环境变量或 <code>~/.nanocodex/config.toml</code>）。Windows 沙箱是策略级而非内核隔离；MCP 工具在沙箱外执行子进程，只启用你信任的服务。
+  </div>
+
+  <footer>
+    nanocodex · Codex 风格编码 Agent ·
+    <a href="https://github.com/dgy-github/nanocodex" target="_blank" rel="noopener">github.com/dgy-github/nanocodex</a>
+  </footer>
+
+</div>
+</body>
+</html>
