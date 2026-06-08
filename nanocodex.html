@@ -391,23 +391,7 @@
     <div class="mod"><span class="path">cli.py</span><div class="desc">命令行入口与 loop 装配。</div></div>
   </div>
 
-  <h2><span class="num">07</span>适合怎么展示</h2>
-  <div class="cards">
-    <div class="card">
-      <h3>面试里可以讲</h3>
-      <p>“我不是只调 LLM API，而是做了一套 coding agent harness：模型负责决策，工具层负责执行，沙箱和审批负责边界，JSONL 负责可恢复，会话压缩和成本统计负责长任务可持续。”</p>
-    </div>
-    <div class="card">
-      <h3>Demo 可以演示</h3>
-      <p>给一个小需求，让 agent 读文件、改代码、跑测试、失败后修正，再展示 session history、工具轨迹和成本统计。</p>
-    </div>
-    <div class="card">
-      <h3>继续迭代方向</h3>
-      <p>更完整的 tool repair loop、多模型路由、computer-use MCP、真实 GUI 截图、以及与本地 Qwen 27B 的稳定端到端评测。</p>
-    </div>
-  </div>
-
-  <h2><span class="num">08</span>快速开始</h2>
+  <h2><span class="num">07</span>快速开始</h2>
   <pre><span class="c"># 安装（含开发依赖）</span>
 python -m pip install -e <span class="s">".[dev]"</span>
 
