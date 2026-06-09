@@ -59,6 +59,7 @@ class AgentLoop:
         max_iterations: int = 60,
         reasoning_effort: str | None = None,
         compaction: "CompactionConfig | None" = None,
+        vision_provider: Provider | None = None,
     ) -> None:
         self.provider = provider
         self.tools = tools
@@ -66,10 +67,28 @@ class AgentLoop:
         self.max_iterations = max_iterations
         self.reasoning_effort = reasoning_effort
         self.compaction = compaction or CompactionConfig()
+        # Optional vision backend. When set AND a turn carries an image, that
+        # turn's model calls route here instead of `provider` (text/coding stays
+        # on the main model; only image-bearing turns hit the VL model). The
+        # routing flag is set per-turn in run_turn and read in _call_model.
+        self.vision_provider = vision_provider
+        self._use_vision_this_turn = False
+
+    def _active_provider(self) -> Provider:
+        """The provider for THIS turn: the vision backend when routing, else main.
+
+        Set per-turn in run_turn (`_use_vision_this_turn`) so only image-bearing
+        turns hit the VL model; text/coding turns keep using the main provider.
+        """
+        if self._use_vision_this_turn and self.vision_provider is not None:
+            return self.vision_provider
+        return self.provider
 
     def _streaming_active(self, hooks: LoopHooks) -> bool:
-        """True when the caller wants streaming and the provider can do it."""
-        return hooks.wants_streaming and getattr(self.provider, "supports_streaming", False)
+        """True when the caller wants streaming and the active provider can do it."""
+        return hooks.wants_streaming and getattr(
+            self._active_provider(), "supports_streaming", False
+        )
 
     async def _prepared_messages(self) -> list[dict[str, Any]]:
         """Session messages, compacted to the token budget when configured."""
@@ -85,8 +104,9 @@ class AgentLoop:
         # message (DeepSeek-TUI #663). An explicit tier or None passes through
         # unchanged, so a user who pins a tier keeps it.
         effort = resolve_effort(self.reasoning_effort, messages)
+        provider = self._active_provider()
         if self._streaming_active(hooks):
-            response = await self.provider.chat_stream(
+            response = await provider.chat_stream(
                 messages,
                 tools=schemas,
                 reasoning_effort=effort,
@@ -96,7 +116,7 @@ class AgentLoop:
             if hooks.on_stream_end is not None:
                 await hooks.on_stream_end()
             return response
-        return await self.provider.chat(
+        return await provider.chat(
             messages,
             tools=schemas,
             reasoning_effort=effort,
@@ -137,6 +157,12 @@ class AgentLoop:
         cancel_check: "Callable[[], bool] | None" = None,
     ) -> TurnResult:
         hooks = hooks or LoopHooks()
+        # Route THIS turn to the vision backend only when the input carries an
+        # image block AND a vision provider is configured. Text/coding turns —
+        # and image turns with no VL configured — stay on the main provider.
+        self._use_vision_this_turn = (
+            self.vision_provider is not None and _has_image_block(user_input)
+        )
         self.session.add_user(user_input)
         tools_used: list[str] = []
         schemas = self.tools.schemas()
@@ -234,6 +260,21 @@ class AgentLoop:
         )
         self.session.add_assistant(text)
         return TurnResult(text, self.max_iterations, "max_iterations", tools_used, turn_usage)
+
+
+def _has_image_block(user_input: "str | list[dict[str, Any]]") -> bool:
+    """True when the user content carries at least one image_url block.
+
+    A plain string is text-only. A multimodal content list (built by
+    images.build_user_content) carries image_url blocks; that's the signal to
+    route this turn to the vision backend.
+    """
+    if not isinstance(user_input, list):
+        return False
+    for block in user_input:
+        if isinstance(block, dict) and block.get("type") == "image_url":
+            return True
+    return False
 
 
 def _dump_args(arguments: dict[str, Any]) -> str:

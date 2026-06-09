@@ -1440,6 +1440,9 @@ class NanocodexGUI:
         cur_sandbox = info.get("sandbox_mode", "workspace-write")
         cur_approval = info.get("approval_policy", "on-request")
         cur_reasoning = info.get("reasoning_effort", "auto")
+        cur_vl_base = info.get("vl_base_url", "")
+        cur_vl_masked = info.get("vl_api_key", "(unset)")
+        cur_vl_model = info.get("vl_model", "")
 
         form = tk.Frame(parent, bg=P["bg"])
         form.pack(side=tk.TOP, fill=tk.X, padx=18)
@@ -1490,6 +1493,24 @@ class NanocodexGUI:
         _label("approval"); approval_var = _option(VALID_APPROVAL_POLICIES, cur_approval); row[0] += 1
         _label("reasoning"); reasoning_var = _option(_REASONING_CHOICES, cur_reasoning); row[0] += 1
 
+        # Vision (VL) backend: image-bearing turns route here (e.g. DashScope
+        # Qwen-VL) while text/coding stays on the main model. Leave VL model
+        # blank to disable routing. base URL / key fall back to the main ones
+        # when only the VL model is set (same vendor).
+        tk.Label(form, text="— Vision (VL) backend for image turns —",
+                 anchor="w", bg=P["bg"], fg=P["muted"],
+                 font=("Segoe UI", 9, "italic")).grid(
+                     row=row[0], column=0, columnspan=2, sticky="w", pady=(12, 2))
+        row[0] += 1
+        _label("VL current key")
+        tk.Label(form, text=cur_vl_masked, anchor="w", bg=P["bg"], fg=P["fg"],
+                 font=("Cascadia Code", 10)).grid(row=row[0], column=1,
+                                                  sticky="w", pady=3)
+        row[0] += 1
+        _label("VL new key"); vl_key_e = _entry(show="*"); row[0] += 1
+        _label("VL base URL"); vl_base_e = _entry(prefill=cur_vl_base); row[0] += 1
+        _label("VL model"); vl_model_e = _entry(prefill=cur_vl_model); row[0] += 1
+
         status = tk.Label(form, text="", anchor="w", bg=P["bg"], fg=P["err"],
                           font=("Segoe UI", 9), wraplength=480, justify="left")
         status.grid(row=row[0] + 1, column=0, columnspan=2, sticky="we",
@@ -1510,6 +1531,9 @@ class NanocodexGUI:
                 sandbox_mode=sandbox_var.get().strip(),
                 approval_policy=approval_var.get().strip(),
                 reasoning_effort=reasoning_var.get().strip(),
+                vl_base_url=vl_base_e.get().strip(),
+                vl_api_key=vl_key_e.get().strip(),
+                vl_model=vl_model_e.get().strip(),
             )
             if not updates:
                 status.config(text="Nothing to save.", fg=P["muted"])
@@ -3928,11 +3952,12 @@ def _format_schedule_recurrence(
 def _collect_settings_updates(
     *, api_key: str, base_url: str, model: str,
     sandbox_mode: str, approval_policy: str, reasoning_effort: str,
+    vl_base_url: str = "", vl_api_key: str = "", vl_model: str = "",
 ) -> dict[str, str]:
     """Build the updates dict for write_nanocodex_config from raw field values.
 
     Pure (no Tk) so it unit-tests cleanly. Rules:
-      * A blank new API key is OMITTED — an empty submit means "keep the
+      * A blank new API key / VL key is OMITTED — an empty submit means "keep the
         existing key", never "set it to ''" (which would wipe it).
       * Every other field is included only when non-empty, so unchanged blanks
         don't overwrite saved values.
@@ -3951,6 +3976,13 @@ def _collect_settings_updates(
         updates["approval_policy"] = approval_policy
     if reasoning_effort:
         updates["reasoning_effort"] = reasoning_effort
+    # Vision backend (image-bearing turns route here). Same blank-key rule.
+    if vl_base_url:
+        updates["vl_base_url"] = vl_base_url
+    if vl_api_key:
+        updates["vl_api_key"] = vl_api_key
+    if vl_model:
+        updates["vl_model"] = vl_model
     return updates
 
 

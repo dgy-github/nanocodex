@@ -182,6 +182,18 @@ def _build_loop(
     provider = DeepSeekProvider(
         api_key=cfg.api_key, base_url=cfg.base_url, model=cfg.model, timeout_s=cfg.timeout_s
     )
+    # Optional vision backend: when a VL model is configured, image-bearing turns
+    # route to it (e.g. DashScope Qwen-VL) while text/coding stays on the main
+    # model. base_url/api_key fall back to the main ones when only vl_model is set
+    # (same vendor exposing a VL model on the same endpoint). All OpenAI-compatible.
+    vision_provider = None
+    if cfg.vl_model:
+        vision_provider = DeepSeekProvider(
+            api_key=cfg.vl_api_key or cfg.api_key,
+            base_url=cfg.vl_base_url or cfg.base_url,
+            model=cfg.vl_model,
+            timeout_s=cfg.timeout_s,
+        )
     agents = discover_agents(cfg.workspace)
     skills = discover_skills()
     memory = render_memory()
@@ -205,6 +217,7 @@ def _build_loop(
         max_iterations=cfg.max_iterations,
         reasoning_effort=reasoning,
         compaction=CompactionConfig(token_budget=cfg.context_token_budget),
+        vision_provider=vision_provider,
     )
     # Stash for the banner.
     loop._cfg = cfg  # type: ignore[attr-defined]

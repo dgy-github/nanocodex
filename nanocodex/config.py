@@ -52,6 +52,14 @@ class Config:
     sandbox_mode: str = "workspace-write"
     approval_policy: str = "on-request"
     reasoning_effort: str = "auto"
+    # Vision (VL) endpoint for image-bearing turns. Empty = no separate vision
+    # backend (image turns then go to the main model, which may be text-only).
+    # Lets nanocodex route a turn that carries an image to a vision-capable model
+    # (e.g. DashScope Qwen-VL) while keeping DeepSeek for text/coding. base_url/
+    # api_key fall back to the main ones when only vl_model is set (same vendor).
+    vl_base_url: str = ""
+    vl_api_key: str = ""
+    vl_model: str = ""
     workspace: Path = field(default_factory=Path.cwd)
     writable_roots: list[Path] = field(default_factory=list)
     network_access: bool = False
@@ -99,6 +107,10 @@ class Config:
         if self.api_key:
             tail = self.api_key[-4:] if len(self.api_key) >= 4 else ""
             masked = f"****{tail}"
+        vl_masked = "(unset)"
+        if self.vl_api_key:
+            vtail = self.vl_api_key[-4:] if len(self.vl_api_key) >= 4 else ""
+            vl_masked = f"****{vtail}"
         return {
             "api_key": masked,
             "base_url": self.base_url,
@@ -106,6 +118,9 @@ class Config:
             "sandbox_mode": self.sandbox_mode,
             "approval_policy": self.approval_policy,
             "reasoning_effort": self.reasoning_effort,
+            "vl_base_url": self.vl_base_url,
+            "vl_api_key": vl_masked,
+            "vl_model": self.vl_model,
             "workspace": str(self.workspace),
             "writable_roots": [str(p) for p in self.writable_roots],
             "network_access": self.network_access,
@@ -164,7 +179,8 @@ def _nanocodex_values(raw: dict[str, Any]) -> dict[str, Any]:
     if not raw:
         return out
     for key in ("api_key", "base_url", "model", "sandbox_mode",
-                "approval_policy", "reasoning_effort"):
+                "approval_policy", "reasoning_effort",
+                "vl_base_url", "vl_api_key", "vl_model"):
         val = raw.get(key)
         if val:
             out[key] = val
@@ -214,6 +230,10 @@ def load_config(
         "api_key": ("DEEPSEEK_API_KEY", "NANOCODEX_API_KEY"),
         "base_url": ("DEEPSEEK_BASE_URL", "NANOCODEX_BASE_URL"),
         "model": ("NANOCODEX_MODEL",),
+        # Vision backend for image-bearing turns (e.g. DashScope Qwen-VL).
+        "vl_base_url": ("NANOCODEX_VL_BASE_URL",),
+        "vl_api_key": ("DASHSCOPE_API_KEY", "NANOCODEX_VL_API_KEY"),
+        "vl_model": ("NANOCODEX_VL_MODEL",),
         "sandbox_mode": ("NANOCODEX_SANDBOX",),
         "approval_policy": ("NANOCODEX_APPROVAL",),
         "context_token_budget": ("NANOCODEX_CONTEXT_BUDGET",),
@@ -242,6 +262,9 @@ def load_config(
         sandbox_mode=merged.get("sandbox_mode", "workspace-write"),
         approval_policy=merged.get("approval_policy", "on-request"),
         reasoning_effort=merged.get("reasoning_effort", "auto"),
+        vl_base_url=merged.get("vl_base_url", ""),
+        vl_api_key=merged.get("vl_api_key", ""),
+        vl_model=merged.get("vl_model", ""),
         workspace=(workspace or Path.cwd()).resolve(),
         context_token_budget=_as_int(merged.get("context_token_budget"), 512_000),
         context_window=_as_int(merged.get("context_window"), 1_048_576),
@@ -303,6 +326,7 @@ def _as_int(value: Any, default: int) -> int:
 _WRITABLE_KEYS = (
     "api_key", "base_url", "model",
     "sandbox_mode", "approval_policy", "reasoning_effort",
+    "vl_base_url", "vl_api_key", "vl_model",
 )
 
 

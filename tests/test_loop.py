@@ -233,6 +233,40 @@ async def test_cancel_after_some_tools_ran_backfills_only_remaining(tmp_path):
     assert sorted(m["tool_call_id"] for m in tool_msgs) == ["c1", "c2"]
 
 
+async def test_image_turn_routes_to_vision_provider(tmp_path):
+    # B 分流: a turn carrying an image_url block must go to the vision provider;
+    # the main (text) provider must NOT be called for that turn.
+    main = ScriptedProvider([ModelResponse(content="text-provider reply")])
+    vision = ScriptedProvider([ModelResponse(content="vision reply: I see a cat")])
+    loop = _build(tmp_path, main)
+    loop.vision_provider = vision
+
+    content = [
+        {"type": "text", "text": "what's in this image?"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+    ]
+    result = await loop.run_turn(content)
+    assert result.stop_reason == "completed"
+    assert result.final_text == "vision reply: I see a cat"
+    # The vision provider handled it; the main provider was untouched this turn.
+    assert len(vision.calls) == 1
+    assert len(main.calls) == 0
+
+
+async def test_text_turn_stays_on_main_provider_even_with_vision_configured(tmp_path):
+    # A plain-text turn must stay on the main provider even when a vision
+    # backend is configured (only image-bearing turns route to VL).
+    main = ScriptedProvider([ModelResponse(content="main reply")])
+    vision = ScriptedProvider([ModelResponse(content="should not be called")])
+    loop = _build(tmp_path, main)
+    loop.vision_provider = vision
+
+    result = await loop.run_turn("just text, no image")
+    assert result.final_text == "main reply"
+    assert len(main.calls) == 1
+    assert len(vision.calls) == 0
+
+
 async def test_stop_interrupts_a_hanging_tool(tmp_path):
     # A tool that never returns on its own. Stop must abandon it and end the
     # turn as 'cancelled' instead of blocking forever — the "Stop 停止不了" bug.
