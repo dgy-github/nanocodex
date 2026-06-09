@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f9f4e8"/>
+      <stop offset="1" stop-color="#e9f3ed"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" x2="1">
+      <stop offset="0" stop-color="#176c4c"/>
+      <stop offset="1" stop-color="#2b8c67"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#173225" flood-opacity=".18"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#176c4c"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="520" rx="34" fill="url(#bg)"/>
+  <text x="52" y="66" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="32" font-weight="800" fill="#176c4c">nanocodex Agent Loop</text>
+  <text x="52" y="102" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="18" fill="#59675d">模型负责规划，Harness 负责执行、校验、记录和回填观察结果</text>
+
+  <g filter="url(#shadow)">
+    <rect x="64" y="170" width="210" height="132" rx="22" fill="#fffdf7" stroke="#cfc6ad"/>
+    <text x="92" y="214" font-size="24" font-weight="800" fill="#176c4c" font-family="Segoe UI, Microsoft YaHei">User Task</text>
+    <text x="92" y="250" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">需求、代码库、</text>
+    <text x="92" y="276" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">AGENTS.md、历史摘要</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="354" y="150" width="230" height="172" rx="24" fill="#fffdf7" stroke="#cfc6ad"/>
+    <text x="386" y="194" font-size="24" font-weight="800" fill="#176c4c" font-family="Segoe UI, Microsoft YaHei">DeepSeek / Local</text>
+    <text x="386" y="232" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">理解任务</text>
+    <text x="386" y="258" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">规划下一步</text>
+    <text x="386" y="284" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">输出 tool call</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="664" y="150" width="230" height="172" rx="24" fill="#fffdf7" stroke="#cfc6ad"/>
+    <text x="696" y="194" font-size="24" font-weight="800" fill="#176c4c" font-family="Segoe UI, Microsoft YaHei">Harness Runtime</text>
+    <text x="696" y="232" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">schema 校验</text>
+    <text x="696" y="258" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">sandbox / approval</text>
+    <text x="696" y="284" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">执行工具</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="974" y="170" width="170" height="132" rx="22" fill="#fffdf7" stroke="#cfc6ad"/>
+    <text x="1004" y="214" font-size="24" font-weight="800" fill="#176c4c" font-family="Segoe UI, Microsoft YaHei">Observation</text>
+    <text x="1004" y="250" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">tool result</text>
+    <text x="1004" y="276" font-size="17" fill="#2b342f" font-family="Segoe UI, Microsoft YaHei">trace / cost</text>
+  </g>
+
+  <path d="M 282 236 L 342 236" stroke="#176c4c" stroke-width="5" marker-end="url(#arrow)"/>
+  <path d="M 592 236 L 652 236" stroke="#176c4c" stroke-width="5" marker-end="url(#arrow)"/>
+  <path d="M 902 236 L 962 236" stroke="#176c4c" stroke-width="5" marker-end="url(#arrow)"/>
+  <path d="M 1058 320 C 980 430, 460 430, 470 332" fill="none" stroke="#176c4c" stroke-width="4" stroke-dasharray="10 8" marker-end="url(#arrow)"/>
+  <text x="542" y="424" font-size="18" font-weight="700" fill="#176c4c" font-family="Segoe UI, Microsoft YaHei">Observation 回填给模型，形成多轮 ReAct 闭环</text>
+</svg>

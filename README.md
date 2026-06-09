@@ -6,6 +6,8 @@ English | [简体中文](README.zh-CN.md)
 
 [Open the live capability page](https://dgy-github.github.io/nanocodex/nanocodex.html) · [View the HTML in this repo](nanocodex.html)
 
+[Design brief PDF](docs/ai-coding-agent-design-brief.pdf) · [Design brief HTML](docs/ai-coding-agent-design-brief.html)
+
 [![nanocodex GUI preview: sessions, tool calls, MCP, skills, cost, and tests](assets/nanocodex-ui-preview.svg)](https://dgy-github.github.io/nanocodex/nanocodex.html)
 
 `nanocodex` is a compact but full-featured Codex-style coding agent. A

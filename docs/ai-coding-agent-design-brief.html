@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Coding Agent 设计思路 · nanocodex</title>
+<style>
+:root {
+  --bg: #f4f0e7;
+  --ink: #1e2520;
+  --muted: #667066;
+  --line: #d8d0bd;
+  --panel: #fffaf0;
+  --panel-2: #ece5d5;
+  --green: #176c4c;
+  --blue: #175d76;
+  --amber: #a76513;
+  --red: #9a3d32;
+  --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.72;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(23, 108, 76, 0.18), transparent 28rem),
+    radial-gradient(circle at 92% 8%, rgba(23, 93, 118, 0.14), transparent 30rem),
+    linear-gradient(180deg, #fbf6ec, var(--bg));
+}
+.page {
+  width: min(1120px, calc(100% - 36px));
+  margin: 0 auto;
+  padding: 38px 0 70px;
+}
+.hero {
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 42px;
+  background:
+    linear-gradient(135deg, rgba(255,250,240,0.96), rgba(236,229,213,0.82)),
+    var(--panel);
+  box-shadow: 0 24px 70px rgba(58, 45, 25, 0.14);
+  position: relative;
+  overflow: hidden;
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -60px -120px auto;
+  width: 360px;
+  height: 360px;
+  border: 1px solid rgba(23,108,76,0.22);
+  border-radius: 50%;
+}
+.eyebrow {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--green);
+  background: rgba(23,108,76,0.08);
+  border: 1px solid rgba(23,108,76,0.24);
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+h1 {
+  margin: 18px 0 12px;
+  max-width: 920px;
+  font-size: clamp(38px, 6vw, 68px);
+  line-height: 1.02;
+  letter-spacing: -0.055em;
+}
+.lead {
+  max-width: 940px;
+  color: #3d493f;
+  font-size: 18px;
+}
+.meta {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 26px;
+}
+.metric {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255,255,255,0.52);
+}
+.metric b {
+  display: block;
+  color: var(--green);
+  font-size: 24px;
+}
+.metric span {
+  color: var(--muted);
+  font-size: 13px;
+}
+section {
+  margin-top: 22px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255,250,240,0.86);
+  padding: 28px;
+}
+h2 {
+  margin: 0 0 14px;
+  font-size: 28px;
+  letter-spacing: -0.035em;
+}
+h3 {
+  margin: 20px 0 8px;
+  color: var(--green);
+  font-size: 18px;
+}
+p { margin: 8px 0; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 18px;
+  background: rgba(255,255,255,0.48);
+}
+.tag {
+  display: inline-flex;
+  margin: 3px 6px 3px 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(23,93,118,0.08);
+  color: var(--blue);
+  border: 1px solid rgba(23,93,118,0.18);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.flow {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin: 18px 0;
+}
+.step {
+  min-height: 110px;
+  border-radius: 18px;
+  padding: 14px;
+  border: 1px solid rgba(23,108,76,0.22);
+  background: linear-gradient(180deg, rgba(23,108,76,0.08), rgba(255,255,255,0.44));
+}
+.step b { display: block; color: var(--green); }
+.diagram {
+  margin: 18px 0 22px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 20px;
+  background:
+    linear-gradient(90deg, rgba(23,108,76,0.08), transparent),
+    rgba(255,255,255,0.5);
+}
+.arch-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  margin: 18px 0 22px;
+  background: #fff;
+}
+.diagram-title {
+  margin-bottom: 14px;
+  color: var(--green);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+.pipeline {
+  display: grid;
+  grid-template-columns: 1fr 36px 1fr 36px 1fr 36px 1fr;
+  align-items: stretch;
+  gap: 8px;
+}
+.box {
+  border: 1px solid rgba(23,108,76,0.24);
+  border-radius: 18px;
+  padding: 14px;
+  background: #fffdf7;
+  min-height: 92px;
+}
+.box b {
+  display: block;
+  color: var(--green);
+  margin-bottom: 4px;
+}
+.arrow {
+  display: grid;
+  place-items: center;
+  color: var(--green);
+  font-weight: 900;
+  font-size: 24px;
+}
+.stack {
+  display: grid;
+  gap: 10px;
+}
+.diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.lane {
+  border: 1px solid rgba(23,93,118,0.22);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(23,93,118,0.06);
+}
+.lane h3 {
+  margin-top: 0;
+}
+ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+li { margin: 6px 0; }
+code, pre {
+  font-family: var(--mono);
+}
+pre {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  background: #17221d;
+  color: #ddf7e9;
+  line-height: 1.55;
+}
+.quote {
+  border-left: 5px solid var(--green);
+  padding: 12px 16px;
+  background: rgba(23,108,76,0.08);
+  border-radius: 12px;
+  font-weight: 700;
+}
+.source {
+  font-size: 12px;
+  color: var(--muted);
+}
+.source a { color: var(--blue); word-break: break-all; }
+.footer {
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  @page {
+    margin: 10mm;
+  }
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+  .page {
+    width: auto;
+    padding: 0;
+  }
+  .hero,
+  section {
+    background: #fff !important;
+    color: #111 !important;
+    box-shadow: none;
+    break-inside: auto;
+    border-color: #d8d0bd;
+  }
+  .card,
+  .step,
+  .metric {
+    background: #fff !important;
+    color: #111 !important;
+    break-inside: auto;
+  }
+  .meta,
+  .grid,
+  .flow,
+  .pipeline,
+  .diagram-grid {
+    display: block !important;
+  }
+  .metric,
+  .card,
+  .step,
+  .box,
+  .lane {
+    margin: 0 0 10px !important;
+    min-height: 0 !important;
+  }
+  .arrow {
+    display: none;
+  }
+  .arch-img {
+    break-inside: avoid;
+  }
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+  .hero *,
+  section *,
+  .card *,
+  .step *,
+  .metric * {
+    color: #111 !important;
+  }
+  h2,
+  h3,
+  .metric b,
+  .step b,
+  .card strong {
+    color: #176c4c !important;
+  }
+  .lead,
+  .footer,
+  .source,
+  .source a {
+    color: #444 !important;
+  }
+  .tag,
+  code {
+    color: #175d76 !important;
+    background: #eef8fc !important;
+    border-color: #bddceb !important;
+  }
+  .quote {
+    color: #111 !important;
+    background: #eef8ef !important;
+  }
+  pre {
+    color: #111 !important;
+    background: #f4f0e7 !important;
+    white-space: pre-wrap;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+@media (max-width: 820px) {
+  .meta, .grid, .flow { grid-template-columns: 1fr; }
+  .hero { padding: 28px; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="hero">
+    <div class="eyebrow">nanocodex · AI Coding Agent Design Brief</div>
+    <h1>把模型接成一个可控的编码代理，而不是一个会写代码的聊天框</h1>
+    <p class="lead">
+      nanocodex 的设计目标是复刻 Codex-style coding agent 的核心工程能力：模型负责理解、规划和生成工具调用，harness 负责执行、校验、记录、压缩上下文和控制风险。它针对 DeepSeek / OpenAI 兼容模型做了工具协议、流式响应、reasoning effort、长会话压缩和成本统计等兼容处理，同时补了 Windows 桌面版、VL/多模态输入、MCP 工具接入和 Windows Computer-Use 能力。
+    </p>
+    <div class="meta">
+      <div class="metric"><b>420</b><span>offline tests</span></div>
+      <div class="metric"><b>Desktop</b><span>Windows GUI</span></div>
+      <div class="metric"><b>VL</b><span>image / multimodal</span></div>
+      <div class="metric"><b>DeepSeek</b><span>compatibility layer</span></div>
+    </div>
+  </header>
+
+  <section>
+    <h2>一、项目定位</h2>
+    <p class="quote">一句话：模型动脑，harness 动手；能确定的交给代码，不确定的交给模型，但所有动作都要被工具契约和安全边界约束。</p>
+    <div class="grid">
+      <div class="card">
+        <h3>解决什么问题</h3>
+        <ul>
+          <li>普通聊天模型只能“建议改代码”，不能稳定地读文件、改文件、跑测试、看错误、继续修复。</li>
+          <li>真实 coding agent 需要工具调用循环、会话记录、上下文压缩、MCP 接入、权限控制、桌面入口和失败恢复。</li>
+          <li>DeepSeek / 本地模型在工具协议、reasoning 字段、流式响应、长上下文稳定性上有差异，需要兼容层和工程兜底。</li>
+          <li>普通 coding agent 主要操作代码仓库；进一步往前走，需要支持 VL 看图、读屏、操作 Windows 桌面，把模型能力接到真实电脑环境。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>为什么适合 DeepSeek 岗位讲</h3>
+        <ul>
+          <li>它不是“调 API demo”，而是围绕模型工具调用构建完整 runtime。</li>
+          <li>能讨论模型能力边界、tool schema、repair loop、session compaction、MCP、安全审批、VL 多模态和桌面自动化。</li>
+          <li>能体现把 LLM 变成生产工具时的工程判断：可观测、可回滚、可测试。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>二、核心运行链路</h2>
+    <img class="arch-img" src="design-assets/nanocodex-agent-loop.svg" alt="nanocodex agent loop architecture diagram">
+    <div class="diagram">
+      <div class="diagram-title">图 1：Coding Agent 闭环</div>
+      <div class="pipeline">
+        <div class="box"><b>User Task</b>自然语言任务、项目规则、AGENTS.md、历史摘要。</div>
+        <div class="arrow">→</div>
+        <div class="box"><b>DeepSeek / Local Model</b>理解任务，决定下一步动作，生成 tool call。</div>
+        <div class="arrow">→</div>
+        <div class="box"><b>Harness Runtime</b>校验 schema、sandbox、approval，执行工具。</div>
+        <div class="arrow">→</div>
+        <div class="box"><b>Observation</b>工具结果回填，trace 记录，继续下一轮。</div>
+      </div>
+    </div>
+    <div class="flow">
+      <div class="step"><b>1. Context</b>加载 AGENTS.md、memory、历史摘要、用户任务。</div>
+      <div class="step"><b>2. Model</b>调用 DeepSeek / OpenAI-compatible chat completions。</div>
+      <div class="step"><b>3. Tool Use</b>模型输出 shell / patch / read_file / MCP 工具调用。</div>
+      <div class="step"><b>4. Harness</b>校验权限、执行工具、写入 JSONL trace。</div>
+      <div class="step"><b>5. Repair</b>根据工具结果继续循环，直到任务完成或需要用户决策。</div>
+    </div>
+    <pre>user task
+  -> build system prompt + memory + workspace rules
+  -> model proposes tool call
+  -> sandbox / approval checks
+  -> execute file/shell/MCP action
+  -> append tool result to session
+  -> model observes result and continues</pre>
+  </section>
+
+  <section>
+    <h2>三、模块设计</h2>
+    <div class="diagram">
+      <div class="diagram-title">图 2：nanocodex 模块分层</div>
+      <div class="diagram-grid">
+        <div class="lane">
+          <h3>Model Layer</h3>
+          <p>DeepSeek hosted API、本地 vLLM、llama-server、LM Studio、VL 模型。</p>
+          <span class="tag">provider</span><span class="tag">streaming</span><span class="tag">reasoning</span>
+        </div>
+        <div class="lane">
+          <h3>Agent Core</h3>
+          <p>loop、session、tool contract、compaction、repair、cost accounting。</p>
+          <span class="tag">ReAct</span><span class="tag">JSONL</span><span class="tag">trace</span>
+        </div>
+        <div class="lane">
+          <h3>Action Layer</h3>
+          <p>文件修改、shell、MCP、skills、Windows GUI、Computer-Use adapter。</p>
+          <span class="tag">sandbox</span><span class="tag">approval</span><span class="tag">MCP</span>
+        </div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h3>Agent Loop</h3>
+        <p>最小闭环保持可读：call model -> run tools -> append observation -> repeat。复杂能力不塞进 loop，而是做成独立模块，便于测试和替换。</p>
+        <span class="tag">agent/loop.py</span><span class="tag">session.py</span><span class="tag">provider/base.py</span>
+      </div>
+      <div class="card">
+        <h3>Tool Contract</h3>
+        <p>工具以 schema 暴露给模型，harness 负责参数校验、错误结构化、工具结果回填。模型只提出“要做什么”，不能绕过工具边界。</p>
+        <span class="tag">apply_patch</span><span class="tag">shell</span><span class="tag">read_file</span><span class="tag">mcp__*</span>
+      </div>
+      <div class="card">
+        <h3>Sandbox & Approval</h3>
+        <p>把读、写、网络、危险命令放进明确状态机。这样 coding agent 能自动做低风险动作，高风险动作必须审批或 dry-run。</p>
+        <span class="tag">read-only</span><span class="tag">workspace-write</span><span class="tag">danger-full-access</span>
+      </div>
+      <div class="card">
+        <h3>Context Compaction</h3>
+        <p>长会话不是无限塞上下文，而是把历史压成任务摘要、已做决策、失败方案和下一步。压缩不是为了省 token，而是为了保持任务连续性。</p>
+        <span class="tag">deterministic digest</span><span class="tag">model summarizer</span>
+      </div>
+      <div class="card">
+        <h3>MCP & Skills</h3>
+        <p>MCP 解决外部工具标准化接入，skills 解决“能力说明”和“能力正文”分离：平时只注入 name/description，需要时再加载正文。</p>
+        <span class="tag">mcp.toml</span><span class="tag">skills_store</span><span class="tag">marketplace</span>
+      </div>
+      <div class="card">
+        <h3>Observability</h3>
+        <p>每次模型调用、工具调用、审批、失败、成本都写入会话记录。出错后能通过 trace 回看“模型想做什么、工具做了什么、为什么失败”。</p>
+        <span class="tag">JSONL</span><span class="tag">cost accounting</span><span class="tag">session resume</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>四、DeepSeek / 本地模型优化点</h2>
+    <ul>
+      <li><b>OpenAI-compatible 接入：</b>统一走 <code>/v1/chat/completions</code>，便于 DeepSeek hosted API、本地 vLLM、llama-server、LM Studio 切换。</li>
+      <li><b>DeepSeek reasoning 兼容：</b>对 reasoning effort、reasoning_content / reasoning 字段、thinking 模型工具调用上下文做兼容，避免多轮工具调用时历史消息缺关键 reasoning 信息。</li>
+      <li><b>工具协议 repair：</b>对“文本里说要调用工具但没给 structured tool_use”、参数 JSON 不完整、tool_choice 不兼容等情况做修复或降级，而不是让会话直接断。</li>
+      <li><b>流式超时：</b>为 Windows / 代理 / 本地服务卡住场景加入 response-open timeout 和 idle timeout，避免桌面版一直假死。</li>
+      <li><b>reasoning effort 自动化：</b>根据任务复杂度自动选择低/高/最大推理强度，减少简单任务过度思考，也避免复杂任务思考不足。</li>
+      <li><b>缓存与成本统计：</b>按真实 token usage 和 DeepSeek cache hit/miss 价格记录成本，便于比较 hosted 与本地模型的性价比。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>五、桌面版、VL 与 Windows Computer-Use</h2>
+    <img class="arch-img" src="design-assets/nanocodex-platform-adapter.svg" alt="nanocodex desktop vl computer-use adapter diagram">
+    <div class="diagram">
+      <div class="diagram-title">图 3：Computer-Use 平台适配</div>
+      <div class="pipeline">
+        <div class="box"><b>Agent Core</b>同一套模型、会话、权限、审计。</div>
+        <div class="arrow">→</div>
+        <div class="box"><b>MCP Tool Schema</b>screen.read / app.activate / mouse.click / verify.result。</div>
+        <div class="arrow">→</div>
+        <div class="box"><b>Platform Adapter</b>Windows UIA + OCR；macOS Accessibility + AppleScript。</div>
+        <div class="arrow">→</div>
+        <div class="box"><b>Human Guardrail</b>allow-list、dry-run、HITL、audit、rollback。</div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h3>Windows 桌面版</h3>
+        <p>除了 CLI，nanocodex 还做了 Tkinter GUI：会话列表、工具调用、MCP、skills、成本统计、测试状态都可以可视化查看。这个设计是为了让 coding agent 不只停留在命令行，而是能作为 Windows 桌面工作台使用。</p>
+        <span class="tag">Tkinter GUI</span><span class="tag">sessions</span><span class="tag">tool trace</span>
+      </div>
+      <div class="card">
+        <h3>VL / 多模态输入</h3>
+        <p>支持把图片作为 OpenAI multimodal image block 输入给模型，用于截图理解、界面分析、视觉资料转结构化任务。后续可以接 DeepSeek-VL / Qwen-VL / OpenAI-compatible VL 模型。</p>
+        <span class="tag">image input</span><span class="tag">screenshot reasoning</span><span class="tag">VL model seam</span>
+      </div>
+      <div class="card">
+        <h3>Windows Computer-Use MCP</h3>
+        <p>通过 MCP 接入 Windows 桌面自动化能力，把窗口定位、热键、鼠标键盘、OCR 读屏、操作结果校验封装成工具。模型只生成意图和参数，真实操作由 MCP server 执行。</p>
+        <span class="tag">MCP server</span><span class="tag">OCR</span><span class="tag">keyboard / mouse</span>
+      </div>
+      <div class="card">
+        <h3>风险控制</h3>
+        <p>桌面操作比改代码更危险，所以设计上保留 allow-list、dry-run、人类确认、审计日志和执行后校验。高风险动作不能让模型直接“乱点”。</p>
+        <span class="tag">allow-list</span><span class="tag">HITL</span><span class="tag">audit</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>六、技术选型演变与 macOS 预留</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>阶段 1：DeepSeek CLI 最小闭环</h3>
+        <p>先验证模型能否理解编码任务，再逐步加入工具调用。这个阶段重点不是功能多，而是跑通 provider、prompt、session 和 streaming。</p>
+        <span class="tag">DeepSeek API</span><span class="tag">CLI</span><span class="tag">streaming</span>
+      </div>
+      <div class="card">
+        <h3>阶段 2：Coding Agent Runtime</h3>
+        <p>发现“会回答”不等于“会做事”，于是加入 read_file、apply_patch、shell、tool result 回填和多轮 ReAct 循环。</p>
+        <span class="tag">tool calling</span><span class="tag">ReAct loop</span><span class="tag">patch</span>
+      </div>
+      <div class="card">
+        <h3>阶段 3：生产化边界</h3>
+        <p>真实任务里最容易出问题的是安全、上下文和恢复，所以补 sandbox、approval、JSONL trace、context compaction、成本统计和 repair loop。</p>
+        <span class="tag">sandbox</span><span class="tag">trace</span><span class="tag">compaction</span>
+      </div>
+      <div class="card">
+        <h3>阶段 4：桌面与多模态</h3>
+        <p>从 CLI 扩展到 Windows GUI、MCP、VL 图片输入和 Windows Computer-Use。下一步如果做 macOS，会优先复用同一套 computer-use tool contract。</p>
+        <span class="tag">Desktop GUI</span><span class="tag">VL</span><span class="tag">Computer-Use</span>
+      </div>
+    </div>
+    <h3>macOS Computer-Use 预留路线</h3>
+    <p>
+      macOS 版本不会重写 agent loop，而是复用 nanocodex 的 provider、tool contract、session、approval 和 audit，把操作层替换成 macOS adapter。思路是：优先走 macOS Accessibility Tree / AppleScript / Shortcuts / shell 做确定性控制；遇到复杂 UI 再用视觉模型做元素定位，例如 ShowUI-2B / UI-TARS / OmniParser 这类屏幕解析或 GUI grounding 模型；最后仍然通过 MCP 暴露为 <code>screen.read</code>、<code>app.activate</code>、<code>mouse.click</code>、<code>keyboard.type</code>、<code>verify.result</code> 等工具。
+    </p>
+    <pre>nanocodex core
+  -> same model/provider/session/approval/audit
+  -> platform adapter
+      Windows: UI Automation + OCR + keyboard/mouse
+      macOS: Accessibility Tree + AppleScript/Shortcuts + local GUI model
+  -> MCP tool schema
+  -> human confirmation for risky actions</pre>
+    <p class="source">
+      Related references: trycua/cua computer-use infrastructure, ShowLab Computer Use OOTB with local GUI models, Ghost OS macOS MCP using accessibility tree plus ShowUI-2B, Microsoft OmniParser for screen parsing.
+    </p>
+  </section>
+
+  <section>
+    <h2>七、论文思想映射</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>ReAct：推理与行动交替</h3>
+        <p>nanocodex 的主循环就是“模型思考/选择动作 -> 工具执行 -> 观察结果 -> 继续推理”。这对应 ReAct 提出的 reasoning + acting 交替范式。</p>
+        <p class="source">Reference: <a href="https://arxiv.org/abs/2210.03629">ReAct: Synergizing Reasoning and Acting in Language Models</a></p>
+      </div>
+      <div class="card">
+        <h3>Toolformer：模型学会何时用工具</h3>
+        <p>工具不是外挂按钮，而是模型解决问题的一部分。nanocodex 通过 schema 告诉模型可用工具，并用 harness 限制工具的真实边界。</p>
+        <p class="source">Reference: <a href="https://arxiv.org/abs/2302.04761">Toolformer: Language Models Can Teach Themselves to Use Tools</a></p>
+      </div>
+      <div class="card">
+        <h3>Reflexion：失败经验进入记忆</h3>
+        <p>工具失败、测试失败、用户纠正都不是丢掉，而是可以进入会话摘要、memory 或回归测试，让下一轮策略更稳。</p>
+        <p class="source">Reference: <a href="https://arxiv.org/abs/2303.11366">Reflexion: Language Agents with Verbal Reinforcement Learning</a></p>
+      </div>
+      <div class="card">
+        <h3>Voyager：技能库与长期积累</h3>
+        <p>skills 系统借鉴“可复用技能”的思想，把常用工作流沉淀为可发现、可按需加载的能力单元。</p>
+        <p class="source">Reference: <a href="https://arxiv.org/abs/2305.16291">Voyager: An Open-Ended Embodied Agent with Large Language Models</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>八、项目地址</h2>
+    <p>GitHub: https://github.com/dgy-github/nanocodex</p>
+    <p>展示页: https://dgy-github.github.io/nanocodex/nanocodex.html</p>
+    <p class="footer">Generated for DeepSeek / AI Agent / LLM 应用工程师面试材料。</p>
+  </section>
+</main>
+</body>
+</html>
