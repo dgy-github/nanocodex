@@ -1,0 +1,265 @@
+"""Model adapters for the storyboard pipeline (injectable, offline-testable).
+
+Three clients, one per external capability the pipeline needs:
+
+* :class:`VisionAnalyzer` — wraps an OpenAI-compatible provider pointed at a
+  vision model (DashScope Qwen-VL). Turns an image into an ``AssetAnalysis``.
+* :class:`TextPlanner` — wraps the main provider. Turns story text into a list
+  of ``Shot`` objects.
+* :class:`SeedanceClient` — talks to Volcengine ARK's video-generation API,
+  which is NOT chat-completions: you POST a task, get an id, then poll until it
+  succeeds and read ``content.video_url``. Shape verified against the live API.
+
+House style mirrors web_search.py / schedule.py: the network calls are behind
+small seams (a provider object for the LLM clients, an injectable ``transport``
+for Seedance) so the whole pipeline runs offline in tests with fakes. Keys are
+read from config/env by the caller and passed in — never hardcoded here.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any, Callable, Protocol
+
+from nanocodex.agent.images import encode_image_block
+from nanocodex.storyboard.models import AssetAnalysis, Shot
+
+# --- prompt templates (loaded from files next to this module) ---------------
+
+from pathlib import Path
+
+_PROMPT_DIR = Path(__file__).parent / "prompts"
+
+
+def _load_prompt(name: str) -> str:
+    return (_PROMPT_DIR / name).read_text(encoding="utf-8")
+
+
+# --- LLM client protocol (so tests can inject a fake provider) --------------
+
+
+class ChatProvider(Protocol):
+    """The subset of provider/deepseek.py:DeepSeekProvider we rely on."""
+
+    model: str
+
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
+    ) -> Any: ...
+
+
+def _extract_json(text: str) -> Any:
+    """Pull the first JSON object/array out of a model reply.
+
+    Models often wrap JSON in prose or ```json fences. Be lenient: strip fences,
+    then grab the outermost {...} or [...]. Raises ValueError if none found.
+    """
+    if not text:
+        raise ValueError("empty model reply")
+    # Strip ```json ... ``` fences if present.
+    fenced = re.search(r"```(?:json)?\s*(.+?)```", text, re.DOTALL)
+    if fenced:
+        text = fenced.group(1)
+    text = text.strip()
+    # Fast path: whole thing is JSON.
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Fall back to the first balanced object/array span.
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start = text.find(opener)
+        end = text.rfind(closer)
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                continue
+    raise ValueError("no JSON found in model reply")
+
+
+class VisionAnalyzer:
+    """Analyze one image into an AssetAnalysis via a vision-capable provider."""
+
+    def __init__(self, provider: ChatProvider) -> None:
+        self._provider = provider
+        self._prompt = _load_prompt("analyze_image.txt")
+
+    async def analyze(self, image_id: str, image_path: str) -> AssetAnalysis:
+        # Build a multimodal user message: the analysis instruction + the image.
+        block = encode_image_block(image_path)
+        messages = [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": self._prompt}, block],
+            }
+        ]
+        resp = await self._provider.chat(messages)
+        data = _extract_json(getattr(resp, "content", "") or "")
+        if not isinstance(data, dict):
+            raise ValueError(f"vision analysis for {image_id} was not a JSON object")
+        return AssetAnalysis(
+            image_id=image_id,
+            summary=str(data.get("summary", "")),
+            scene_tags=[str(t) for t in data.get("scene_tags", [])],
+            mood_tags=[str(t) for t in data.get("mood_tags", [])],
+            usable_for=[str(t) for t in data.get("usable_for", [])],
+        )
+
+
+class TextPlanner:
+    """Turn story text into a list of Shot objects via the main provider."""
+
+    def __init__(self, provider: ChatProvider) -> None:
+        self._provider = provider
+        self._prompt = _load_prompt("plan_storyboard.txt")
+
+    async def plan(self, story_text: str, *, aspect_ratio: str = "16:9",
+                   global_style: str = "") -> list[Shot]:
+        filled = self._prompt.format(
+            story_text=story_text,
+            aspect_ratio=aspect_ratio,
+            global_style=global_style or "(none)",
+        )
+        resp = await self._provider.chat([{"role": "user", "content": filled}])
+        data = _extract_json(getattr(resp, "content", "") or "")
+        shots_raw = data.get("storyboard", data) if isinstance(data, dict) else data
+        if not isinstance(shots_raw, list):
+            raise ValueError("planner did not return a list of shots")
+        shots: list[Shot] = []
+        for i, s in enumerate(shots_raw, 1):
+            if not isinstance(s, dict):
+                continue
+            shots.append(
+                Shot(
+                    shot_id=str(s.get("shot_id") or f"shot_{i:02d}"),
+                    title=str(s.get("title", f"Shot {i}")),
+                    duration_sec=float(s.get("duration_sec", 5) or 5),
+                    prompt=str(s.get("prompt", "")),
+                    characters=[str(c) for c in s.get("characters", [])],
+                    camera=str(s.get("camera", "")),
+                    action=str(s.get("action", "")),
+                    negative_prompt=str(s.get("negative_prompt", "")),
+                )
+            )
+        if not shots:
+            raise ValueError("planner returned no usable shots")
+        return shots
+
+
+# --- Seedance (Volcengine ARK) video client ---------------------------------
+
+ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+
+# (method, url, headers, json_body) -> (status_code, response_text)
+Transport = Callable[[str, str, dict[str, str], "dict | None"], tuple[int, str]]
+
+
+def _urllib_transport(method: str, url: str, headers: dict[str, str],
+                      body: "dict | None") -> tuple[int, str]:
+    """Default transport: stdlib urllib (no extra deps), used in production."""
+    import urllib.error
+    import urllib.request
+
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", "replace")
+    except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a failure
+        return -1, f"{type(exc).__name__}: {exc}"
+
+
+class SeedanceError(RuntimeError):
+    """Raised when a Seedance task fails to submit or render."""
+
+
+class SeedanceClient:
+    """Submit a video task to ARK and poll until it renders.
+
+    The ARK video API is asynchronous: ``submit`` returns a task id, then you
+    ``poll`` that id until status is ``succeeded`` (then read the video URL) or
+    ``failed``. ``generate`` ties the two together with a bounded poll loop.
+
+    The HTTP call is behind ``transport`` so tests drive submit/poll parsing with
+    a scripted fake — no network, no real key, no spend.
+    """
+
+    def __init__(self, api_key: str, *, base_url: str = ARK_BASE_URL,
+                 transport: Transport | None = None,
+                 sleep: Callable[[float], None] | None = None) -> None:
+        if not api_key:
+            raise SeedanceError("Seedance needs an ARK API key (env ARK_API_KEY).")
+        self._key = api_key
+        self._base = base_url.rstrip("/")
+        self._transport = transport or _urllib_transport
+        import time
+        self._sleep = sleep or time.sleep
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._key}",
+        }
+
+    def submit(self, payload: dict[str, Any]) -> str:
+        """POST a generation task; return its task id."""
+        status, body = self._transport(
+            "POST", f"{self._base}/contents/generations/tasks",
+            self._headers(), payload,
+        )
+        if status != 200:
+            raise SeedanceError(f"submit failed (HTTP {status}): {body[:300]}")
+        try:
+            return json.loads(body)["id"]
+        except (json.JSONDecodeError, KeyError) as exc:
+            raise SeedanceError(f"submit returned no task id: {body[:300]}") from exc
+
+    def poll_once(self, task_id: str) -> tuple[str, str]:
+        """GET task status once. Return (status, video_url_or_empty)."""
+        status, body = self._transport(
+            "GET", f"{self._base}/contents/generations/tasks/{task_id}",
+            self._headers(), None,
+        )
+        if status != 200:
+            raise SeedanceError(f"poll failed (HTTP {status}): {body[:300]}")
+        try:
+            obj = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise SeedanceError(f"poll returned non-JSON: {body[:200]}") from exc
+        st = str(obj.get("status", ""))
+        url = ""
+        if st == "succeeded":
+            url = str((obj.get("content") or {}).get("video_url", ""))
+        return st, url
+
+    def generate(self, payload: dict[str, Any], *, max_polls: int = 60,
+                 interval_s: float = 6.0,
+                 on_progress: Callable[[int, str], None] | None = None) -> str:
+        """Submit then poll until the video is ready; return its signed URL.
+
+        Raises SeedanceError on failure/timeout. ``on_progress(i, status)`` is
+        called each poll so a UI/CLI can show liveness.
+        """
+        task_id = self.submit(payload)
+        for i in range(max_polls):
+            st, url = self.poll_once(task_id)
+            if on_progress:
+                on_progress(i, st)
+            if st == "succeeded":
+                if not url:
+                    raise SeedanceError(f"task {task_id} succeeded but had no video_url")
+                return url
+            if st in ("failed", "cancelled"):
+                raise SeedanceError(f"task {task_id} ended as {st}")
+            self._sleep(interval_s)
+        raise SeedanceError(f"task {task_id} still running after {max_polls} polls")

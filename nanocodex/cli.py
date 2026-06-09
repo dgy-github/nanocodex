@@ -609,5 +609,134 @@ def _auto_approve_approver() -> Approver:
     return Approver("on-request", _allow_all)
 
 
+# --- storyboard sub-command -------------------------------------------------
+
+storyboard_app = typer.Typer(
+    add_completion=False,
+    help="Turn a story + reference images into a storyboard (and optionally video).",
+)
+app.add_typer(storyboard_app, name="storyboard")
+
+
+@storyboard_app.command("run")
+def storyboard_run(
+    story: Path = typer.Option(..., "--story", help="Path to a story text file."),
+    images: Optional[Path] = typer.Option(
+        None, "--images", help="Directory of reference images (png/jpg/...)."),
+    out: Path = typer.Option(Path("storyboard_out"), "--out", help="Output directory for the JSON files."),
+    aspect_ratio: str = typer.Option("16:9", "--aspect-ratio", help="Video aspect ratio, e.g. 16:9 or 9:16."),
+    render: bool = typer.Option(
+        False, "--render",
+        help="DANGEROUS/$$$: actually generate video via Seedance (needs ARK_API_KEY). "
+             "Default off — without it the command only plans + exports JSON.",
+    ),
+    workdir: Optional[Path] = typer.Option(None, "--cd", help="Workspace directory (default: current)."),
+) -> None:
+    """Plan a storyboard from a story file + image directory, exporting JSON (and optionally video)."""
+    import uuid
+
+    from nanocodex.provider.deepseek import DeepSeekProvider
+    from nanocodex.storyboard.clients import SeedanceClient, SeedanceError, TextPlanner, VisionAnalyzer
+    from nanocodex.storyboard.models import StoryboardError
+    from nanocodex.storyboard.pipeline import PipelineDeps, run_pipeline
+
+    workspace = (workdir or Path.cwd()).resolve()
+
+    if not story.is_file():
+        console.print(f"[red]Story file not found: {story}[/red]")
+        raise typer.Exit(code=1)
+    story_text = story.read_text(encoding="utf-8", errors="replace").strip()
+    if not story_text:
+        console.print("[red]Story file is empty.[/red]")
+        raise typer.Exit(code=1)
+
+    # Collect images from the directory (by extension), if given.
+    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+    image_paths: list[Path] = []
+    if images is not None:
+        if not images.is_dir():
+            console.print(f"[red]Images path is not a directory: {images}[/red]")
+            raise typer.Exit(code=1)
+        image_paths = sorted(
+            p for p in images.iterdir()
+            if p.is_file() and p.suffix.lower() in image_exts
+        )
+
+    cfg = load_config(workspace=workspace)
+    if not cfg.api_key:
+        console.print("[red]No API key configured for the text planner (set DEEPSEEK_API_KEY).[/red]")
+        raise typer.Exit(code=1)
+
+    planner = TextPlanner(DeepSeekProvider(
+        api_key=cfg.api_key, base_url=cfg.base_url, model=cfg.model, timeout_s=cfg.timeout_s,
+    ))
+
+    vision = None
+    if image_paths and cfg.vl_model:
+        vision = VisionAnalyzer(DeepSeekProvider(
+            api_key=cfg.vl_api_key or cfg.api_key,
+            base_url=cfg.vl_base_url or cfg.base_url,
+            model=cfg.vl_model,
+            timeout_s=cfg.timeout_s,
+        ))
+    elif image_paths and not cfg.vl_model:
+        console.print("[yellow]No VL backend configured (vl_model empty) — skipping image analysis.[/yellow]")
+
+    seedance = None
+    if render:
+        import os
+        ark_key = os.environ.get("ARK_API_KEY", "")
+        try:
+            seedance = SeedanceClient(ark_key)
+        except SeedanceError as exc:
+            console.print(f"[red]--render set but {exc}[/red]")
+            raise typer.Exit(code=1)
+        console.print(
+            "[yellow][SECURITY/$$$] --render ON — Seedance bills real money per "
+            "clip. Generating now.[/yellow]"
+        )
+
+    obj = {
+        "project": {
+            "id": f"sb_{uuid.uuid4().hex[:8]}",
+            "title": story_text[:40] or "Untitled storyboard",
+            "target_model": "seedance",
+            "aspect_ratio": aspect_ratio,
+            "language": "zh",
+        },
+        "inputs": {
+            "story_text": story_text,
+            "images": [
+                {"image_id": f"img_{i:02d}", "path": str(p), "kind": "unknown"}
+                for i, p in enumerate(image_paths, 1)
+            ],
+        },
+    }
+
+    def _progress(shot_id: str, i: int, status: str) -> None:
+        console.print(f"[dim]{shot_id}: poll {i} — {status}[/dim]")
+
+    deps = PipelineDeps(vision=vision, planner=planner, seedance=seedance)
+    try:
+        state, written = asyncio.run(run_pipeline(
+            obj, deps, out_dir=out.resolve(), render_video=render,
+            on_progress=_progress,
+        ))
+    except StoryboardError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"[green]Storyboard built[/green]: {len(state.shots)} shots, "
+        f"{len(state.asset_analysis)} images analysed."
+    )
+    for name, path in written.items():
+        console.print(f"  wrote {name}: {path}")
+    if render and state.video_urls:
+        console.print("[cyan]Video URLs (signed, expire ~24h):[/cyan]")
+        for sid, url in state.video_urls.items():
+            console.print(f"  {sid}: {url}")
+
+
 if __name__ == "__main__":
     app()

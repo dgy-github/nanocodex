@@ -14,6 +14,7 @@ dependencies = [
     "rich>=13.0.0",
     "ddgs>=9.0.0",
     "mcp>=1.0.0",
+    "jsonschema>=4.0.0",
 ]
 
 [project.optional-dependencies]

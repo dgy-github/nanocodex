@@ -1,0 +1,280 @@
+"""Storyboard pipeline: story text + images -> shots -> Seedance payloads -> video.
+
+Seven stages, run in order by :func:`run_pipeline`. Each stage is a small pure-ish
+function ``(state, deps) -> state`` that returns a NEW state (the running project
+dict), mirroring the project's pure-logic house style (agent/schedule.py). The
+only side effects live behind ``deps`` (the three injected clients) and the final
+export write, so the whole thing runs offline in tests with fake clients.
+
+Stages (matching the user's spec):
+    1. ingest         - validate input, build the working state
+    2. analyze_assets - VisionAnalyzer per image -> asset_analysis
+    3. plan_storyboard- TextPlanner over story_text -> shots
+    4. map_assets     - RULE-BASED: attach background/character images per shot
+                        (embedding matching is a seam left for later)
+    5. build_payloads - assemble one Seedance payload per shot
+    6. render         - SeedanceClient per shot -> video_url   (OPT-IN, costs money)
+    7. export         - write asset_analysis / storyboard / payloads json + urls
+
+The render stage is OFF by default: Seedance bills real money per clip, so a
+caller must explicitly pass ``render=True``.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable
+
+from nanocodex.storyboard.models import (
+    AssetAnalysis,
+    ImageInput,
+    Project,
+    SeedancePayload,
+    Shot,
+    as_jsonable,
+    project_from_dict,
+    validate_project,
+)
+
+
+@dataclass
+class PipelineDeps:
+    """Injected capabilities. Any may be None when its stage is not exercised.
+
+    Tests pass fakes; production wires real clients (clients.py). Keeping them
+    optional lets the offline tests run analyze/plan with fakes and skip render.
+    """
+
+    vision: Any = None       # VisionAnalyzer-like: .analyze(image_id, path) -> AssetAnalysis
+    planner: Any = None      # TextPlanner-like: .plan(story_text, ...) -> list[Shot]
+    seedance: Any = None     # SeedanceClient-like: .generate(payload, ...) -> url
+
+
+@dataclass
+class PipelineState:
+    """The running project as it accretes through the stages."""
+
+    project: Project
+    images: list[ImageInput]
+    story_text: str
+    asset_analysis: list[AssetAnalysis] = field(default_factory=list)
+    shots: list[Shot] = field(default_factory=list)
+    payloads: list[SeedancePayload] = field(default_factory=list)
+    video_urls: dict[str, str] = field(default_factory=dict)  # shot_id -> url
+
+
+# --- stage 1: ingest --------------------------------------------------------
+
+
+def ingest(obj: dict[str, Any]) -> PipelineState:
+    """Validate the raw project dict and build the initial state."""
+    validate_project(obj)
+    project, images = project_from_dict(obj)
+    story_text = obj["inputs"]["story_text"]
+    return PipelineState(project=project, images=images, story_text=story_text)
+
+
+# --- stage 2: analyze assets ------------------------------------------------
+
+
+async def analyze_assets(state: PipelineState, deps: PipelineDeps) -> PipelineState:
+    """Run the vision analyzer over every input image."""
+    if deps.vision is None:
+        return state
+    out: list[AssetAnalysis] = []
+    for im in state.images:
+        out.append(await deps.vision.analyze(im.image_id, im.path))
+    state.asset_analysis = out
+    return state
+
+
+# --- stage 3: plan storyboard -----------------------------------------------
+
+
+async def plan_storyboard(state: PipelineState, deps: PipelineDeps) -> PipelineState:
+    """Turn the story text into shots via the text planner."""
+    if deps.planner is None:
+        return state
+    state.shots = await deps.planner.plan(
+        state.story_text,
+        aspect_ratio=state.project.aspect_ratio,
+        global_style=state.project.global_style,
+    )
+    return state
+
+
+# --- stage 4: map assets (rule-based) ---------------------------------------
+
+
+def _classify(analysis: AssetAnalysis, declared_kind: str) -> str:
+    """Decide whether an image is a character or a background.
+
+    Prefer the user-declared ``kind`` from the input; otherwise infer from the
+    VL ``usable_for`` / ``scene_tags`` tags. Defaults to background (a scene
+    plate is the safer default than mislabeling something as a character).
+    """
+    if declared_kind in ("character", "background"):
+        return declared_kind
+    hay = " ".join(analysis.usable_for + analysis.scene_tags).lower()
+    if "character" in hay or "角色" in hay or "person" in hay or "人物" in hay:
+        return "character"
+    return "background"
+
+
+def map_assets(state: PipelineState) -> PipelineState:
+    """Attach background/character image ids to each shot (rule-based MVP).
+
+    The MVP rule: split images into character vs background buckets (by declared
+    kind, else VL tags), then give every shot ALL characters + the first
+    background. This is deliberately simple and deterministic; smarter
+    per-shot embedding matching is a seam to add later without touching callers.
+    """
+    by_id = {a.image_id: a for a in state.asset_analysis}
+    declared = {im.image_id: im.kind for im in state.images}
+
+    characters: list[str] = []
+    backgrounds: list[str] = []
+    for im in state.images:
+        analysis = by_id.get(im.image_id)
+        kind = _classify(analysis, declared.get(im.image_id, "unknown")) if analysis \
+            else (im.kind if im.kind in ("character", "background") else "background")
+        (characters if kind == "character" else backgrounds).append(im.image_id)
+
+    for shot in state.shots:
+        if not shot.character_image_ids:
+            shot.character_image_ids = list(characters)
+        if not shot.background_image_ids and backgrounds:
+            shot.background_image_ids = [backgrounds[0]]
+    return state
+
+
+# --- stage 5: build payloads ------------------------------------------------
+
+
+def build_payloads(state: PipelineState) -> PipelineState:
+    """Assemble one Seedance payload per shot.
+
+    Mirrors the ARK content-shape verified live: a text block (prompt) plus
+    optional reference_image blocks (first character + first background), with
+    ratio/duration from the project/shot. Negative prompt is appended to the
+    text since Seedance takes a single text directive.
+    """
+    payloads: list[SeedancePayload] = []
+    model_name = "doubao-seedance-2-0-fast-260128"
+    img_path = {im.image_id: im.path for im in state.images}
+
+    for shot in state.shots:
+        text = shot.prompt
+        if shot.negative_prompt:
+            text = f"{text}\n\nAvoid: {shot.negative_prompt}"
+        content: list[dict[str, Any]] = [{"type": "text", "text": text}]
+        # First character + first background as reference frames, if present.
+        ref_ids: list[str] = []
+        if shot.character_image_ids:
+            ref_ids.append(shot.character_image_ids[0])
+        if shot.background_image_ids:
+            ref_ids.append(shot.background_image_ids[0])
+        for rid in ref_ids:
+            p = img_path.get(rid)
+            if p:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": p},
+                    "role": "reference_image",
+                })
+        payload = {
+            "model": model_name,
+            "content": content,
+            "ratio": state.project.aspect_ratio,
+            "duration": int(round(shot.duration_sec)),
+            "watermark": False,
+        }
+        payloads.append(SeedancePayload(shot_id=shot.shot_id, model=model_name, payload=payload))
+    state.payloads = payloads
+    return state
+
+
+# --- stage 6: render (opt-in, costs money) ----------------------------------
+
+
+def render(state: PipelineState, deps: PipelineDeps,
+           on_progress: Callable[[str, int, str], None] | None = None) -> PipelineState:
+    """Render each shot's payload to a video via Seedance (OPT-IN).
+
+    Only called when the caller explicitly enables rendering. Each clip is real
+    spend, so failures on one shot are recorded but don't abort the rest.
+    """
+    if deps.seedance is None:
+        return state
+    for p in state.payloads:
+        def _cb(i: int, st: str, _sid=p.shot_id) -> None:
+            if on_progress:
+                on_progress(_sid, i, st)
+        try:
+            url = deps.seedance.generate(p.payload, on_progress=_cb)
+            state.video_urls[p.shot_id] = url
+        except Exception as exc:  # noqa: BLE001 - record, keep going
+            state.video_urls[p.shot_id] = f"[failed: {type(exc).__name__}: {exc}]"
+    return state
+
+
+# --- stage 7: export --------------------------------------------------------
+
+
+def export(state: PipelineState, out_dir: Path) -> dict[str, Path]:
+    """Write asset_analysis / storyboard / seedance_payloads / video urls to json.
+
+    Returns the paths written. Video URLs are signed + expire (~24h) — noted in
+    the urls file so a stale link is understood rather than mysterious.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: dict[str, Path] = {}
+
+    files = {
+        "asset_analysis.json": [as_jsonable(a) for a in state.asset_analysis],
+        "storyboard.json": [as_jsonable(s) for s in state.shots],
+        "seedance_payloads.json": [as_jsonable(p) for p in state.payloads],
+    }
+    for name, data in files.items():
+        path = out_dir / name
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        written[name] = path
+
+    if state.video_urls:
+        urls_doc = {
+            "_note": "Seedance video URLs are signed and expire (~24h). Download promptly.",
+            "videos": state.video_urls,
+        }
+        path = out_dir / "video_urls.json"
+        path.write_text(json.dumps(urls_doc, ensure_ascii=False, indent=2), encoding="utf-8")
+        written["video_urls.json"] = path
+
+    return written
+
+
+# --- orchestration ----------------------------------------------------------
+
+
+async def run_pipeline(obj: dict[str, Any], deps: PipelineDeps, *,
+                       out_dir: "Path | None" = None, render_video: bool = False,
+                       on_progress: Callable[[str, int, str], None] | None = None
+                       ) -> tuple[PipelineState, dict[str, Path]]:
+    """Run all stages in order. Returns (final_state, exported_paths).
+
+    ``render_video`` defaults False — Seedance billing is opt-in. ``out_dir``
+    None skips the export write (used by tests that assert on state only).
+    """
+    state = ingest(obj)
+    state = await analyze_assets(state, deps)
+    state = await plan_storyboard(state, deps)
+    state = map_assets(state)
+    state = build_payloads(state)
+    if render_video:
+        state = render(state, deps, on_progress=on_progress)
+    written: dict[str, Path] = {}
+    if out_dir is not None:
+        written = export(state, out_dir)
+    return state, written

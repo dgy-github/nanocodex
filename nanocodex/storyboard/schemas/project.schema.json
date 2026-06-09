@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Storyboard Video Project",
+  "type": "object",
+  "required": ["project", "inputs"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["id", "title", "target_model", "aspect_ratio"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "genre": { "type": "string" },
+        "target_model": { "type": "string" },
+        "aspect_ratio": { "type": "string" },
+        "language": { "type": "string" },
+        "global_style": { "type": "string" }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "required": ["story_text", "images"],
+      "properties": {
+        "story_text": { "type": "string" },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["image_id", "path"],
+            "properties": {
+              "image_id": { "type": "string" },
+              "path": { "type": "string" },
+              "kind": {
+                "type": "string",
+                "enum": ["unknown", "character", "background", "composition"]
+              },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "characters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "role"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "gender": { "type": "string" },
+          "appearance_lock": { "type": "string" },
+          "reference_image_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "asset_analysis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["image_id", "summary"],
+        "properties": {
+          "image_id": { "type": "string" },
+          "summary": { "type": "string" },
+          "scene_tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "mood_tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "usable_for": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "storyboard": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["shot_id", "title", "duration_sec", "prompt"],
+        "properties": {
+          "shot_id": { "type": "string" },
+          "title": { "type": "string" },
+          "duration_sec": { "type": "number" },
+          "characters": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "background_image_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "character_image_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "camera": { "type": "string" },
+          "action": { "type": "string" },
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" }
+        }
+      }
+    },
+    "seedance_payloads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["shot_id", "model", "payload"],
+        "properties": {
+          "shot_id": { "type": "string" },
+          "model": { "type": "string" },
+          "payload": { "type": "object" }
+        }
+      }
+    }
+  }
+}

@@ -11,6 +11,7 @@ from nanocodex.tools.remember_tool import RememberTool
 from nanocodex.tools.schedule_tool import ManageScheduleTool
 from nanocodex.tools.shell import ShellTool
 from nanocodex.tools.skills_tool import ManageSkillsTool
+from nanocodex.tools.storyboard_tool import StoryboardTool
 from nanocodex.tools.update_plan import UpdatePlanTool, render_plan
 from nanocodex.tools.web_search import WebSearchTool
 
@@ -24,6 +25,7 @@ _DEFAULT_TOOL_CLASSES: list[type[Tool]] = [
     ManageScheduleTool,
     ManageSkillsTool,
     RememberTool,
+    StoryboardTool,
 ]
 
 
