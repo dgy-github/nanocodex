@@ -133,6 +133,11 @@ class NanocodexGUI:
         # handler), so it needs no lock. Stop cancels only the running turn, not
         # the queue (the user's chosen semantics: "stop current, queue goes on").
         self._pending_inputs: list[str] = []
+        # Files attached to the NEXT send (📎 button). Collected on the main
+        # thread, consumed when an idle turn starts. Image files become OpenAI
+        # multimodal blocks (build_user_content); text-like files are read and
+        # inlined into the prompt. Pending attachments ride the next idle send.
+        self._attached_files: list[str] = []
         # Cooperative cancellation: set to request the running turn stop at its
         # next iteration boundary (a Python thread can't be force-killed).
         self._cancel_event = threading.Event()
@@ -358,6 +363,11 @@ class NanocodexGUI:
         # it before sending (never silently replaces the user's words).
         self.enhance_btn = flat_btn(bottom, "✨", self._on_enhance)
         self.enhance_btn.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+        # 📎 Attach: pick local files for the NEXT send. Images become OpenAI
+        # multimodal blocks; text-like files (.txt/.md/.json…) are read and
+        # inlined into the prompt. The button label shows the pending count.
+        self.attach_btn = flat_btn(bottom, "📎", self._on_attach)
+        self.attach_btn.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
         # Dedicated, always-visible Stop button (disabled until a turn runs).
         self.stop_btn = tk.Button(
             bottom, text="■ Stop", command=self._request_stop,
@@ -2286,6 +2296,88 @@ class NanocodexGUI:
             return
         self._append(f"\n[remembered ▸ {bullet}]\n", "system")
 
+    # --- 📎 file attachments (ride the next send) --------------------------
+
+    def _on_attach(self, _event=None) -> str:
+        """📎 button: pick local files to attach to the NEXT message.
+
+        Images become OpenAI multimodal blocks (only seen by a vision-capable
+        model); other (text-like) files are read and inlined into the prompt.
+        Attachments are collected here on the main thread and consumed when an
+        idle turn starts (`_consume_attachments`), so picking files then hitting
+        Send carries them along.
+        """
+        from tkinter import filedialog
+
+        if self._loop is None:
+            return "break"
+        paths = filedialog.askopenfilenames(
+            title="Attach files for the next message", parent=self.root,
+        )
+        if not paths:
+            return "break"
+        self._attached_files.extend(paths)
+        self._refresh_attach_label()
+        names = ", ".join(Path(p).name for p in paths)
+        self._append(
+            f"\n[attached ▸ {names}]  ({len(self._attached_files)} for next send)\n",
+            "system",
+        )
+        return "break"
+
+    def _refresh_attach_label(self) -> None:
+        """Show the pending attachment count on the 📎 button (cosmetic)."""
+        btn = getattr(self, "attach_btn", None)
+        if btn is None:
+            return
+        n = len(self._attached_files)
+        try:
+            btn.config(text="📎" if n == 0 else f"📎 {n}")
+        except Exception:  # noqa: BLE001 - label is cosmetic, never crash
+            pass
+
+    def _consume_attachments(self, text: str) -> "str | list[dict]":
+        """Fold pending attachments into the message content, then clear them.
+
+        Returns a plain string when there are no images (text-only / no files),
+        or an OpenAI multimodal block list when image files are attached. Image
+        files go through `build_user_content`; text-like files are read and
+        inlined (size-capped) so they stay in the prompt the model sees. Always
+        clears `_attached_files` (one-shot, like the user expects of a 📎).
+        """
+        files = self._attached_files
+        self._attached_files = []
+        self._refresh_attach_label()
+        if not files:
+            return text
+
+        from nanocodex.agent.images import ImageError, build_user_content
+
+        image_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+        image_paths: list[str] = []
+        inlined: list[str] = []
+        for p in files:
+            if Path(p).suffix.lower() in image_exts:
+                image_paths.append(p)
+                continue
+            try:
+                raw = Path(p).read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                self._append(f"\n[attach skipped {Path(p).name}: {exc}]\n", "result_err")
+                continue
+            if len(raw) > 50_000:  # keep one big paste from blowing the prompt
+                raw = raw[:50_000] + "\n…[truncated]"
+            inlined.append(f"\n\n----- file: {Path(p).name} -----\n{raw}")
+
+        full_text = text + "".join(inlined)
+        if not image_paths:
+            return full_text
+        try:
+            return build_user_content(full_text, image_paths)
+        except ImageError as exc:
+            self._append(f"\n[image attach failed: {exc}]\n", "result_err")
+            return full_text
+
     def _on_enhance(self, _event=None) -> str:
         """✨ button: rewrite the composer text into a clearer prompt.
 
@@ -2755,12 +2847,18 @@ class NanocodexGUI:
 
         Shared by _on_send (when not busy) and the queue drain at turn end, so
         the 'echo + clear cancel + busy + spawn worker' sequence lives once.
+
+        Pending 📎 attachments are folded into the actual message content here
+        (`_consume_attachments`): the transcript still echoes the plain typed
+        text, but the worker receives the full content (a multimodal block list
+        when images are attached, so a vision model can see them).
         """
         self._append(f"\nyou › {text}\n", "user")
+        content = self._consume_attachments(text)
         self._cancel_event.clear()
         self._set_busy(True)
         self._worker = threading.Thread(
-            target=self._run_turn_thread, args=(text,), daemon=True,
+            target=self._run_turn_thread, args=(content,), daemon=True,
         )
         self._worker.start()
 
