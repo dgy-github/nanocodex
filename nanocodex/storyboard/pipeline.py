@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from nanocodex.agent.pricing import SEEDANCE_PRICING_AS_OF, seedance_cost_cny
 from nanocodex.storyboard.models import (
     AssetAnalysis,
     ImageInput,
@@ -49,7 +50,7 @@ class PipelineDeps:
 
     vision: Any = None       # VisionAnalyzer-like: .analyze(image_id, path) -> AssetAnalysis
     planner: Any = None      # TextPlanner-like: .plan(story_text, ...) -> list[Shot]
-    seedance: Any = None     # SeedanceClient-like: .generate(payload, ...) -> url
+    seedance: Any = None     # SeedanceClient-like: .generate(payload, ...) -> SeedanceResult
 
 
 @dataclass
@@ -63,6 +64,29 @@ class PipelineState:
     shots: list[Shot] = field(default_factory=list)
     payloads: list[SeedancePayload] = field(default_factory=list)
     video_urls: dict[str, str] = field(default_factory=dict)  # shot_id -> url
+    # Per-shot billing, captured at render: shot_id -> {total_tokens, cost_cny,
+    # has_video_input}. Only successful shots get an entry (failures aren't billed).
+    video_costs: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+def _payload_has_video_input(payload: dict[str, Any]) -> bool:
+    """True if a Seedance payload's content includes a VIDEO reference block.
+
+    Seedance charges a cheaper rate when the INPUT contains video (22 vs 37
+    CNY/1M). This pipeline currently sends only text + image reference frames,
+    so this is False today, but we detect it from the payload rather than
+    hardcoding so the rate stays correct if video inputs are added later.
+    """
+    content = payload.get("content")
+    if not isinstance(content, list):
+        return False
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = str(block.get("type", "")).lower()
+        if "video" in btype:
+            return True
+    return False
 
 
 # --- stage 1: ingest --------------------------------------------------------
@@ -213,8 +237,19 @@ def render(state: PipelineState, deps: PipelineDeps,
             if on_progress:
                 on_progress(_sid, i, st)
         try:
-            url = deps.seedance.generate(p.payload, on_progress=_cb)
-            state.video_urls[p.shot_id] = url
+            result = deps.seedance.generate(p.payload, on_progress=_cb)
+            state.video_urls[p.shot_id] = result.video_url
+            # Register cost from the task's own usage. Only successful tasks
+            # reach here (failures raise), and only those are billed.
+            usage = result.usage or {}
+            has_video = _payload_has_video_input(p.payload)
+            cost = seedance_cost_cny(usage, has_video_input=has_video)
+            if cost is not None:
+                state.video_costs[p.shot_id] = {
+                    "total_tokens": int(usage.get("total_tokens", 0)),
+                    "has_video_input": has_video,
+                    "cost_cny": round(cost, 4),
+                }
         except Exception as exc:  # noqa: BLE001 - record, keep going
             state.video_urls[p.shot_id] = f"[failed: {type(exc).__name__}: {exc}]"
     return state
@@ -251,6 +286,24 @@ def export(state: PipelineState, out_dir: Path) -> dict[str, Path]:
         path = out_dir / "video_urls.json"
         path.write_text(json.dumps(urls_doc, ensure_ascii=False, indent=2), encoding="utf-8")
         written["video_urls.json"] = path
+
+    if state.video_costs:
+        total_tokens = sum(int(c.get("total_tokens", 0)) for c in state.video_costs.values())
+        total_cny = round(sum(float(c.get("cost_cny", 0.0)) for c in state.video_costs.values()), 4)
+        cost_doc = {
+            "_note": (
+                "Seedance bills per task on the returned usage.total_tokens "
+                f"(rates as of {SEEDANCE_PRICING_AS_OF}: 37 CNY/1M without video "
+                "input, 22 CNY/1M with). Only successful tasks are billed."
+            ),
+            "currency": "CNY",
+            "total_tokens": total_tokens,
+            "total_cost_cny": total_cny,
+            "per_shot": state.video_costs,
+        }
+        path = out_dir / "video_cost.json"
+        path.write_text(json.dumps(cost_doc, ensure_ascii=False, indent=2), encoding="utf-8")
+        written["video_cost.json"] = path
 
     return written
 

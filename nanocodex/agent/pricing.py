@@ -16,6 +16,10 @@ DESIGN
 * **Honest about staleness.** Prices are a hardcoded snapshot. DeepSeek "reserves
   the right to adjust them", so the table carries its source + as-of date and an
   unknown model returns ``None`` (cost unknown) rather than a wrong number.
+* **Refuses to guess.** Some models (e.g. Seedance video) bill on axes a usage
+  dict doesn't capture cleanly (video-input mode, resolution/duration, token
+  resource packages). Those are listed in ``UNSUPPORTED_PRICING_MODELS`` with a
+  reason, so the caller shows "not priced yet" instead of a fabricated number.
 
 Source: DeepSeek official pricing (api-docs.deepseek.com), fetched 2026-06-06.
 USD per 1,000,000 tokens.
@@ -52,6 +56,78 @@ _PRICES: dict[str, ModelPrice] = {
 }
 
 _PER_TOKENS = 1_000_000
+
+
+# Models we deliberately DON'T price yet, with the reason. General extension
+# point keyed by the same longest-prefix match as _PRICES. Currently empty:
+# Seedance moved to its own CNY pricing below once its billing axis was verified.
+UNSUPPORTED_PRICING_MODELS: dict[str, str] = {}
+
+
+# --- Seedance (Volcengine ARK doubao-seedance) video pricing ----------------
+#
+# Billing axis VERIFIED against a live task (2026-06-10): a 5s/720p clip's task
+# response carried ``usage.total_tokens = 108900`` (and equal completion_tokens,
+# no prompt_tokens), so Seedance bills PER TOKEN on the returned total_tokens --
+# NOT per-video or per-second. Per the account's package terms: only SUCCESSFUL
+# generations are billed (failed requests cost nothing), and input text / image /
+# audio are not billed separately -- only the returned total_tokens count.
+#
+# Two CNY rates apply, by whether the INPUT contains video:
+#   * input WITHOUT video: 37 CNY / 1M tokens
+#   * input WITH    video: 22 CNY / 1M tokens
+# Priced in CNY (the package is billed in CNY); kept separate from the USD text
+# table above rather than inventing an FX rate. So cost_usd() returns None for
+# Seedance -- callers use seedance_cost_cny() instead.
+SEEDANCE_PRICING_AS_OF = "2026-06-10"
+SEEDANCE_CNY_PER_M_NO_VIDEO_INPUT = 37.0
+SEEDANCE_CNY_PER_M_WITH_VIDEO_INPUT = 22.0
+
+
+def is_seedance(model: str) -> bool:
+    """True if *model* is a Seedance video model (priced in CNY, not USD)."""
+    return (model or "").strip().lower().startswith("doubao-seedance")
+
+
+def seedance_cost_cny(
+    usage: dict[str, Any] | None, *, has_video_input: bool = False
+) -> float | None:
+    """CNY cost of one Seedance task from its response ``usage`` dict.
+
+    Bills ``usage.total_tokens`` at the package rate (37 CNY/1M without video
+    input, 22 CNY/1M with). Returns ``None`` when there is no positive
+    ``total_tokens`` -- e.g. a failed task, which the package does not bill -- so
+    the caller can show "no charge" rather than a misleading ``0.00``.
+    """
+    if not usage:
+        return None
+    total = _as_int(usage.get("total_tokens"))
+    if total <= 0:
+        return None
+    rate = (
+        SEEDANCE_CNY_PER_M_WITH_VIDEO_INPUT
+        if has_video_input
+        else SEEDANCE_CNY_PER_M_NO_VIDEO_INPUT
+    )
+    return total * rate / _PER_TOKENS
+
+
+def unsupported_reason(model: str) -> str | None:
+    """Return why *model* is intentionally not priced, or None if not listed.
+
+    Same matching as :func:`price_for` -- exact name, then longest known prefix
+    -- so a dated/suffixed variant (``doubao-seedance-2-0-fast-260128``) still
+    resolves to the base ``doubao-seedance`` entry.
+    """
+    name = (model or "").strip().lower()
+    if not name:
+        return None
+    if name in UNSUPPORTED_PRICING_MODELS:
+        return UNSUPPORTED_PRICING_MODELS[name]
+    for known in sorted(UNSUPPORTED_PRICING_MODELS, key=len, reverse=True):
+        if name.startswith(known):
+            return UNSUPPORTED_PRICING_MODELS[known]
+    return None
 
 
 def price_for(model: str) -> ModelPrice | None:

@@ -5,7 +5,10 @@ from __future__ import annotations
 from nanocodex.agent.pricing import (
     add_usage,
     cost_usd,
+    is_seedance,
     price_for,
+    seedance_cost_cny,
+    unsupported_reason,
 )
 
 
@@ -16,6 +19,35 @@ def test_price_for_exact_and_prefix_and_unknown():
     # Unknown model -> None (cost unknown, never a wrong number).
     assert price_for("gpt-4o") is None
     assert price_for("") is None
+
+
+def test_seedance_priced_in_cny_not_usd():
+    # Seedance bills PER TOKEN (verified against a live task), but in CNY on a
+    # different axis than the USD text models -- so it stays OUT of the USD table.
+    assert price_for("doubao-seedance-2-0-fast-260128") is None
+    assert cost_usd("doubao-seedance-2-0-fast-260128", {"total_tokens": 1000}) is None
+    # It is detected as a Seedance model and priced via seedance_cost_cny.
+    assert is_seedance("doubao-seedance-2-0-fast-260128") is True
+    assert is_seedance("deepseek-v4-pro") is False
+
+
+def test_seedance_cost_cny_by_video_input_mode():
+    # The live 5s/720p clip returned total_tokens = 108900.
+    usage = {"completion_tokens": 108900, "total_tokens": 108900}
+    # Input WITHOUT video: 37 CNY/1M -> 108900 * 37 / 1e6 = 4.0293 CNY
+    no_video = seedance_cost_cny(usage, has_video_input=False)
+    assert no_video is not None and abs(no_video - 4.0293) < 1e-9
+    # Input WITH video: 22 CNY/1M -> 108900 * 22 / 1e6 = 2.3958 CNY (cheaper)
+    with_video = seedance_cost_cny(usage, has_video_input=True)
+    assert with_video is not None and abs(with_video - 2.3958) < 1e-9
+    assert with_video < no_video
+
+
+def test_seedance_cost_cny_no_charge_when_no_tokens():
+    # Failed task (no total_tokens) is not billed -> None, not a misleading 0.00.
+    assert seedance_cost_cny(None) is None
+    assert seedance_cost_cny({}) is None
+    assert seedance_cost_cny({"total_tokens": 0}) is None
 
 
 def test_cost_unknown_model_returns_none():

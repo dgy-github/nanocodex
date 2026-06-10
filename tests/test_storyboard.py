@@ -15,7 +15,12 @@ import json
 
 import pytest
 
-from nanocodex.storyboard.clients import SeedanceClient, SeedanceError, _extract_json
+from nanocodex.storyboard.clients import (
+    SeedanceClient,
+    SeedanceError,
+    SeedanceResult,
+    _extract_json,
+)
 from nanocodex.storyboard.models import (
     AssetAnalysis,
     Shot,
@@ -179,7 +184,12 @@ class _FakeSeedance:
     def generate(self, payload, *, on_progress=None, **kw):
         if on_progress:
             on_progress(0, "succeeded")
-        return "https://example.com/video.mp4?sig=abc"
+        # Mirror the real client: return a SeedanceResult carrying usage so the
+        # pipeline can register cost. 108900 is the live-verified 5s/720p count.
+        return SeedanceResult(
+            video_url="https://example.com/video.mp4?sig=abc",
+            usage={"completion_tokens": 108900, "total_tokens": 108900},
+        )
 
 
 async def test_pipeline_offline_no_render(tmp_path):
@@ -235,11 +245,14 @@ def test_seedance_generate_happy_path():
         (200, json.dumps({"id": "task_1"})),                         # submit
         (200, json.dumps({"status": "running"})),                    # poll 1
         (200, json.dumps({"status": "succeeded",
-                          "content": {"video_url": "https://v/clip.mp4"}})),  # poll 2
+                          "content": {"video_url": "https://v/clip.mp4"},
+                          "usage": {"total_tokens": 108900}})),      # poll 2
     ])
     client = SeedanceClient("k", transport=transport, sleep=lambda s: None)
-    url = client.generate({"model": "m"}, max_polls=5, interval_s=0)
-    assert url == "https://v/clip.mp4"
+    result = client.generate({"model": "m"}, max_polls=5, interval_s=0)
+    # generate now returns a SeedanceResult carrying the URL + billing usage.
+    assert result.video_url == "https://v/clip.mp4"
+    assert result.usage.get("total_tokens") == 108900
 
 
 def test_seedance_generate_raises_on_failed():

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 from nanocodex.agent.images import encode_image_block
@@ -183,6 +184,20 @@ class SeedanceError(RuntimeError):
     """Raised when a Seedance task fails to submit or render."""
 
 
+@dataclass
+class SeedanceResult:
+    """Outcome of a finished Seedance task.
+
+    Carries the signed ``video_url`` plus the raw ``usage`` dict from the task
+    response. The live API returns ``usage.total_tokens`` on success (verified
+    2026-06-10), which is what Seedance bills on — so we keep it rather than
+    throwing it away. ``usage`` is ``{}`` when the response omitted it.
+    """
+
+    video_url: str
+    usage: dict[str, Any]
+
+
 class SeedanceClient:
     """Submit a video task to ARK and poll until it renders.
 
@@ -224,8 +239,12 @@ class SeedanceClient:
         except (json.JSONDecodeError, KeyError) as exc:
             raise SeedanceError(f"submit returned no task id: {body[:300]}") from exc
 
-    def poll_once(self, task_id: str) -> tuple[str, str]:
-        """GET task status once. Return (status, video_url_or_empty)."""
+    def poll_once(self, task_id: str) -> tuple[str, str, dict[str, Any]]:
+        """GET task status once. Return (status, video_url_or_empty, usage).
+
+        ``usage`` is the raw usage dict from the response (``{}`` if absent). On
+        success it carries ``total_tokens``, which is what Seedance bills on.
+        """
         status, body = self._transport(
             "GET", f"{self._base}/contents/generations/tasks/{task_id}",
             self._headers(), None,
@@ -238,27 +257,31 @@ class SeedanceClient:
             raise SeedanceError(f"poll returned non-JSON: {body[:200]}") from exc
         st = str(obj.get("status", ""))
         url = ""
+        usage = obj.get("usage") if isinstance(obj.get("usage"), dict) else {}
         if st == "succeeded":
             url = str((obj.get("content") or {}).get("video_url", ""))
-        return st, url
+        return st, url, usage
 
     def generate(self, payload: dict[str, Any], *, max_polls: int = 60,
                  interval_s: float = 6.0,
-                 on_progress: Callable[[int, str], None] | None = None) -> str:
-        """Submit then poll until the video is ready; return its signed URL.
+                 on_progress: Callable[[int, str], None] | None = None
+                 ) -> SeedanceResult:
+        """Submit then poll until the video is ready; return a SeedanceResult.
 
-        Raises SeedanceError on failure/timeout. ``on_progress(i, status)`` is
-        called each poll so a UI/CLI can show liveness.
+        The result carries the signed video URL plus the response ``usage`` dict
+        (with ``total_tokens`` for billing). Raises SeedanceError on
+        failure/timeout. ``on_progress(i, status)`` is called each poll so a
+        UI/CLI can show liveness.
         """
         task_id = self.submit(payload)
         for i in range(max_polls):
-            st, url = self.poll_once(task_id)
+            st, url, usage = self.poll_once(task_id)
             if on_progress:
                 on_progress(i, st)
             if st == "succeeded":
                 if not url:
                     raise SeedanceError(f"task {task_id} succeeded but had no video_url")
-                return url
+                return SeedanceResult(video_url=url, usage=usage)
             if st in ("failed", "cancelled"):
                 raise SeedanceError(f"task {task_id} ended as {st}")
             self._sleep(interval_s)
