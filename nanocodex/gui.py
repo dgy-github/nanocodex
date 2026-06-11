@@ -633,10 +633,18 @@ class NanocodexGUI:
             budget = int(getattr(loop.compaction, "token_budget", 0) or 0)
         except Exception:
             pass
+        # Seedance video spend (CNY) accrues on the shared ToolContext as the
+        # StoryboardTool renders clips. Read it back here so the status bar
+        # shows it alongside (but separate from) the USD turn cost.
+        seedance_cny = 0.0
+        try:
+            seedance_cny = float(getattr(loop.tools.ctx, "seedance_cost_cny", 0.0) or 0.0)
+        except Exception:
+            pass
         self.status.config(text=_build_status(
             busy=self._busy, auto_on=self._auto_approve_on,
             model=model, tokens=tokens, window=window, budget=budget,
-            session_cost=self._session_cost_usd,
+            session_cost=self._session_cost_usd, seedance_cny=seedance_cny,
         ) + "   ›")
 
     def _show_context_details(self) -> None:
@@ -4022,15 +4030,26 @@ def _fmt_usd(amount: float) -> str:
     return f"${amount:,.2f}"
 
 
+def _fmt_cny(amount: float) -> str:
+    """Format a CNY cost. Seedance clips cost a few yuan each, so 2 decimals
+    is plenty; sub-cent rounding isn't a concern as it is for USD turns."""
+    if amount <= 0:
+        return "¥0.00"
+    return f"¥{amount:,.2f}"
+
+
 def _build_status(*, busy: bool, auto_on: bool, model=None, tokens=None,
                   window=None, budget=None, error=None,
-                  session_cost=None) -> str:
+                  session_cost=None, seedance_cny=None) -> str:
     """Pure status-bar text builder (no Tk) so it can be unit-tested.
 
     Always shows state; shows the error if the loop failed to build (so the
     bar is never mysteriously blank); otherwise shows model + context usage.
     *session_cost* (USD float) is appended when present and > 0 — a fresh
     session with no priced turns yet shows nothing rather than "$0.00".
+    *seedance_cny* (CNY float) is shown SEPARATELY from session_cost: Seedance
+    bills in yuan on a different axis than the USD text models, and we don't
+    invent an FX rate to merge them.
     """
     parts = ["working…" if busy else "ready"]
     if auto_on:
@@ -4050,6 +4069,8 @@ def _build_status(*, busy: bool, auto_on: bool, model=None, tokens=None,
         parts.append(f"compact @ {_fmt_tok(budget)}")
     if session_cost is not None and session_cost > 0:
         parts.append(f"cost: {_fmt_usd(session_cost)}")
+    if seedance_cny is not None and seedance_cny > 0:
+        parts.append(f"seedance: {_fmt_cny(seedance_cny)}")
     return "  |  ".join(parts)
 
 

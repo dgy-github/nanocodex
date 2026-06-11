@@ -169,6 +169,19 @@ class StoryboardTool(Tool):
             lines.append("Video URLs (signed, expire ~24h):")
             for sid, url in state.video_urls.items():
                 lines.append(f"  {sid}: {url}")
+        if render_video and state.video_costs:
+            # Total this render's Seedance spend (CNY) and fold it into the
+            # session-wide running total on the shared ToolContext, so the GUI
+            # status bar can show it. Only successful shots are billed.
+            run_cny = round(
+                sum(float(c.get("cost_cny", 0.0)) for c in state.video_costs.values()), 4
+            )
+            run_tokens = sum(int(c.get("total_tokens", 0)) for c in state.video_costs.values())
+            self.ctx.seedance_cost_cny += run_cny
+            lines.append(
+                f"Seedance cost: ¥{run_cny:.4f} CNY for {len(state.video_costs)} clip(s) "
+                f"({run_tokens} tokens). Session total: ¥{self.ctx.seedance_cost_cny:.4f}."
+            )
         if notes:
             lines.append("Notes: " + " ".join(notes))
         return "\n".join(lines)

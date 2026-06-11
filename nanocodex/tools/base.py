@@ -28,6 +28,11 @@ class ToolContext:
     # mode the GUI's auto-approve toggle flips (auto-approve OFF -> True). It's
     # a plain bool the worker thread can read/flip safely (atomic in CPython).
     require_step_approval: bool = False
+    # Running total of Seedance video spend (CNY) for this session. The
+    # StoryboardTool adds each render's cost here so the GUI can show it in the
+    # status bar. Kept separate from the USD turn cost (no FX rate is invented):
+    # Seedance bills in CNY on a different axis than the text models.
+    seedance_cost_cny: float = 0.0
 
 
 class Tool(ABC):

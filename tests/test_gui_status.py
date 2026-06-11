@@ -5,6 +5,7 @@ from __future__ import annotations
 from nanocodex.gui import (
     _approval_short_circuit,
     _build_status,
+    _fmt_cny,
     _fmt_tok,
     _fmt_usd,
     _is_mcp_command,
@@ -80,6 +81,33 @@ def test_status_omits_cost_when_zero_or_none():
                            tokens=10, window=1000, session_cost=0.0)
     assert "cost:" not in s_none
     assert "cost:" not in s_zero
+
+
+# --- Seedance CNY readout (separate from USD) ------------------------------
+
+
+def test_fmt_cny():
+    assert _fmt_cny(0) == "¥0.00"
+    assert _fmt_cny(4.0293) == "¥4.03"
+    assert _fmt_cny(1234.5) == "¥1,234.50"
+
+
+def test_status_shows_seedance_cny_separately_from_usd():
+    # Both spends show, side by side, NOT merged (no FX rate is invented).
+    s = _build_status(busy=False, auto_on=False, model="m",
+                      tokens=10, window=1000, session_cost=0.0123,
+                      seedance_cny=8.0586)
+    assert "cost: $0.0123" in s
+    assert "seedance: ¥8.06" in s
+
+
+def test_status_omits_seedance_when_zero_or_none():
+    s_none = _build_status(busy=False, auto_on=False, model="m",
+                           tokens=10, window=1000, seedance_cny=None)
+    s_zero = _build_status(busy=False, auto_on=False, model="m",
+                           tokens=10, window=1000, seedance_cny=0.0)
+    assert "seedance:" not in s_none
+    assert "seedance:" not in s_zero
 
 
 # --- approval short-circuit (Codex "approve for session") -----------------
