@@ -83,6 +83,35 @@ SEEDANCE_PRICING_AS_OF = "2026-06-10"
 SEEDANCE_CNY_PER_M_NO_VIDEO_INPUT = 37.0
 SEEDANCE_CNY_PER_M_WITH_VIDEO_INPUT = 22.0
 
+# Tokens-per-second of generated video, MEASURED against the live API on
+# 2026-06-10 at 720p / 16:9: three clips returned 130500 tok @ 6s and 108900 tok
+# @ 5s -- a tight ~21,770 tok/s (21750, 21780, 21750). Used ONLY for a pre-render
+# COST ESTIMATE (you don't know total_tokens until the task finishes); the actual
+# bill always comes from the real usage via seedance_cost_cny. Resolution other
+# than 720p is unverified, so treat the estimate as 720p-calibrated.
+SEEDANCE_TOKENS_PER_SECOND_720P = 21770
+
+
+def estimate_seedance_cost_cny(
+    total_seconds: float, *, has_video_input: bool = False
+) -> float:
+    """Estimate CNY cost for *total_seconds* of 720p video BEFORE rendering.
+
+    Multiplies measured tokens/second by the package rate. This is an ESTIMATE
+    for budgeting (e.g. "8 shots, 46s -> ~37 CNY"); the real charge is computed
+    from the task's returned usage by :func:`seedance_cost_cny`. Calibrated at
+    720p -- other resolutions are unverified.
+    """
+    if total_seconds <= 0:
+        return 0.0
+    est_tokens = total_seconds * SEEDANCE_TOKENS_PER_SECOND_720P
+    rate = (
+        SEEDANCE_CNY_PER_M_WITH_VIDEO_INPUT
+        if has_video_input
+        else SEEDANCE_CNY_PER_M_NO_VIDEO_INPUT
+    )
+    return est_tokens * rate / _PER_TOKENS
+
 
 def is_seedance(model: str) -> bool:
     """True if *model* is a Seedance video model (priced in CNY, not USD)."""

@@ -5,6 +5,7 @@ from __future__ import annotations
 from nanocodex.agent.pricing import (
     add_usage,
     cost_usd,
+    estimate_seedance_cost_cny,
     is_seedance,
     price_for,
     seedance_cost_cny,
@@ -48,6 +49,23 @@ def test_seedance_cost_cny_no_charge_when_no_tokens():
     assert seedance_cost_cny(None) is None
     assert seedance_cost_cny({}) is None
     assert seedance_cost_cny({"total_tokens": 0}) is None
+
+
+def test_estimate_seedance_cost_matches_measured():
+    # Measured live: 5s -> 108900 tok -> 4.0293 CNY. The estimate uses the
+    # measured ~21770 tok/s, so a 5s estimate lands close to the real charge.
+    est_5s = estimate_seedance_cost_cny(5)
+    # 5 * 21770 = 108850 tok * 37 / 1e6 = 4.02745 CNY -- within a few cents of
+    # the real 4.0293 (the measured 108900 vs estimated 108850).
+    assert abs(est_5s - 4.0274) < 1e-3
+    # The full 8-shot, 46s storyboard estimate (used for budgeting before render).
+    est_46s = estimate_seedance_cost_cny(46)
+    assert abs(est_46s - 37.05) < 0.1
+    # With video input is cheaper (22 vs 37 CNY/1M).
+    assert estimate_seedance_cost_cny(46, has_video_input=True) < est_46s
+    # Non-positive duration -> zero, no crash.
+    assert estimate_seedance_cost_cny(0) == 0.0
+    assert estimate_seedance_cost_cny(-3) == 0.0
 
 
 def test_cost_unknown_model_returns_none():

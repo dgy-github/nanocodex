@@ -223,6 +223,85 @@ async def test_pipeline_offline_with_render(tmp_path):
     assert "expire" in urls_doc["_note"]
 
 
+def _fake_ark_transport(total_tokens=108900):
+    """A SeedanceClient transport that scripts ARK submit/poll with NO network.
+
+    POST (submit) -> a per-task id; GET (poll) -> 'succeeded' with a video_url and
+    a usage.total_tokens, so the WHOLE real client path (submit -> poll -> parse
+    usage) runs offline. Drives the end-to-end cost-registration test below.
+    """
+    counter = {"n": 0}
+
+    def _t(method, url, headers, body):
+        if method == "POST":
+            counter["n"] += 1
+            return (200, json.dumps({"id": f"task_{counter['n']}"}))
+        # GET poll: succeed immediately with a billable usage block.
+        return (200, json.dumps({
+            "status": "succeeded",
+            "content": {"video_url": "https://ark/clip.mp4?sig=x"},
+            "usage": {"completion_tokens": total_tokens, "total_tokens": total_tokens},
+        }))
+    return _t
+
+
+async def test_pipeline_render_registers_cost_via_real_client(tmp_path):
+    # End-to-end through the REAL SeedanceClient (only the HTTP transport is fake),
+    # so submit -> poll -> usage parsing -> seedance_cost_cny -> video_cost.json
+    # is exercised for real. No network, no key, no spend.
+    p = tmp_path / "a.png"
+    p.write_bytes(_PNG)
+    obj = _valid_obj([p])
+    client = SeedanceClient("k", transport=_fake_ark_transport(108900),
+                            sleep=lambda s: None)
+    deps = PipelineDeps(vision=_FakeVision(), planner=_FakePlanner(), seedance=client)
+    state, written = await run_pipeline(obj, deps, out_dir=tmp_path / "out",
+                                        render_video=True)
+
+    # Both shots rendered and BOTH got a cost entry (only successes are billed).
+    assert set(state.video_urls) == {"shot_01", "shot_02"}
+    assert set(state.video_costs) == {"shot_01", "shot_02"}
+
+    # Per-shot: 108900 tok, no video input (text+image payload), 37 CNY/1M ->
+    #   108900 * 37 / 1e6 = 4.0293 CNY each.
+    for sid in ("shot_01", "shot_02"):
+        c = state.video_costs[sid]
+        assert c["total_tokens"] == 108900
+        assert c["has_video_input"] is False
+        assert abs(c["cost_cny"] - 4.0293) < 1e-9
+
+    # video_cost.json is written and its aggregates are correct: 2 shots ->
+    #   total_tokens = 217800, total_cost_cny = 8.0586 CNY.
+    assert "video_cost.json" in written
+    cost_doc = json.loads((tmp_path / "out" / "video_cost.json").read_text(encoding="utf-8"))
+    assert cost_doc["currency"] == "CNY"
+    assert cost_doc["total_tokens"] == 217800
+    assert abs(cost_doc["total_cost_cny"] - 8.0586) < 1e-9
+    assert set(cost_doc["per_shot"]) == {"shot_01", "shot_02"}
+
+
+async def test_pipeline_render_failure_is_not_billed(tmp_path):
+    # A shot whose task fails (raises in the real client) must NOT get a cost
+    # entry -- the package bills only successful generations.
+    def _failing_transport(method, url, headers, body):
+        if method == "POST":
+            return (200, json.dumps({"id": "task_x"}))
+        return (200, json.dumps({"status": "failed"}))
+
+    p = tmp_path / "a.png"
+    p.write_bytes(_PNG)
+    obj = _valid_obj([p])
+    client = SeedanceClient("k", transport=_failing_transport, sleep=lambda s: None)
+    deps = PipelineDeps(vision=_FakeVision(), planner=_FakePlanner(), seedance=client)
+    state, written = await run_pipeline(obj, deps, out_dir=tmp_path / "out",
+                                        render_video=True)
+
+    # URLs record the failure marker; costs stay empty -> no video_cost.json.
+    assert all(v.startswith("[failed:") for v in state.video_urls.values())
+    assert state.video_costs == {}
+    assert not (tmp_path / "out" / "video_cost.json").exists()
+
+
 # --- SeedanceClient submit/poll parsing via fake transport ------------------
 
 
