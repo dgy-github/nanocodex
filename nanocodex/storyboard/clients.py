@@ -124,14 +124,25 @@ class TextPlanner:
 
     async def plan(self, story_text: str, *, aspect_ratio: str = "16:9",
                    global_style: str = "") -> list[Shot]:
-        filled = self._prompt.format(
-            story_text=story_text,
-            aspect_ratio=aspect_ratio,
-            global_style=global_style or "(none)",
+        # NB: substitute named placeholders with str.replace, NOT str.format —
+        # the prompt embeds a literal JSON example with many { } braces, which
+        # str.format would try to parse as fields (KeyError). replace touches
+        # only our three real placeholders and leaves the JSON braces intact.
+        filled = (
+            self._prompt
+            .replace("{story_text}", story_text)
+            .replace("{aspect_ratio}", aspect_ratio)
+            .replace("{global_style}", global_style or "(none)")
         )
         resp = await self._provider.chat([{"role": "user", "content": filled}])
         data = _extract_json(getattr(resp, "content", "") or "")
-        shots_raw = data.get("storyboard", data) if isinstance(data, dict) else data
+        # The prompt asks for {"shots": [...]}, but be lenient: accept the
+        # "storyboard" key too, or a bare top-level list, so a minor model
+        # deviation doesn't blow up the whole render.
+        if isinstance(data, dict):
+            shots_raw = data.get("shots", data.get("storyboard", data))
+        else:
+            shots_raw = data
         if not isinstance(shots_raw, list):
             raise ValueError("planner did not return a list of shots")
         shots: list[Shot] = []

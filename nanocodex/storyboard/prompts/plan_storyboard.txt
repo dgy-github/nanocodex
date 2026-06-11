@@ -1,4 +1,7 @@
 你是一个分镜导演。把下面这段故事文本拆成 6 到 10 个连续镜头（shot），用 JSON 输出。
+故事文本如下：
+
+{story_text}
 
 只输出一个 JSON 对象，不要任何额外文字、不要 markdown 代码块。结构如下：
 
@@ -10,7 +13,8 @@
       "camera": "镜头语言，如 medium side shot, slow push-in",
       "action": "这一镜发生什么（英文，给视频模型读）",
       "prompt": "给视频生成模型的正向 prompt（英文，画面描述详细）",
-      "negative_prompt": "负向约束（英文，如 no extra characters, no modern objects）"
+      "negative_prompt": "负向约束（英文，如 no extra characters, no modern objects）",
+      "characters": ["出现的角色名称列表（中文）"]
     }
   ]
 }

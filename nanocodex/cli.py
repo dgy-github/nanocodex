@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from typer.core import TyperGroup
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
@@ -42,7 +43,41 @@ from nanocodex.provider.deepseek import DeepSeekProvider, ProviderError
 from nanocodex.sandbox import Approver, ApprovalRequest, SandboxPolicy, make_executor
 from nanocodex.tools import ToolContext, ToolRegistry, render_plan
 
-app = typer.Typer(add_completion=False, help="A minimal Codex-style coding agent (DeepSeek backend).")
+class _SubcommandFirstGroup(TyperGroup):
+    """Route a leading subcommand name to the subcommand, not the ``task`` arg.
+
+    The root callback has an optional positional ``task`` (so ``nanocodex "fix
+    the bug"`` works as a one-shot). Click's group parser would otherwise greedily
+    bind a bare ``storyboard`` / ``schedule`` token to that ``task`` argument and
+    then fail to find the real subcommand (``No such command 'run'``). Here we
+    peek at the args: if the FIRST non-option token is a registered subcommand,
+    we let normal group dispatch handle it (task stays None); only a non-command
+    first token falls through to the one-shot task path.
+    """
+
+    def parse_args(self, ctx, args):
+        # Find the first non-option token. If it names a registered subcommand,
+        # temporarily DROP the optional ``task`` positional from this group's
+        # params so Click's parser can't swallow the subcommand name into it.
+        # (Merely nulling ctx.params["task"] fails: Command.parse_args re-binds
+        # the positional and overwrites it.) Restored in finally so help/other
+        # parses are unaffected.
+        first = next((t for t in args if not t.startswith("-")), None)
+        if first is not None and first in self.commands:
+            saved = self.params
+            self.params = [p for p in saved if getattr(p, "name", None) != "task"]
+            try:
+                return super().parse_args(ctx, args)
+            finally:
+                self.params = saved
+        return super().parse_args(ctx, args)
+
+
+app = typer.Typer(
+    add_completion=False,
+    cls=_SubcommandFirstGroup,
+    help="A minimal Codex-style coding agent (DeepSeek backend).",
+)
 console = Console()
 
 
