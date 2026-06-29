@@ -111,9 +111,45 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - **桌面打包路径：** Tauri 提供原生 shell + web UI 前端，比继续扩大 Tkinter 原型更适合
   长期发布。
 
+## 与 Claude Code / Fable 的能力校准
+
+截至 2026-06-29，公开 Claude Code 文档描述的是比本地开源 harness 更大的 Anthropic
+平台面：终端、IDE、桌面和浏览器入口；MCP、hooks、skills、auto memory、agent teams、
+cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context 变体。
+所以 `nanocodex` 应该被理解成一个紧凑的 Rust agent runtime，而不是对 Anthropic
+完整平台的等价声明。
+参考面来自 Claude Code 官方
+[overview](https://code.claude.com/docs/en/overview)、
+[context window](https://code.claude.com/docs/en/context-window)、
+[memory](https://code.claude.com/docs/en/memory)、
+[MCP](https://code.claude.com/docs/en/mcp) 和
+[hooks](https://code.claude.com/docs/en/hooks)。
+
+当前粗略估算如下：
+
+| 范围 | nanocodex Rust 估算 | 主要原因 |
+| --- | ---: | --- |
+| 本地 CLI harness 与工具循环，假设接入同等级前沿模型 | 55-65% | Rust typed loop、sandbox、审批、工具注册表、memory recall、context editing、checkpoints、MCP、skills 和 Tauri GUI 已覆盖较多本地 coding-agent harness。 |
+| 默认 DeepSeek 兼容模型线，对比 Claude Code + Fable 级模型的端到端表现 | 35-45% | harness 已能支撑不少工作流，但硬任务主要受模型推理、延迟、工具纪律和 Anthropic 原生集成影响。 |
+| Windows 本地发布和分发体验 | 60-70% | 原生 CLI zip 和 Tauri NSIS installer 已具备，但生态规模、跨入口体验和产品抛光还不是 Anthropic 平台级。 |
+
+本阶段要求补齐的四个控制面已经落到本地 runtime，但仍是本地实现：
+
+| 能力 | 当前覆盖 | 剩余差距 |
+| --- | ---: | --- |
+| Task budget | 70-80% | 模型/工具预算已执行，并对模型可见；还缺更丰富的云端任务额度、嵌套 subagent 预算核算和预算分析面板。 |
+| Context editing | 50-60% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；还缺 Anthropic 级长上下文模型变体、更细的 `/context` 检查和策略化 context pack。 |
+| Tool search | 55-65% | 工具 catalog 和 `tool_search` 已降低 schema 过载；还缺托管 connector/plugin 生态、远程认证 UX 和大规模动态工具排序。 |
+| Semantic memory | 45-55% | query-scoped lexical-semantic recall、`remember` 和 LLM merge 已有；还缺从纠错自动提炼 memory、更强 embedding/vector 检索，以及跨入口 memory 治理。 |
+
+最大的剩余差距不是普通 Rust 代码量，而是平台能力：Anthropic 原生工具/connector
+生态、托管 task budget 与云端执行、模型集成的 context 管理、一方 memory 行为，以及
+模型侧代码执行/分析能力。
+
 ## 目录
 
 - [项目阶段](#项目阶段)
+- [与 Claude Code / Fable 的能力校准](#与-claude-code--fable-的能力校准)
 - [亮点](#亮点)
 - [架构](#架构)
 - [工具](#工具)

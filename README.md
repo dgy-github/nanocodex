@@ -149,9 +149,48 @@ only adding more features:
 - **Desktop packaging path:** Tauri provides a native shell with a web UI
   frontend, a better long-term packaging fit than growing the Tkinter prototype.
 
+## Claude Code / Fable Gap Calibration
+
+As of 2026-06-29, public Claude Code documentation describes a broader
+Anthropic platform surface than a local open harness: terminal, IDE, desktop,
+and browser entry points; MCP, hooks, skills, auto memory, agent teams, and
+cloud/scheduled sessions; plus 1M-context variants for Fable 5, Opus 4.6, and
+Sonnet 4.6. `nanocodex` should therefore be read as a compact Rust agent
+runtime, not as a parity claim with the full Anthropic platform.
+Reference surface: Claude Code
+[overview](https://code.claude.com/docs/en/overview),
+[context window](https://code.claude.com/docs/en/context-window),
+[memory](https://code.claude.com/docs/en/memory),
+[MCP](https://code.claude.com/docs/en/mcp), and
+[hooks](https://code.claude.com/docs/en/hooks).
+
+The rough current estimate is:
+
+| Area | nanocodex Rust estimate | Main reason |
+| --- | ---: | --- |
+| Local CLI harness and tool loop, assuming a similar frontier model | 55-65% | The typed Rust loop, sandbox, approvals, tool registry, memory recall, context editing, checkpoints, MCP, skills, and Tauri GUI cover much of the local coding-agent harness. |
+| End-to-end performance with the default DeepSeek-compatible model line versus Claude Code on Fable-class models | 35-45% | The harness is close enough for many workflows, but model reasoning, latency, tool discipline, and Anthropic-native integrations dominate hard tasks. |
+| Release/distribution ergonomics for Windows local use | 60-70% | Native CLI zip and Tauri NSIS installer are in place, but the ecosystem and cross-surface product polish are not Anthropic-scale. |
+
+The four platform controls requested for this stage are now present, but they
+are local-runtime implementations:
+
+| Capability | Current coverage | Remaining gap |
+| --- | ---: | --- |
+| Task budget | 70-80% | Runtime model/tool budgets are enforced and visible to the model; missing richer cloud task quotas, nested subagent budget accounting, and budget analytics. |
+| Context editing | 50-60% | Send-time editing compresses tool results and drops old prefixes under budget; missing Anthropic-scale long-context model variants, richer `/context` inspection, and policy-driven context packs. |
+| Tool search | 55-65% | Tool catalogs and `tool_search` reduce schema overload; missing a managed connector/plugin ecosystem, remote auth UX, and large-scale dynamic tool ranking. |
+| Semantic memory | 45-55% | Query-scoped lexical-semantic recall, `remember`, and LLM merge exist; missing fully automatic correction-derived memory, stronger embedding/vector retrieval, and cross-surface memory governance. |
+
+The largest remaining gaps are not ordinary Rust code gaps. They are
+platform-level gaps: Anthropic's native tool/connectors ecosystem, managed
+task budgets and cloud execution, model-integrated context management,
+first-party memory behavior, and model-side code execution/analysis ability.
+
 ## Table of Contents
 
 - [Project Phases](#project-phases)
+- [Claude Code / Fable Gap Calibration](#claude-code--fable-gap-calibration)
 - [Highlights](#highlights)
 - [Architecture](#architecture)
 - [Tools](#tools)
