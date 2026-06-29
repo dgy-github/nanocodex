@@ -24,6 +24,7 @@ use crate::tools::{ApprovalRequest, Tool, ToolContext, ToolRegistry};
 
 pub struct McpTool {
     display_name: String,
+    description: String,
     def: McpToolDef,
     client: Rc<Mutex<McpClient>>,
     read_only: bool,
@@ -34,8 +35,10 @@ impl McpTool {
     pub fn new(def: McpToolDef, client: Rc<Mutex<McpClient>>) -> Self {
         let read_only = is_read_only_name(&def.name);
         let display_name = def.name.clone();
+        let description = def.description.clone();
         McpTool {
             display_name,
+            description,
             def,
             client,
             read_only,
@@ -52,8 +55,10 @@ impl McpTool {
         let read_only = is_read_only_name(&def.name);
         let approval_required = policy.approval_required(read_only);
         let display_name = mcp_tool_name(server, &def.name);
+        let description = mcp_tool_description(server, &def);
         McpTool {
             display_name,
+            description,
             def,
             client,
             read_only,
@@ -120,6 +125,15 @@ fn mcp_tool_name(server: &str, tool: &str) -> String {
     format!("mcp__{}__{}", sanitize_tool_part(server), sanitize_tool_part(tool))
 }
 
+fn mcp_tool_description(server: &str, def: &McpToolDef) -> String {
+    let meta = format!("MCP server '{server}' tool '{}'.", def.name);
+    if def.description.trim().is_empty() {
+        meta
+    } else {
+        format!("{meta} {}", def.description)
+    }
+}
+
 fn sanitize_tool_part(value: &str) -> String {
     let out = value
         .chars()
@@ -145,7 +159,7 @@ impl Tool for McpTool {
     }
 
     fn description(&self) -> &str {
-        &self.def.description
+        &self.description
     }
 
     fn parameters(&self) -> Value {
@@ -297,6 +311,21 @@ mod tests {
             mcp_tool_name("server.name", "read/path"),
             "mcp__server_name__read_path"
         );
+    }
+
+    #[test]
+    fn mcp_tool_description_includes_server_metadata() {
+        let def = McpToolDef {
+            name: "search_issues".into(),
+            description: "Search repository issues.".into(),
+            input_schema: serde_json::json!({"type": "object"}),
+        };
+
+        let description = mcp_tool_description("github", &def);
+
+        assert!(description.contains("MCP server 'github'"));
+        assert!(description.contains("tool 'search_issues'"));
+        assert!(description.contains("Search repository issues."));
     }
 
     #[test]

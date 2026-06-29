@@ -504,10 +504,7 @@ impl Tool for ToolSearchTool {
 
 fn tool_words(s: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for raw in s
-        .to_lowercase()
-        .split(|c: char| !c.is_alphanumeric() && c != '_')
-    {
+    for raw in s.to_lowercase().split(|c: char| !c.is_alphanumeric()) {
         let w = raw.trim_matches('_');
         if w.len() >= 2 && !out.iter().any(|x| x == w) {
             out.push(w.to_string());
@@ -520,22 +517,49 @@ fn catalog_score(entry: &ToolCatalogEntry, query_words: &[String]) -> i64 {
     if query_words.is_empty() {
         return 0;
     }
-    let hay = format!(
-        "{} {}",
-        entry.name.to_lowercase(),
-        entry.description.to_lowercase()
-    );
+    let name = entry.name.to_lowercase();
+    let description = entry.description.to_lowercase();
+    let terms = catalog_terms(entry);
     let mut score = 0;
     for q in query_words {
-        if entry.name.eq_ignore_ascii_case(q) {
-            score += 100;
-        } else if entry.name.to_lowercase().contains(q) {
-            score += 50;
-        } else if hay.contains(q) {
-            score += 20;
+        let q = q.as_str();
+        if name == q {
+            score += 140;
+        }
+        if terms.iter().any(|term| term == q) {
+            score += 90;
+        } else if name.contains(q) {
+            score += 55;
+        }
+        if description.contains(q) {
+            score += 25;
+        }
+        for alias in query_aliases(q).iter().copied() {
+            if terms.iter().any(|term| term == alias) {
+                score += 40;
+            } else if description.contains(alias) {
+                score += 15;
+            }
         }
     }
     score
+}
+
+fn catalog_terms(entry: &ToolCatalogEntry) -> Vec<String> {
+    let text = format!("{} {}", entry.name, entry.description);
+    tool_words(&text)
+}
+
+fn query_aliases(word: &str) -> &'static [&'static str] {
+    match word {
+        "repo" | "repository" => &["git", "github"],
+        "issue" | "issues" => &["ticket", "tickets", "bug", "bugs"],
+        "web" | "url" | "page" => &["fetch", "http", "browser"],
+        "installer" => &["nsis", "setup", "release", "package"],
+        "release" => &["installer", "package", "build"],
+        "shell" | "terminal" => &["command", "powershell", "cmd"],
+        _ => &[],
+    }
 }
 
 /// `read_file` — line-numbered reads. Read-only.
@@ -967,6 +991,59 @@ mod tests {
             .collect();
         assert!(names.contains(&"tool_search".to_string()));
         assert!(names.contains(&"deploy".to_string()));
+    }
+
+    #[test]
+    fn tool_search_gold_cases_rank_namespaces_and_capabilities() {
+        let catalog = vec![
+            ToolCatalogEntry {
+                name: "mcp__github__search_issues".into(),
+                description:
+                    "MCP server 'github' tool 'search_issues'. Search repository issues and pull requests."
+                        .into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "mcp__jira__create_ticket".into(),
+                description: "Create tickets in Jira project boards.".into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
+                name: "mcp__fetch__fetch".into(),
+                description: "MCP server 'fetch' tool 'fetch'. Fetch and extract web content from a URL."
+                    .into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "shell".into(),
+                description: "Run a shell command in the workspace.".into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
+                name: "release_packager".into(),
+                description: "Build release packages and NSIS installers.".into(),
+                read_only: false,
+            },
+        ];
+        let cases = [
+            ("triage github issue", "mcp__github__search_issues"),
+            ("open web url", "mcp__fetch__fetch"),
+            ("run terminal command", "shell"),
+            ("windows nsis installer package", "release_packager"),
+        ];
+
+        for (query, expected) in cases {
+            let words = tool_words(query);
+            let mut ranked: Vec<(i64, &ToolCatalogEntry)> = catalog
+                .iter()
+                .map(|entry| (catalog_score(entry, &words), entry))
+                .filter(|(score, _)| *score > 0)
+                .collect();
+            ranked.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
+
+            let got = ranked.first().map(|(_, entry)| entry.name.as_str());
+            assert_eq!(got, Some(expected), "query={query}; ranked={ranked:?}");
+        }
     }
 
     fn schema_desc(schemas: &[Value], name: &str) -> Option<String> {

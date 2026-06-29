@@ -120,10 +120,12 @@ tool.
   recent provider payload snapshots via `/context payload [N]`.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
-  hits are made visible in the next schema view. The Rust REPL exposes `/tools`
-  to inspect the catalog, visible schema view, and active search hints. The
-  Tauri Tools panel reads the same live catalog and shows MCP server status,
-  registered tool counts, startup elapsed time, and the last connection error.
+  hits are made visible in the next schema view. Ranking is namespace-aware for
+  MCP tools (`mcp__server__tool`) and has gold-case regression coverage for
+  common tool-selection queries. The Rust REPL exposes `/tools` to inspect the
+  catalog, visible schema view, and active search hints. The Tauri Tools panel
+  reads the same live catalog and shows MCP server status, registered tool
+  counts, startup elapsed time, and the last connection error.
 - **Semantic memory:** every turn receives a query-scoped memory recall note at
   send time. Retrieval uses a hybrid lexical semantic ranker: keywords, tags,
   phrase matches, Jaccard similarity, recency, and a small domain synonym map
@@ -193,7 +195,7 @@ are local-runtime implementations:
 | --- | ---: | --- |
 | Task budget | 80-88% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and richer analytics. |
 | Context editing | 55-65% | Send-time editing compresses tool results and drops old prefixes under budget, and provider payload snapshots make the actual model input auditable. Still missing Anthropic-scale long-context model variants and policy-driven context packs. |
-| Tool search / connectors | 60-70% | Tool catalogs, `tool_search`, GUI MCP runtime status, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, and large-scale dynamic tool ranking. |
+| Tool search / connectors | 62-72% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, gold-case ranking tests, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, and large-scale dynamic tool ranking. |
 | Semantic memory | 45-55% | Query-scoped lexical-semantic recall, `remember`, and LLM merge exist; missing fully automatic correction-derived memory, stronger embedding/vector retrieval, and cross-surface memory governance. |
 
 The largest remaining gaps are not ordinary Rust code gaps. They are
