@@ -128,6 +128,8 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 [memory](https://code.claude.com/docs/en/memory)、
 [MCP](https://code.claude.com/docs/en/mcp) 和
 [hooks](https://code.claude.com/docs/en/hooks)。
+更细的缺口拆解和近期 backlog 见
+[`docs/claude-fable-gap-roadmap.zh-CN.md`](docs/claude-fable-gap-roadmap.zh-CN.md)。
 
 当前粗略估算如下：
 
@@ -154,6 +156,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 
 - [项目阶段](#项目阶段)
 - [与 Claude Code / Fable 的能力校准](#与-claude-code--fable-的能力校准)
+- [Claude/Fable 差距路线图](docs/claude-fable-gap-roadmap.zh-CN.md)
 - [亮点](#亮点)
 - [架构](#架构)
 - [工具](#工具)
@@ -600,7 +603,7 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 - Checkpoint 面板提供手动保存 / 列表 / 恢复。
 - Custom command 面板复用 CLI 同一套 `.nanocodex/.claude` 模板展开器。
 - Usage 面板展示上一轮和当前 session 的模型调用数、工具调用数、输入/输出 token、
-  缓存命中/未命中 token，以及 context editing telemetry。
+  缓存命中/未命中 token、费用估算，以及 context editing telemetry。
 - Memory 面板可查看项目笔记、新增 verified note、打开 `LEARNINGS.md`、启发式去重和 LLM 记忆合并。
 
 原 Tkinter GUI 仍作为 Python 树里的 legacy 原型保留。注意：桌面 GUI 不热加载——改代码需要关掉再重开。

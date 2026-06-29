@@ -167,6 +167,8 @@ Reference surface: Claude Code
 [memory](https://code.claude.com/docs/en/memory),
 [MCP](https://code.claude.com/docs/en/mcp), and
 [hooks](https://code.claude.com/docs/en/hooks).
+Detailed current backlog and gap sizing live in
+[`docs/claude-fable-gap-roadmap.zh-CN.md`](docs/claude-fable-gap-roadmap.zh-CN.md).
 
 The rough current estimate is:
 
@@ -195,6 +197,7 @@ first-party memory behavior, and model-side code execution/analysis ability.
 
 - [Project Phases](#project-phases)
 - [Claude Code / Fable Gap Calibration](#claude-code--fable-gap-calibration)
+- [Claude/Fable Gap Roadmap](docs/claude-fable-gap-roadmap.zh-CN.md)
 - [Highlights](#highlights)
 - [Architecture](#architecture)
 - [Tools](#tools)
@@ -699,7 +702,8 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
 - Custom command panel backed by the same core `.nanocodex/.claude` template
   engine the CLI uses.
 - Usage panel for last-turn and session model calls, tool calls, prompt tokens,
-  completion tokens, cache hit/miss tokens, and context-edit telemetry.
+  completion tokens, cache hit/miss tokens, estimated cost, and context-edit
+  telemetry.
 - Memory panel for viewing project notes, adding verified notes, opening
   `LEARNINGS.md`, heuristic deduplication, and LLM-backed memory merge.
 

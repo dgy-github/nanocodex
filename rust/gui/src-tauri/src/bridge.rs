@@ -57,6 +57,14 @@ pub const EVENT: &str = "ncx://event";
 /// to answer). `Send + Sync` so it can live in Tauri state.
 pub type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<ApprovalDecision>>>>;
 
+#[derive(Clone, Serialize)]
+pub struct ContextEditView {
+    original_chars: usize,
+    edited_chars: usize,
+    compressed_tool_results: usize,
+    dropped_messages: usize,
+}
+
 /// A request from the UI to the agent thread.
 pub enum Command {
     /// A user turn. `images` are absolute paths attached via the file picker;
@@ -125,8 +133,11 @@ pub enum UiEvent {
     /// The turn finished.
     Done {
         final_text: String,
+        iterations: usize,
         stop_reason: String,
+        tools_used: Vec<String>,
         usage: Value,
+        context_edit: ContextEditView,
     },
     /// A session was resumed/forked — the UI should replace its transcript with
     /// these restored messages.
@@ -380,9 +391,19 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                                 &app,
                                 UiEvent::Done {
                                     final_text: result.final_text,
+                                    iterations: result.iterations,
                                     stop_reason: result.stop_reason,
+                                    tools_used: result.tools_used,
                                     usage: serde_json::to_value(&result.usage)
                                         .unwrap_or(Value::Null),
+                                    context_edit: ContextEditView {
+                                        original_chars: result.context_edit.original_chars,
+                                        edited_chars: result.context_edit.edited_chars,
+                                        compressed_tool_results: result
+                                            .context_edit
+                                            .compressed_tool_results,
+                                        dropped_messages: result.context_edit.dropped_messages,
+                                    },
                                 },
                             );
                         }

@@ -1460,6 +1460,45 @@ main.app { flex-direction: row; }
   font-family: var(--font-mono);
   font-variant-ligatures: none;
 }
+.usage-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.usage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  padding: var(--sp-3);
+}
+.usage-card strong {
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
+.usage-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.usage-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-row b {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
 
 /* ── Thinking indicator ───────────────────────────────────────────────────── */
 .thinking {

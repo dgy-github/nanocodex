@@ -16,7 +16,7 @@
     | { kind: "tool_start"; name: string; args: string }
     | { kind: "tool_result"; name: string; result: string }
     | { kind: "approval"; id: number; command: string; reason: string; cwd: string; details: string }
-    | { kind: "done"; final_text: string; stop_reason: string; usage: Record<string, number> }
+    | { kind: "done"; final_text: string; iterations: number; stop_reason: string; tools_used: string[]; usage: UsageMap; context_edit: ContextEditStats }
     | { kind: "loaded"; messages: { role: string; text: string }[] }
     | { kind: "error"; message: string };
 
@@ -92,6 +92,25 @@
   let sandboxMode = $state("");
   let tokIn = $state(0);
   let tokOut = $state(0);
+  type UsageMap = Record<string, number>;
+  type ContextEditStats = {
+    original_chars: number;
+    edited_chars: number;
+    compressed_tool_results: number;
+    dropped_messages: number;
+  };
+  type TurnMetrics = {
+    iterations: number;
+    stop_reason: string;
+    tool_calls: number;
+    usage: UsageMap;
+    context_edit: ContextEditStats;
+  };
+  let lastMetrics = $state<TurnMetrics | null>(null);
+  let sessionModelCalls = $state(0);
+  let sessionToolCalls = $state(0);
+  let sessionCompressedToolResults = $state(0);
+  let sessionDroppedMessages = $state(0);
   // Per-1M-token prices (from config); 0 = unknown → cost is hidden.
   let priceIn = $state(0);
   let priceOut = $state(0);
@@ -99,6 +118,49 @@
   let streamingIdx = $state<number | null>(null); // index of the bubble being streamed
   const fmtTok = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
   const fmtCost = (n: number) => (n >= 1 ? n.toFixed(2) : n.toFixed(4));
+  const usageValue = (usage: UsageMap | null | undefined, key: string) => usage?.[key] ?? 0;
+  const totalTokens = (usage: UsageMap | null | undefined) =>
+    usageValue(usage, "prompt_tokens") + usageValue(usage, "completion_tokens");
+  function emptyContextEdit(): ContextEditStats {
+    return { original_chars: 0, edited_chars: 0, compressed_tool_results: 0, dropped_messages: 0 };
+  }
+  function savedContextChars(stats: ContextEditStats | null | undefined) {
+    if (!stats) return 0;
+    return Math.max(0, (stats.original_chars ?? 0) - (stats.edited_chars ?? 0));
+  }
+  function addUsage(left: UsageMap, right: UsageMap | null | undefined) {
+    const merged: UsageMap = { ...left };
+    for (const [key, value] of Object.entries(right ?? {})) merged[key] = (merged[key] ?? 0) + value;
+    return merged;
+  }
+  let sessionUsage = $state<UsageMap>({});
+  function resetUsage() {
+    tokIn = 0;
+    tokOut = 0;
+    lastMetrics = null;
+    sessionUsage = {};
+    sessionModelCalls = 0;
+    sessionToolCalls = 0;
+    sessionCompressedToolResults = 0;
+    sessionDroppedMessages = 0;
+  }
+  function recordMetrics(turn: Extract<UiEvent, { kind: "done" }>) {
+    const contextEdit = turn.context_edit ?? emptyContextEdit();
+    lastMetrics = {
+      iterations: turn.iterations ?? 0,
+      stop_reason: turn.stop_reason,
+      tool_calls: turn.tools_used?.length ?? 0,
+      usage: turn.usage ?? {},
+      context_edit: contextEdit,
+    };
+    sessionUsage = addUsage(sessionUsage, turn.usage);
+    sessionModelCalls += turn.iterations ?? 0;
+    sessionToolCalls += turn.tools_used?.length ?? 0;
+    sessionCompressedToolResults += contextEdit.compressed_tool_results ?? 0;
+    sessionDroppedMessages += contextEdit.dropped_messages ?? 0;
+    tokIn = usageValue(sessionUsage, "prompt_tokens");
+    tokOut = usageValue(sessionUsage, "completion_tokens");
+  }
 
   // ── Collapsible tool output ───────────────────────────────────────────────
   // Large results auto-collapse so a single dump can't bury the conversation.
@@ -219,9 +281,9 @@
   function toggleTool(m: Msg) {
     if (m.role === "tool" && m.result !== undefined) m.collapsed = !m.collapsed;
   }
-  let rightPanel = $state(""); // "" | files | branches | diff | memory | checkpoints
+  let rightPanel = $state(""); // "" | files | branches | diff | memory | checkpoints | usage
   const PANEL_TITLES: Record<string, string> = {
-    files: "文件", branches: "Git 分支", diff: "工作区改动", memory: "项目记忆", checkpoints: "检查点",
+    files: "文件", branches: "Git 分支", diff: "工作区改动", memory: "项目记忆", checkpoints: "检查点", usage: "用量",
   };
   let currentSessionId = $state("");
   // Topbar model quick-switch
@@ -295,6 +357,7 @@
           if (p.models?.length) models = p.models;
           if (p.permission_mode) permissionMode = p.permission_mode;
           // Learn the active session's real id so 最近会话 can mark/return to it.
+          if (p.session_id && currentSessionId && p.session_id !== currentSessionId) resetUsage();
           if (p.session_id) currentSessionId = p.session_id;
           refreshSessions();
           break;
@@ -350,11 +413,7 @@
           if (p.stop_reason !== "completed") {
             messages.push({ role: "note", text: `[${p.stop_reason}] ${p.final_text}` });
           }
-          {
-            const u = p.usage || {};
-            tokIn += u.prompt_tokens || 0;
-            tokOut += u.completion_tokens || 0;
-          }
+          recordMetrics(p);
           streamingIdx = null;
           busy = false;
           refreshSessions();
@@ -881,6 +940,9 @@
       return String(ts);
     }
   }
+  function openUsage() {
+    rightPanel = rightPanel === "usage" ? "" : "usage";
+  }
 
   // ── Slash command palette (type `/` in the composer) ──────────────────────
   let slashIdx = $state(0);
@@ -891,8 +953,7 @@
     else messages.push({ role: "note", text: "当前会话还没有快照，无法分叉（先发一条消息）。" });
   }
   function cmdUsage() {
-    const c = priceIn || priceOut ? ` · ≈¥${fmtCost(cost)}` : "";
-    messages.push({ role: "note", text: `本会话用量：输入 ${tokIn} / 输出 ${tokOut} tokens${c}` });
+    openUsage();
   }
   async function cmdMcp() {
     try {
@@ -931,7 +992,7 @@
     { id: "rename", label: "重命名会话", desc: "给当前会话改名（规划中）", run: () => cmdRename() },
     { id: "model", label: "切换模型", desc: "打开模型选择", run: () => (modelMenuOpen = true) },
     { id: "config", label: "设置", desc: "打开设置面板", run: () => openSettings() },
-    { id: "usage", label: "用量", desc: "显示本会话 token / 费用", run: () => cmdUsage() },
+    { id: "usage", label: "用量", desc: "显示本会话 token / 费用 / 上下文", run: () => cmdUsage() },
     { id: "rewind", label: "检查点", desc: "查看 / 恢复检查点", run: () => openCheckpoints() },
     { id: "files", label: "文件", desc: "浏览 / 预览工作区文件", run: () => openFiles() },
     { id: "diff", label: "改动", desc: "查看工作区 diff", run: () => openDiff() },
@@ -1038,6 +1099,9 @@
         </button>
         <button class="tbtn" class:on={rightPanel === "branches"} onclick={openBranches} title="分支" aria-label="分支">
           <svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6M6 13a6 6 0 0 0 6-6h3.8"/></svg>
+        </button>
+        <button class="tbtn" class:on={rightPanel === "usage"} onclick={openUsage} title="用量" aria-label="用量">
+          <svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-3"/></svg>
         </button>
         <button class="tbtn" class:on={rightPanel === "memory"} onclick={openHermes} title="记忆" aria-label="记忆">
           <svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z"/><path d="M9 4v16"/></svg>
@@ -1336,6 +1400,56 @@
               {/if}
             </div>
           {/each}
+        </div>
+      </div>
+    </aside>
+  {/if}
+
+  {#if rightPanel === "usage"}
+    <aside class="rightpanel">
+      <div class="rp-head"><span class="rp-title">用量与上下文</span><span class="rp-actions"><button class="plain rp-refresh" onclick={resetUsage}>重置</button><button class="rp-close" onclick={() => (rightPanel = "")} aria-label="关闭">×</button></span></div>
+      <div class="rp-body">
+        <div class="usage-grid">
+          <div class="usage-card">
+            <strong>上一轮</strong>
+            {#if lastMetrics}
+              <div class="usage-row"><span>模型调用</span><b>{lastMetrics.iterations}</b></div>
+              <div class="usage-row"><span>工具调用</span><b>{lastMetrics.tool_calls}</b></div>
+              <div class="usage-row"><span>停止原因</span><b>{lastMetrics.stop_reason}</b></div>
+              <div class="usage-row"><span>输入 token</span><b>{usageValue(lastMetrics.usage, "prompt_tokens")}</b></div>
+              <div class="usage-row"><span>输出 token</span><b>{usageValue(lastMetrics.usage, "completion_tokens")}</b></div>
+              <div class="usage-row"><span>总 token</span><b>{totalTokens(lastMetrics.usage)}</b></div>
+              <div class="usage-row"><span>缓存命中</span><b>{usageValue(lastMetrics.usage, "prompt_cache_hit_tokens")}</b></div>
+              <div class="usage-row"><span>缓存未命中</span><b>{usageValue(lastMetrics.usage, "prompt_cache_miss_tokens")}</b></div>
+            {:else}
+              <p class="emptyline">还没有完成的模型轮次。</p>
+            {/if}
+          </div>
+          <div class="usage-card">
+            <strong>当前会话</strong>
+            <div class="usage-row"><span>模型调用</span><b>{sessionModelCalls}</b></div>
+            <div class="usage-row"><span>工具调用</span><b>{sessionToolCalls}</b></div>
+            <div class="usage-row"><span>输入 token</span><b>{usageValue(sessionUsage, "prompt_tokens")}</b></div>
+            <div class="usage-row"><span>输出 token</span><b>{usageValue(sessionUsage, "completion_tokens")}</b></div>
+            <div class="usage-row"><span>总 token</span><b>{totalTokens(sessionUsage)}</b></div>
+            {#if priceIn || priceOut}
+              <div class="usage-row"><span>估算费用</span><b>¥{fmtCost(cost)}</b></div>
+            {/if}
+          </div>
+          <div class="usage-card">
+            <strong>Context editing</strong>
+            {#if lastMetrics}
+              <div class="usage-row"><span>原始字符</span><b>{lastMetrics.context_edit.original_chars}</b></div>
+              <div class="usage-row"><span>发送字符</span><b>{lastMetrics.context_edit.edited_chars}</b></div>
+              <div class="usage-row"><span>节省字符</span><b>{savedContextChars(lastMetrics.context_edit)}</b></div>
+              <div class="usage-row"><span>压缩工具结果</span><b>{lastMetrics.context_edit.compressed_tool_results}</b></div>
+              <div class="usage-row"><span>丢弃消息</span><b>{lastMetrics.context_edit.dropped_messages}</b></div>
+            {:else}
+              <p class="emptyline">还没有 context telemetry。</p>
+            {/if}
+            <div class="usage-row"><span>累计压缩</span><b>{sessionCompressedToolResults}</b></div>
+            <div class="usage-row"><span>累计丢弃</span><b>{sessionDroppedMessages}</b></div>
+          </div>
         </div>
       </div>
     </aside>

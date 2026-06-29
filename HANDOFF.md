@@ -5,7 +5,8 @@
 
 ## 元信息
 - 最后更新：2026-06-29
-- 分支：**`rust-capability`**（基于 rust-rewrite，已推 `origin`）。Python 树 `nanocodex/*.py` 不动。
+- 当前集成分支：**`codex/gui-mcp-integration`**（已推 `origin`）。基线能力分支仍可参考
+  `codex/mcp-status-command` / `rust-capability`；Python 树 `nanocodex/*.py` 不动。
 - remote：`origin` → https://github.com/dgy-github/nanocodex.git（凭据已配）
 - 路径：crates `rust/crates/`，GUI `rust/gui/`，基准 `bench/`。
 - 工具链：无 MSVC，用 `x86_64-pc-windows-gnu`；Rust 验证入口是 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1`
@@ -14,6 +15,10 @@
   再跑 Windows Rust fmt/test/Tauri check + Python offline tests，可作为本地缺 cargo 时的
   release gate；发布前按 `docs/release-checklist.md` 逐项确认。
 - ✅ **`feat/train` 已并入 rust-capability**（merge `a26793b`）：ncx-forge 训练框架全部回灌 —— `genome.rs` 读 `NCX_GENOME` 覆盖 prompt/工具描述、`--dump-genome`/`--from-genome` CLI、`train/` 纯 Python 框架。详见下节 + `train/DESIGN.md`。
+- ✅ **GUI/Tauri release 线已收进 `codex/gui-mcp-integration`**：Tauri installer/config
+  入口、permission mode、模型快切、workspace/session/fork/archive、右侧 Files/Diff/Branches/Memory
+  面板已合并；GUI `Usage` 面板已补回 last-turn/session usage、费用估算和 context-edit
+  telemetry。详细差距路线图见 `docs/claude-fable-gap-roadmap.zh-CN.md`。
 
 ## ncx-forge 训练框架（分支 `feat/train`，已推 origin）— 当前活跃工作线
 目标：让强模型当"教师"迭代优化 agent 骨架（system_prompt + 工具描述），用 bench 通过率当
