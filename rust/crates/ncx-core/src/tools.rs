@@ -570,7 +570,12 @@ fn query_aliases(word: &str) -> &'static [&'static str] {
         "slack" | "chat" => &["message", "channel"],
         "calendar" | "meeting" => &["event", "schedule"],
         "oauth" | "auth" => &["authentication", "authorization"],
-        "docs" | "document" => &["notion", "page", "wiki"],
+        "docs" | "document" | "wiki" => &["notion", "page", "wiki"],
+        "ci" | "check" | "checks" | "status" => &["workflow", "build", "test", "github"],
+        "deploy" | "cloud" => &["cloudflare", "vercel", "worker", "infrastructure"],
+        "design" | "prototype" => &["figma", "mockup"],
+        "monitoring" | "monitor" | "logs" | "alert" => &["sentry", "datadog"],
+        "email" | "mail" => &["gmail", "message"],
         _ => &[],
     }
 }
@@ -1125,6 +1130,27 @@ mod tests {
                 description: "Deploy Cloudflare workers and edge functions.".into(),
                 read_only: false,
             },
+            ToolCatalogEntry {
+                name: "mcp__figma__get_file".into(),
+                description:
+                    "MCP server 'figma' tool 'get_file'. Capability hints: design figma prototype read search lookup."
+                        .into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "mcp__sentry__list_issues".into(),
+                description:
+                    "MCP server 'sentry' tool 'list_issues'. Capability hints: monitoring logs alerts issue-tracking ticket bug triage read search lookup."
+                        .into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "mcp__gmail__send_email".into(),
+                description:
+                    "MCP server 'gmail' tool 'send_email'. Capability hints: email message write mutate."
+                        .into(),
+                read_only: false,
+            },
         ];
         let cases = [
             ("triage github issue", "mcp__github__search_issues"),
@@ -1141,6 +1167,9 @@ mod tests {
             ("schedule calendar meeting", "mcp__google_calendar__create_event"),
             ("search docs wiki", "mcp__notion__search_pages"),
             ("deploy cloudflare worker", "mcp__cloudflare__deploy_worker"),
+            ("open figma design prototype", "mcp__figma__get_file"),
+            ("review monitoring logs alert", "mcp__sentry__list_issues"),
+            ("send email message", "mcp__gmail__send_email"),
             ("read source file", "read_file"),
             ("edit code patch", "apply_patch"),
             ("write todo plan", "update_plan"),

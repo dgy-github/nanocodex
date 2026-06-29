@@ -127,10 +127,164 @@ fn mcp_tool_name(server: &str, tool: &str) -> String {
 
 fn mcp_tool_description(server: &str, def: &McpToolDef) -> String {
     let meta = format!("MCP server '{server}' tool '{}'.", def.name);
-    if def.description.trim().is_empty() {
-        meta
+    let hints = mcp_capability_hints(server, def);
+    let hints = if hints.is_empty() {
+        String::new()
     } else {
-        format!("{meta} {}", def.description)
+        format!(" Capability hints: {}.", hints.join(" "))
+    };
+    if def.description.trim().is_empty() {
+        format!("{meta}{hints}")
+    } else {
+        format!("{meta}{hints} {}", def.description)
+    }
+}
+
+fn mcp_capability_hints(server: &str, def: &McpToolDef) -> Vec<&'static str> {
+    let hay = format!("{} {} {}", server, def.name, def.description).to_lowercase();
+    let mut hints = Vec::new();
+
+    if contains_any(
+        &hay,
+        &[
+            "github",
+            "gitlab",
+            "bitbucket",
+            "repository",
+            "pull_request",
+            "pull request",
+            "branch",
+            "commit",
+        ],
+    ) {
+        push_hint(&mut hints, "source-control");
+        push_hint(&mut hints, "repository");
+        push_hint(&mut hints, "pull-request");
+        push_hint(&mut hints, "branch");
+        push_hint(&mut hints, "commit");
+    }
+    if contains_any(
+        &hay,
+        &["issue", "issues", "ticket", "jira", "linear", "bug"],
+    ) {
+        push_hint(&mut hints, "issue-tracking");
+        push_hint(&mut hints, "ticket");
+        push_hint(&mut hints, "bug");
+        push_hint(&mut hints, "triage");
+    }
+    if contains_any(
+        &hay,
+        &["check", "checks", "ci", "workflow", "action", "build"],
+    ) {
+        push_hint(&mut hints, "ci");
+        push_hint(&mut hints, "checks");
+        push_hint(&mut hints, "status");
+    }
+    if contains_any(
+        &hay,
+        &["slack", "discord", "teams", "chat", "message", "channel"],
+    ) {
+        push_hint(&mut hints, "chat");
+        push_hint(&mut hints, "message");
+        push_hint(&mut hints, "channel");
+    }
+    if contains_any(&hay, &["calendar", "meeting", "event", "schedule"]) {
+        push_hint(&mut hints, "calendar");
+        push_hint(&mut hints, "meeting");
+        push_hint(&mut hints, "schedule");
+    }
+    if contains_any(
+        &hay,
+        &["notion", "confluence", "docs", "document", "wiki", "page"],
+    ) {
+        push_hint(&mut hints, "docs");
+        push_hint(&mut hints, "wiki");
+        push_hint(&mut hints, "page");
+    }
+    if contains_any(
+        &hay,
+        &["postgres", "mysql", "sqlite", "database", "sql", "query"],
+    ) {
+        push_hint(&mut hints, "database");
+        push_hint(&mut hints, "sql");
+        push_hint(&mut hints, "query");
+    }
+    if contains_any(
+        &hay,
+        &["fetch", "browser", "web", "url", "http", "screenshot", "dom"],
+    ) {
+        push_hint(&mut hints, "web");
+        push_hint(&mut hints, "browser");
+        push_hint(&mut hints, "fetch");
+    }
+    if contains_any(
+        &hay,
+        &[
+            "cloudflare",
+            "vercel",
+            "netlify",
+            "aws",
+            "gcp",
+            "azure",
+            "deploy",
+            "worker",
+            "kubernetes",
+            "docker",
+        ],
+    ) {
+        push_hint(&mut hints, "deploy");
+        push_hint(&mut hints, "cloud");
+        push_hint(&mut hints, "infrastructure");
+    }
+    if contains_any(&hay, &["figma", "design", "prototype", "mockup"]) {
+        push_hint(&mut hints, "design");
+        push_hint(&mut hints, "figma");
+        push_hint(&mut hints, "prototype");
+    }
+    if contains_any(
+        &hay,
+        &["sentry", "datadog", "logs", "monitor", "monitoring", "alert"],
+    ) {
+        push_hint(&mut hints, "monitoring");
+        push_hint(&mut hints, "logs");
+        push_hint(&mut hints, "alerts");
+    }
+    if contains_any(&hay, &["gmail", "mail", "email"]) {
+        push_hint(&mut hints, "email");
+        push_hint(&mut hints, "message");
+    }
+
+    if starts_with_any(
+        &def.name.to_lowercase(),
+        &["read", "get", "list", "search", "find", "fetch"],
+    ) {
+        push_hint(&mut hints, "read");
+        push_hint(&mut hints, "search");
+        push_hint(&mut hints, "lookup");
+    }
+    if starts_with_any(
+        &def.name.to_lowercase(),
+        &[
+            "create", "add", "post", "send", "write", "update", "delete", "deploy",
+        ],
+    ) {
+        push_hint(&mut hints, "write");
+        push_hint(&mut hints, "mutate");
+    }
+    hints
+}
+
+fn contains_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
+}
+
+fn starts_with_any(text: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| text.starts_with(prefix))
+}
+
+fn push_hint(hints: &mut Vec<&'static str>, hint: &'static str) {
+    if !hints.iter().any(|existing| existing == &hint) {
+        hints.push(hint);
     }
 }
 
@@ -325,7 +479,27 @@ mod tests {
 
         assert!(description.contains("MCP server 'github'"));
         assert!(description.contains("tool 'search_issues'"));
+        assert!(description.contains("Capability hints:"));
+        assert!(description.contains("source-control"));
+        assert!(description.contains("issue-tracking"));
+        assert!(description.contains("read"));
         assert!(description.contains("Search repository issues."));
+    }
+
+    #[test]
+    fn mcp_tool_description_adds_category_hints_for_sparse_defs() {
+        let def = McpToolDef {
+            name: "get_file".into(),
+            description: "".into(),
+            input_schema: serde_json::json!({"type": "object"}),
+        };
+
+        let description = mcp_tool_description("figma", &def);
+
+        assert!(description.contains("Capability hints:"));
+        assert!(description.contains("design"));
+        assert!(description.contains("figma"));
+        assert!(description.contains("read"));
     }
 
     #[test]
