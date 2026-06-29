@@ -46,6 +46,8 @@
   };
   type ConfigLocation = {
     config_path: string;
+    mcp_path: string;
+    connectors_path: string;
     config_dir: string;
   };
   let settings = $state<Settings | null>(null);
@@ -675,6 +677,24 @@
       configLocation = await invoke<ConfigLocation>("get_config_location");
     } catch (e) {
       messages.push({ role: "note", text: `打开配置文件夹失败：${e}` });
+    }
+  }
+
+  async function openMcpFile() {
+    try {
+      await invoke("open_mcp_file");
+      configLocation = await invoke<ConfigLocation>("get_config_location");
+    } catch (e) {
+      messages.push({ role: "note", text: `打开 MCP 配置失败：${e}` });
+    }
+  }
+
+  async function openConnectorsFile() {
+    try {
+      await invoke("open_connectors_file");
+      configLocation = await invoke<ConfigLocation>("get_config_location");
+    } catch (e) {
+      messages.push({ role: "note", text: `打开 connector 配置失败：${e}` });
     }
   }
 
@@ -1700,10 +1720,26 @@
         <h3>设置</h3>
         {#if configLocation}
           <div class="config-entry">
-            <span>配置</span>
-            <code title={configLocation.config_path}>{configLocation.config_path}</code>
-            <button class="plain" onclick={openConfigFile}>打开文件</button>
-            <button class="plain" onclick={openConfigDir}>打开文件夹</button>
+            <div class="config-row">
+              <span>主配置</span>
+              <code title={configLocation.config_path}>{configLocation.config_path}</code>
+              <button class="plain" onclick={openConfigFile}>打开</button>
+            </div>
+            <div class="config-row">
+              <span>MCP</span>
+              <code title={configLocation.mcp_path}>{configLocation.mcp_path}</code>
+              <button class="plain" onclick={openMcpFile}>打开</button>
+            </div>
+            <div class="config-row">
+              <span>Connectors</span>
+              <code title={configLocation.connectors_path}>{configLocation.connectors_path}</code>
+              <button class="plain" onclick={openConnectorsFile}>打开</button>
+            </div>
+            <div class="config-row compact">
+              <span>目录</span>
+              <code title={configLocation.config_dir}>{configLocation.config_dir}</code>
+              <button class="plain" onclick={openConfigDir}>打开</button>
+            </div>
           </div>
         {/if}
         <label>

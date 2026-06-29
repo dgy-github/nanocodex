@@ -615,7 +615,8 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 当前桌面线是 Tauri v2 + Svelte GUI（`rust/gui`）：
 
 - 流式对话、工具调用展示和审批弹窗。
-- Settings 面板可配置 model、sandbox、approval、预算、context editing、base URL 和 API key；
+- Settings 面板可配置 model、sandbox、approval、预算、context editing、base URL 和 API key，
+  并可直接打开 `~/.nanocodex/config.toml`、`mcp.toml` 和 `connectors.toml`；
   新安装且未配置 API key 时，GUI 会直接打开这个面板，先完成配置再启动首轮 agent。
 - Sessions 面板提供全局历史、日志 / snapshot 打开入口，以及同 workspace snapshot 恢复。
 - Checkpoint 面板提供手动保存 / 列表 / 恢复。
@@ -703,8 +704,9 @@ npm.cmd run tauri:installer
 
 桌面构建现在明确产出 Windows NSIS installer，安装包位于
 `rust\gui\src-tauri\target\x86_64-pc-windows-gnu\release\bundle\nsis\`。
-GUI 的 Settings 弹窗也会展示解析后的 `~/.nanocodex/config.toml` 路径，并提供打开配置文件
-和配置目录的入口；保存 Settings 后会原地重载 Rust agent。
+GUI 的 Settings 弹窗也会展示解析后的 `~/.nanocodex/config.toml`、`mcp.toml` 和
+`connectors.toml` 路径，并提供打开每个文件和配置目录的入口；缺失的 MCP/connector
+文件会用注释模板创建，保存 Settings 后会原地重载 Rust agent。
 
 Tauri crate 特意保留 `crate-type = ["lib"]`；改成 `cdylib` 或 `staticlib` 会让
 Windows GNU 链接器的 export ordinal 表溢出。

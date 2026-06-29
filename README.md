@@ -717,8 +717,10 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
 
 - Streaming chat, tool-call display, and approval modals.
 - Settings panel for model, sandbox, approval, budgets, context editing, base
-  URL, and API key. On a fresh install with no API key, the GUI opens this panel
-  directly so the agent can be configured before the first turn.
+  URL, and API key, plus direct open buttons for
+  `~/.nanocodex/config.toml`, `mcp.toml`, and `connectors.toml`. On a fresh
+  install with no API key, the GUI opens this panel directly so the agent can be
+  configured before the first turn.
 - Sessions panel for global history, log/snapshot open actions, and
   same-workspace resume.
 - Checkpoint panel for manual save/list/restore.
@@ -817,9 +819,10 @@ npm.cmd run tauri:installer
 The desktop build now targets the Windows NSIS installer explicitly. The
 installer is emitted under
 `rust\gui\src-tauri\target\x86_64-pc-windows-gnu\release\bundle\nsis\`.
-The GUI Settings dialog also exposes the resolved `~/.nanocodex/config.toml`
-path and buttons to open the config file or its directory; saving Settings
-reloads the Rust agent in place.
+The GUI Settings dialog also exposes the resolved `~/.nanocodex/config.toml`,
+`mcp.toml`, and `connectors.toml` paths with buttons to open each file or the
+config directory. Missing MCP/connector files are created with commented
+templates; saving Settings reloads the Rust agent in place.
 
 The Tauri crate deliberately keeps `crate-type = ["lib"]`; changing it to
 `cdylib` or `staticlib` overflows the Windows GNU linker's export table.

@@ -120,7 +120,7 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
   用 sentinel 注入。
 
 ## 当前状态（已完成；上一轮 264 个 Rust 测试全绿，本轮新增 `/budget` + `/context` + `/tools` + `/memory` 测试后文档计 269，需在 cargo 可用环境用 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1` 复跑）
-- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、Sessions、Usage、custom command、memory、Tools/MCP runtime 状态面板、TaskLedger 预算账本）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册 + REPL `/mcp` 状态面板；`connectors.toml` install spec 可声明 transport/source/trusted/permission/allowed_tools，stdio connector 会并入 MCP server，注册时执行 allow-list 与 permission 策略；Tauri agent 启动时注册配置的 MCP server 并把连接状态随 Tools 面板回传）
+- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口；Settings 可打开 `config.toml`/`mcp.toml`/`connectors.toml`；Sessions、Usage、custom command、memory、Tools/MCP runtime 状态面板、TaskLedger 预算账本）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册 + REPL `/mcp` 状态面板；`connectors.toml` install spec 可声明 transport/source/trusted/permission/allowed_tools，stdio connector 会并入 MCP server，注册时执行 allow-list 与 permission 策略；Tauri agent 启动时注册配置的 MCP server 并把连接状态随 Tools 面板回传）
 - 工具：read_file·apply_patch·shell·update_plan·grep·glob·web_search·web_fetch·tool_search·remember·skill
 - **Skills（已并入 rust-capability）**：SKILL.md 发现 + 渐进披露注入 + `skill` 工具 + builtin（`commit-message`，include_str! 编入二进制，FS 同名可覆盖）+ `/skills` 命令。stream C vision 基础（`7de2235`）也随 FF 一起进了 rust-capability。
 - 分层 flash/pro 编排器（`-o`，verifier 选 BEST worker + promote）；memory 自进化 + 每轮 query-scoped send-time recall + 启发式/LLM consolidate（CLI `--memory-merge` + GUI Memory 面板）；keyed 搜索(Tavily/DDG)

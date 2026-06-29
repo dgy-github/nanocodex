@@ -124,6 +124,7 @@
 - GUI/Tauri release 分支已集成到 `codex/gui-mcp-runtime-conflict-merge`（上一稳定集成分支为 `codex/gui-mcp-integration`）。
 - Tauri GUI 已补回 Usage/Context 面板：每轮 `done` 事件携带 `iterations`、`tools_used`、token usage 和 context-edit telemetry；前端展示上一轮与当前 session 汇总。
 - Tauri GUI 已新增 Tools 面板：agent 线程按需发出真实 runtime tool catalog，前端展示 core/MCP 来源、read-only/effectful 分类，以及 MCP server connected/error、注册工具数、启动耗时和最近错误。
+- Tauri GUI Settings 已把配置入口扩展到 `~/.nanocodex/config.toml`、`mcp.toml` 和 `connectors.toml`，缺失的 MCP/connector 文件会用注释模板创建，方便配置 allow-list/permission。
 - 已新增 connector install spec：`connectors.example.toml` 说明本地 connector metadata；`load_mcp_connectors()` 解析 `~/.nanocodex/connectors.toml`；stdio connector 会并入 `load_mcp_servers()`；MCP 注册会执行 `allowed_tools` 和 permission 策略；CLI `/mcp` 会展示 connector permission/trusted/allowed_tools。
 - 已新增 `TaskLedger`：CLI 与 Tauri 每轮完成后写 `.nanocodex/task-ledger.jsonl`，CLI 支持 `--budget-report` 和 `/budget report`，Tauri Usage 面板可读取最近任务报告。
 - 已新增 provider payload snapshot：agent loop 在每次模型调用前把发送时编辑后的消息和工具 schema 摘要写入 `.nanocodex/context-payloads/`；CLI `/context payload [N]` 与 Tauri Usage 面板可审计最近快照。

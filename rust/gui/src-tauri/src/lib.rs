@@ -61,6 +61,8 @@ pub struct CheckpointView {
 #[derive(Serialize)]
 pub struct ConfigLocation {
     config_path: String,
+    mcp_path: String,
+    connectors_path: String,
     config_dir: String,
 }
 
@@ -263,6 +265,47 @@ fn open_config_dir() -> Result<(), String> {
     open_dir(&dir)
 }
 
+#[tauri::command]
+fn open_mcp_file() -> Result<(), String> {
+    let path = ensure_sidecar_config_file(
+        "mcp.toml",
+        r#"# nanocodex MCP servers.
+# Tools are exposed to the model as mcp__<server>__<tool>.
+
+# [mcp_servers.fetch]
+# command = "uvx"
+# args = ["mcp-server-fetch"]
+# permission = "ask"        # ask | trusted | read-only | deny
+# trusted = false
+# allowed_tools = ["fetch"] # optional raw or mcp__server__tool names; empty = all
+"#,
+    )?;
+    open_file(&path)
+}
+
+#[tauri::command]
+fn open_connectors_file() -> Result<(), String> {
+    let path = ensure_sidecar_config_file(
+        "connectors.toml",
+        r#"# nanocodex connector install specs.
+# Stdio connectors are materialized as MCP servers when ncx --mcp or the GUI starts.
+
+# [connectors.fetch]
+# display_name = "Fetch"
+# description = "Fetch and extract web content."
+# transport = "stdio"
+# command = "uvx"
+# args = ["mcp-server-fetch"]
+# source = "python:mcp-server-fetch"
+# enabled = true
+# trusted = false
+# permission = "ask"        # ask | trusted | read-only | deny
+# allowed_tools = ["fetch"] # optional raw or mcp__server__tool names; empty = all
+"#,
+    )?;
+    open_file(&path)
+}
+
 /// The editable settings shown in the Settings panel. The API key is never
 /// returned in the clear — only whether one is set, plus a masked tail.
 #[derive(Serialize)]
@@ -349,6 +392,8 @@ fn config_location() -> Result<ConfigLocation, String> {
         .to_path_buf();
     Ok(ConfigLocation {
         config_path: path.display().to_string(),
+        mcp_path: dir.join("mcp.toml").display().to_string(),
+        connectors_path: dir.join("connectors.toml").display().to_string(),
         config_dir: dir.display().to_string(),
     })
 }
@@ -368,6 +413,15 @@ fn ensure_config_file() -> Result<PathBuf, String> {
     if !path.exists() {
         let empty: HashMap<&str, &str> = HashMap::new();
         write_nanocodex_config(&empty, &path).map_err(|e| e.to_string())?;
+    }
+    Ok(path)
+}
+
+fn ensure_sidecar_config_file(file_name: &str, template: &str) -> Result<PathBuf, String> {
+    let dir = ensure_config_dir()?;
+    let path = dir.join(file_name);
+    if !path.exists() {
+        std::fs::write(&path, template).map_err(|e| e.to_string())?;
     }
     Ok(path)
 }
@@ -939,6 +993,8 @@ pub fn run() {
             get_config_location,
             open_config_file,
             open_config_dir,
+            open_mcp_file,
+            open_connectors_file,
             get_checkpoints,
             checkpoint_files,
             create_checkpoint,

@@ -622,12 +622,16 @@ button:disabled {
 /* Config location entry */
 .config-entry {
   display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr) auto auto;
-  align-items: center;
   gap: var(--sp-2);
   margin: 0 0 var(--sp-5);
   padding-bottom: var(--sp-4);
   border-bottom: 1px solid var(--line);
+}
+.config-row {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-2);
 }
 .config-entry span {
   color: var(--ink-3);
@@ -917,11 +921,10 @@ button:disabled {
   .meta { max-width: 14rem; }
   .bubble { max-width: 88%; }
 
-  .config-entry {
-    grid-template-columns: 1fr 1fr;
+  .config-row {
+    grid-template-columns: 1fr auto;
   }
-  .config-entry span,
-  .config-entry code {
+  .config-row code {
     grid-column: 1 / -1;
   }
 }
