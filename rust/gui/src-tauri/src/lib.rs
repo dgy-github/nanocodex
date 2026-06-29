@@ -8,6 +8,7 @@
 mod bridge;
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::{Arc, Mutex};
@@ -20,7 +21,7 @@ use ncx_config::{
 };
 use ncx_core::{
     custom_command_prompt, list_custom_commands, CheckpointMeta, CheckpointStore, MemoryEntry,
-    MemoryStore, RestoreReport, Summarizer,
+    MemoryStore, RestoreReport, SessionIndex, SessionSummary, Summarizer,
 };
 use ncx_provider::DeepSeekProvider;
 use serde::Serialize;
@@ -100,6 +101,30 @@ pub struct MemoryMergeReport {
     path: String,
     removed: usize,
     count: usize,
+}
+
+#[derive(Serialize)]
+pub struct SessionSummaryView {
+    session_id: String,
+    workspace: String,
+    title: String,
+    snippet: String,
+    user_messages: usize,
+    assistant_messages: usize,
+    tool_calls: usize,
+    recent_tools: Vec<String>,
+    created_at: String,
+    updated_at: String,
+    log_path: String,
+    has_snapshot: bool,
+    current_workspace: bool,
+}
+
+#[derive(Serialize)]
+pub struct ResumeSessionReport {
+    session_id: String,
+    restored_messages: usize,
+    log_path: String,
 }
 
 /// Load the resolved config and return a display-safe snapshot.
@@ -414,6 +439,85 @@ fn open_memory_file() -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_sessions() -> Result<Vec<SessionSummaryView>, String> {
+    let cfg = gui_config()?;
+    let workspace = cfg.workspace.display().to_string();
+    Ok(SessionIndex::default()
+        .entries()
+        .into_iter()
+        .map(|summary| session_summary_view(summary, &workspace))
+        .collect())
+}
+
+#[tauri::command]
+fn open_session_log(session_id: String) -> Result<(), String> {
+    let index = SessionIndex::default();
+    let summary = index
+        .get(&session_id)
+        .ok_or_else(|| format!("unknown session: {session_id}"))?;
+    if summary.log_path.trim().is_empty() {
+        return Err("session has no log path".into());
+    }
+    let path = PathBuf::from(&summary.log_path);
+    if !path.exists() {
+        return Err(format!("session log does not exist: {}", path.display()));
+    }
+    open_file(&path)
+}
+
+#[tauri::command]
+fn open_session_snapshot(session_id: String) -> Result<(), String> {
+    let index = SessionIndex::default();
+    let summary = index
+        .get(&session_id)
+        .ok_or_else(|| format!("unknown session: {session_id}"))?;
+    if !summary.has_snapshot {
+        return Err("session has no snapshot".into());
+    }
+    let path = index.snapshot_path(&session_id);
+    if !path.exists() {
+        return Err(format!(
+            "session snapshot does not exist: {}",
+            path.display()
+        ));
+    }
+    open_file(&path)
+}
+
+#[tauri::command]
+fn resume_session(
+    session_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<ResumeSessionReport, String> {
+    let cfg = gui_config()?;
+    let current_workspace = cfg.workspace.display().to_string();
+    let index = SessionIndex::default();
+    let summary = index
+        .get(&session_id)
+        .ok_or_else(|| format!("unknown session: {session_id}"))?;
+    if summary.workspace != current_workspace {
+        return Err(format!(
+            "session belongs to {}; current workspace is {}",
+            summary.workspace, current_workspace
+        ));
+    }
+    let messages = index
+        .load_snapshot(&session_id)
+        .ok_or_else(|| "session snapshot is missing or unreadable".to_string())?;
+    let log_path = cfg.workspace.join(".nanocodex").join("session.jsonl");
+    write_session_log(&log_path, &messages)?;
+    state
+        .tx
+        .send(Command::Resume)
+        .map_err(|_| "agent thread is not running".to_string())?;
+    Ok(ResumeSessionReport {
+        session_id,
+        restored_messages: messages.len(),
+        log_path: log_path.display().to_string(),
+    })
+}
+
+#[tauri::command]
 fn get_custom_commands() -> Result<Vec<CustomCommandView>, String> {
     let cfg = load_config(Overrides {
         workspace: std::env::current_dir().ok(),
@@ -494,6 +598,42 @@ fn memory_report(store: &MemoryStore, path: &Path, removed: usize) -> MemoryMerg
         removed,
         count: store.entries().len(),
     }
+}
+
+fn session_summary_view(summary: SessionSummary, current_workspace: &str) -> SessionSummaryView {
+    let current = summary.workspace == current_workspace;
+    SessionSummaryView {
+        session_id: summary.session_id,
+        workspace: summary.workspace,
+        title: summary.title,
+        snippet: summary.snippet,
+        user_messages: summary.user_messages,
+        assistant_messages: summary.assistant_messages,
+        tool_calls: summary.tool_calls,
+        recent_tools: summary.recent_tools,
+        created_at: summary.created_at,
+        updated_at: summary.updated_at,
+        log_path: summary.log_path,
+        has_snapshot: summary.has_snapshot,
+        current_workspace: current,
+    }
+}
+
+fn write_session_log(path: &Path, messages: &[serde_json::Value]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    for message in messages {
+        let line = serde_json::to_string(message).map_err(|e| e.to_string())?;
+        writeln!(file, "{line}").map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 fn clean_tags(tags: &[String]) -> Vec<String> {
@@ -613,7 +753,11 @@ pub fn run() {
             remember_note,
             consolidate_memory,
             summarize_memory,
-            open_memory_file
+            open_memory_file,
+            get_sessions,
+            open_session_log,
+            open_session_snapshot,
+            resume_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running the nanocodex GUI");

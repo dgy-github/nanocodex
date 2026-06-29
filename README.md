@@ -541,6 +541,9 @@ AGENTS.md / CLAUDE.md are project-scoped guidance.
   `.nanocodex/session.jsonl` before starting and `--history` to list recent
   global session summaries. The Tauri backend records the same snapshots after
   each GUI turn.
+- The Tauri GUI's `S` panel reads the same global index, opens JSONL logs and
+  frozen snapshots, and can resume a snapshot when it belongs to the current
+  workspace.
 - Rust CLI and Tauri GUI save a workspace file checkpoint before each model
   turn. Use `/checkpoints` to list recent checkpoints, `/checkpoint <label>` to
   create one manually, and `/restore <id>` to restore files; the GUI has the
@@ -625,6 +628,8 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
 - Settings panel for model, sandbox, approval, budgets, context editing, base
   URL, and API key. On a fresh install with no API key, the GUI opens this panel
   directly so the agent can be configured before the first turn.
+- Sessions panel for global history, log/snapshot open actions, and
+  same-workspace resume.
 - Checkpoint panel for manual save/list/restore.
 - Custom command panel backed by the same core `.nanocodex/.claude` template
   engine the CLI uses.

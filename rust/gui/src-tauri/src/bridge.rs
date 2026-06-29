@@ -61,6 +61,8 @@ pub enum Command {
     /// Rebuild the agent from the (just-saved) config — applies model / sandbox
     /// / key changes live. Starts a fresh session.
     Reload,
+    /// Rebuild the agent and restore the workspace JSONL session log.
+    Resume,
 }
 
 /// What the frontend receives on the `ncx://event` channel. `kind` discriminates.
@@ -166,6 +168,7 @@ impl ApprovalHandler for GuiApprover {
 /// Build the agent loop and its workspace from the resolved config.
 fn build_agent(
     approver: Rc<dyn ApprovalHandler>,
+    resume: bool,
 ) -> Result<(AgentLoop, PathBuf, String, PathBuf, SessionIndex), String> {
     let workspace = std::env::current_dir().ok();
     let overrides = Overrides {
@@ -201,7 +204,11 @@ fn build_agent(
     let tools = ToolRegistry::new(ctx);
     let log_path = cfg.workspace.join(".nanocodex").join("session.jsonl");
     let session_id = new_session_id();
-    let session = Session::with_log(system_prompt, Some(log_path.clone()));
+    let session = if resume {
+        Session::resume(system_prompt, Some(log_path.clone()))
+    } else {
+        Session::with_log(system_prompt, Some(log_path.clone()))
+    };
     let agent = AgentLoop::new(Box::new(provider), tools, session)
         .with_task_budget(task_budget_from_config(&cfg))
         .with_context_edit(context_edit_from_config(&cfg));
@@ -225,8 +232,10 @@ struct RunningAgent {
 fn activate_agent(
     app: &AppHandle,
     approver: Rc<dyn ApprovalHandler>,
+    resume: bool,
 ) -> Result<RunningAgent, String> {
-    let (mut agent, workspace, session_id, log_path, session_index) = build_agent(approver)?;
+    let (mut agent, workspace, session_id, log_path, session_index) =
+        build_agent(approver, resume)?;
     agent.set_event_sink(make_sink(app.clone()));
     emit_ready(app, &workspace);
     Ok(RunningAgent {
@@ -293,7 +302,7 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                     pending: pending.clone(),
                     counter: AtomicU64::new(1),
                 });
-                let mut running = match activate_agent(&app, approver.clone()) {
+                let mut running = match activate_agent(&app, approver.clone(), false) {
                     Ok(agent) => Some(agent),
                     Err(e) => {
                         emit(&app, UiEvent::Error { message: e });
@@ -305,7 +314,7 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                     match cmd {
                         Command::Prompt(text) => {
                             if running.is_none() {
-                                running = match activate_agent(&app, approver.clone()) {
+                                running = match activate_agent(&app, approver.clone(), false) {
                                     Ok(agent) => Some(agent),
                                     Err(e) => {
                                         emit(&app, UiEvent::Error { message: e });
@@ -344,7 +353,13 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                                 },
                             );
                         }
-                        Command::Reload => match activate_agent(&app, approver.clone()) {
+                        Command::Reload => match activate_agent(&app, approver.clone(), false) {
+                            Ok(agent) => {
+                                running = Some(agent);
+                            }
+                            Err(e) => emit(&app, UiEvent::Error { message: e }),
+                        },
+                        Command::Resume => match activate_agent(&app, approver.clone(), true) {
                             Ok(agent) => {
                                 running = Some(agent);
                             }

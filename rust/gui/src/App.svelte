@@ -70,6 +70,30 @@
   let checkpointLabel = $state("");
   let checkpointBusy = $state(false);
 
+  type SessionSummary = {
+    session_id: string;
+    workspace: string;
+    title: string;
+    snippet: string;
+    user_messages: number;
+    assistant_messages: number;
+    tool_calls: number;
+    recent_tools: string[];
+    created_at: string;
+    updated_at: string;
+    log_path: string;
+    has_snapshot: boolean;
+    current_workspace: boolean;
+  };
+  type ResumeSessionReport = {
+    session_id: string;
+    restored_messages: number;
+    log_path: string;
+  };
+  let sessionOpen = $state(false);
+  let sessions = $state<SessionSummary[]>([]);
+  let sessionBusy = $state(false);
+
   type CustomCommand = {
     scope: string;
     name: string;
@@ -364,6 +388,62 @@
     checkpointBusy = false;
   }
 
+  async function loadSessions() {
+    sessions = await invoke<SessionSummary[]>("get_sessions");
+  }
+
+  async function openSessions() {
+    sessionOpen = true;
+    sessionBusy = true;
+    try {
+      await loadSessions();
+    } catch (e) {
+      messages.push({ role: "note", text: `Session load failed: ${e}` });
+    }
+    sessionBusy = false;
+  }
+
+  async function openSessionLog(id: string) {
+    sessionBusy = true;
+    try {
+      await invoke("open_session_log", { sessionId: id });
+    } catch (e) {
+      messages.push({ role: "note", text: `Open session log failed: ${e}` });
+    }
+    sessionBusy = false;
+  }
+
+  async function openSessionSnapshot(id: string) {
+    sessionBusy = true;
+    try {
+      await invoke("open_session_snapshot", { sessionId: id });
+    } catch (e) {
+      messages.push({ role: "note", text: `Open session snapshot failed: ${e}` });
+    }
+    sessionBusy = false;
+  }
+
+  async function resumeSession(id: string) {
+    if (busy || sessionBusy) return;
+    if (!window.confirm(`Resume session ${id}?`)) return;
+    sessionBusy = true;
+    try {
+      const report = await invoke<ResumeSessionReport>("resume_session", { sessionId: id });
+      messages = [
+        {
+          role: "note",
+          text: `Resumed ${report.session_id}: ${report.restored_messages} message(s).`,
+        },
+      ];
+      input = "";
+      sessionOpen = false;
+      await loadSessions();
+    } catch (e) {
+      messages.push({ role: "note", text: `Resume session failed: ${e}` });
+    }
+    sessionBusy = false;
+  }
+
   async function loadCommands() {
     customCommands = await invoke<CustomCommand[]>("get_custom_commands");
   }
@@ -518,6 +598,14 @@
     if (!ts) return "";
     return new Date(ts * 1000).toLocaleString();
   }
+
+  function formatSessionTime(value: string) {
+    if (!value) return "";
+    if (/^\d{13}$/.test(value)) {
+      return new Date(Number(value)).toLocaleString();
+    }
+    return value;
+  }
 </script>
 
 <main>
@@ -527,6 +615,7 @@
     {#if busy}<span class="spinner" title="working…">●</span>{/if}
     <button class="gear" title="Settings" onclick={openSettings} aria-label="Settings">⚙</button>
     <button class="toolbtn" title="Usage" onclick={() => (usageOpen = true)} aria-label="Usage">U</button>
+    <button class="toolbtn" title="Sessions" onclick={openSessions} aria-label="Sessions">S</button>
     <button class="toolbtn" title="Memory" onclick={openMemory} aria-label="Memory">M</button>
     <button class="toolbtn" title="Custom commands" onclick={openCommands} aria-label="Custom commands">/</button>
     <button class="toolbtn" title="Checkpoints" onclick={openCheckpoints} aria-label="Checkpoints">CP</button>
@@ -639,6 +728,65 @@
         <div class="abtns">
           <button class="plain" onclick={resetUsage}>Reset</button>
           <button class="deny" onclick={() => (usageOpen = false)}>Close</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if sessionOpen}
+    <div class="overlay">
+      <div class="modal wide">
+        <h3>Sessions</h3>
+        <div class="session-actions">
+          <button class="plain" onclick={loadSessions} disabled={sessionBusy}>Refresh</button>
+        </div>
+        <div class="session-list">
+          {#if sessions.length === 0}
+            <p class="emptyline">No saved sessions.</p>
+          {/if}
+          {#each sessions as s}
+            <div class="session-row">
+              <div class="session-main">
+                <strong>{s.title || "(no prompt yet)"}</strong>
+                {#if s.snippet}<p>{s.snippet}</p>{/if}
+                <code title={s.session_id}>{s.session_id}</code>
+              </div>
+              <div class="session-meta">
+                <span>{formatSessionTime(s.updated_at)}</span>
+                <span>{s.user_messages} user</span>
+                <span>{s.assistant_messages} assistant</span>
+                <span>{s.tool_calls} tools</span>
+                {#if !s.current_workspace}<span title={s.workspace}>other workspace</span>{/if}
+              </div>
+              {#if s.recent_tools.length > 0}
+                <div class="session-tools">
+                  {#each s.recent_tools as tool}<code>{tool}</code>{/each}
+                </div>
+              {/if}
+              <div class="session-buttons">
+                <button
+                  class="restore"
+                  onclick={() => resumeSession(s.session_id)}
+                  disabled={busy || sessionBusy || !s.current_workspace || !s.has_snapshot}
+                >
+                  Resume
+                </button>
+                <button class="plain" onclick={() => openSessionLog(s.session_id)} disabled={sessionBusy}>
+                  Log
+                </button>
+                <button
+                  class="plain"
+                  onclick={() => openSessionSnapshot(s.session_id)}
+                  disabled={sessionBusy || !s.has_snapshot}
+                >
+                  Snapshot
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+        <div class="abtns">
+          <button class="deny" onclick={() => (sessionOpen = false)}>Close</button>
         </div>
       </div>
     </div>

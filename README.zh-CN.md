@@ -470,6 +470,8 @@ Look for behavior regressions first, then missing tests, then maintainability.
 - Rust CLI 支持 `--resume`，启动前读回工作区 `.nanocodex/session.jsonl`；
   也支持 `--history` 列出最近的全局会话摘要。Tauri 后端每轮 GUI 对话结束后会记录
   同一套 snapshot。
+- Tauri GUI 的 `S` 面板复用同一个全局索引，可以打开 JSONL 日志和冻结 snapshot；
+  snapshot 属于当前 workspace 时，也可以直接恢复继续。
 - Rust CLI 和 Tauri GUI 还会在每个模型轮次前保存工作区文件 checkpoint。CLI 用
   `/checkpoints` 查看，`/checkpoint <label>` 手动创建，`/restore <id>` 恢复文件；
   GUI 则在 checkpoint 面板里提供同一套保存 / 列表 / 恢复流程。恢复前会先给当前
@@ -540,6 +542,7 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 - 流式对话、工具调用展示和审批弹窗。
 - Settings 面板可配置 model、sandbox、approval、预算、context editing、base URL 和 API key；
   新安装且未配置 API key 时，GUI 会直接打开这个面板，先完成配置再启动首轮 agent。
+- Sessions 面板提供全局历史、日志 / snapshot 打开入口，以及同 workspace snapshot 恢复。
 - Checkpoint 面板提供手动保存 / 列表 / 恢复。
 - Custom command 面板复用 CLI 同一套 `.nanocodex/.claude` 模板展开器。
 - Usage 面板展示上一轮和当前 session 的模型调用数、工具调用数、输入/输出 token、
