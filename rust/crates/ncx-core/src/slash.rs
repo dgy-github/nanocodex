@@ -19,6 +19,10 @@ pub const SLASH_HELP: &[(&str, &str)] = &[
         "Show token usage for the last turn and current REPL session.",
     ),
     (
+        "/context",
+        "Show active context-edit policy, session size, and next-send preview.",
+    ),
+    (
         "/cost",
         "Alias for /usage (raw token usage; no price table).",
     ),
@@ -187,6 +191,7 @@ mod tests {
             "/help",
             "/config",
             "/usage",
+            "/context",
             "/cost",
             "/model",
             "/approvals",

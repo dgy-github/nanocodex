@@ -430,6 +430,7 @@ fn dispatch_slash(
         "/help" => SlashOutcome::Printed(render_help_for_workspace(&cfg.workspace)),
         "/status" => SlashOutcome::Printed(render_status(cfg)),
         "/usage" | "/cost" => SlashOutcome::Printed(usage.render()),
+        "/context" => SlashOutcome::Printed(render_context_status(agent, cfg, usage)),
         "/config" => SlashOutcome::Printed(config_text(cfg, arg)),
         "/history" => SlashOutcome::Printed(render_history(&SessionIndex::default().entries(), 20)),
         "/checkpoint" => SlashOutcome::Printed(create_checkpoint_text(&cfg.workspace, arg)),
@@ -599,6 +600,42 @@ fn render_status(cfg: &ncx_config::Config) -> String {
         cfg.context_edit_keep_recent_messages,
         cfg.context_edit_max_tool_result_chars,
         cfg.hooks.len(),
+    )
+}
+
+fn render_context_status(
+    agent: &AgentLoop,
+    cfg: &ncx_config::Config,
+    usage: &UsageTracker,
+) -> String {
+    let preview = agent
+        .session
+        .for_model_edited(&[], &agent.context_edit)
+        .stats;
+    let log_path = agent
+        .session
+        .log_path
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "(not logging)".into());
+    let last = usage
+        .last
+        .as_ref()
+        .map(|last| format_context_edit_stats_block(&last.context_edit))
+        .unwrap_or_else(|| "No model turn recorded yet.".into());
+
+    format!(
+        "Context editing\nenabled: {}\nmax_chars: {}\nkeep_recent_messages: {}\nmax_tool_result_chars: {}\ncontext_token_budget: {}\n\nSession\nmessages: {}\nrestored_messages: {}\nlog: {}\n\nNext send preview\n{}\n\nLast turn context edit\n{}",
+        agent.context_edit.enabled,
+        agent.context_edit.max_chars,
+        agent.context_edit.keep_recent_messages,
+        agent.context_edit.max_tool_result_chars,
+        cfg.context_token_budget,
+        agent.session.messages.len(),
+        agent.session.restored_count,
+        log_path,
+        format_context_edit_stats_block(&preview),
+        last
     )
 }
 
@@ -779,15 +816,23 @@ fn format_context_edit_block(
     session_compressed_tool_results: usize,
     session_dropped_messages: usize,
 ) -> String {
-    let saved_chars = last.original_chars.saturating_sub(last.edited_chars);
+    format!(
+        "{}\nsession_compressed:      {session_compressed_tool_results}\nsession_dropped:         {session_dropped_messages}",
+        format_context_edit_stats_block(last)
+    )
+}
+
+fn format_context_edit_stats_block(stats: &ContextEditStats) -> String {
+    let saved_chars = stats.original_chars.saturating_sub(stats.edited_chars);
     [
-        format!("original_chars:          {}", last.original_chars),
-        format!("edited_chars:            {}", last.edited_chars),
+        format!("original_chars:          {}", stats.original_chars),
+        format!("edited_chars:            {}", stats.edited_chars),
         format!("saved_chars:             {saved_chars}"),
-        format!("compressed_tool_results: {}", last.compressed_tool_results),
-        format!("dropped_messages:        {}", last.dropped_messages),
-        format!("session_compressed:      {session_compressed_tool_results}"),
-        format!("session_dropped:         {session_dropped_messages}"),
+        format!(
+            "compressed_tool_results: {}",
+            stats.compressed_tool_results
+        ),
+        format!("dropped_messages:        {}", stats.dropped_messages),
     ]
     .join("\n")
 }
@@ -1267,6 +1312,51 @@ mod tests {
         assert!(rendered.contains("session_compressed:      3"));
         assert!(rendered.contains("session_dropped:         3"));
         assert!(rendered.contains("raw token usage only"));
+    }
+
+    #[test]
+    fn context_status_renders_active_policy_and_preview() {
+        let ws = std::env::temp_dir().join(format!("ncx_context_status_{}", new_session_id()));
+        let policy = SandboxPolicy::new("workspace-write", &ws);
+        let ctx = ToolContext::new(ws.clone(), policy);
+        let tools = ToolRegistry::new(ctx);
+        let mut session = Session::new("system prompt");
+        session.add_user_text("first request");
+        session.add_tool_result("call_1", "shell", &"x".repeat(300));
+        session.add_user_text("latest request");
+
+        let agent = AgentLoop::new(
+            Box::new(DeepSeekProvider::new(
+                "sk-test",
+                "http://127.0.0.1:9/v1",
+                "test-model",
+            )),
+            tools,
+            session,
+        )
+        .with_context_edit(ContextEditPolicy {
+            enabled: true,
+            max_chars: 120,
+            keep_recent_messages: 1,
+            max_tool_result_chars: 20,
+        });
+        let cfg = ncx_config::Config {
+            workspace: ws,
+            context_token_budget: 2048,
+            ..Default::default()
+        };
+
+        let out = render_context_status(&agent, &cfg, &UsageTracker::default());
+
+        assert!(out.contains("Context editing"));
+        assert!(out.contains("enabled: true"));
+        assert!(out.contains("max_chars: 120"));
+        assert!(out.contains("context_token_budget: 2048"));
+        assert!(out.contains("messages: 3"));
+        assert!(out.contains("Next send preview"));
+        assert!(out.contains("compressed_tool_results: 1"), "{out}");
+        assert!(out.contains("dropped_messages:        2"), "{out}");
+        assert!(out.contains("No model turn recorded yet."));
     }
 
     #[test]

@@ -75,7 +75,7 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - 启动路径避开 Python 解释器和 import 开销，适合短的一次性命令，也适合交互 REPL。
 - 显式所有权让并行 worker 隔离、结果选择和 promote 更容易推理，不容易出现共享可变状态
   泄漏。
-- 264 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
+- 265 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
   沙箱策略、工具和编排器。
 
 **平台控制面补齐**
@@ -84,7 +84,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   和上下文限制；模型调用或工具调用超预算时，loop 会干净停止，并补齐未执行工具调用的
   tool result，保证消息历史仍然有效。
 - **Context editing：** 本地完整 session 不会被删；发给 provider 的是发送时编辑视图，
-  会压缩旧 tool result，并在超过上下文预算时丢弃更早的前缀。
+  会压缩旧 tool result，并在超过上下文预算时丢弃更早的前缀。Rust REPL 提供
+  `/context` 查看当前策略、session 大小、上一轮 telemetry 和下一次发送预览。
 - **Tool search：** 工具注册时会进入 catalog。小工具集仍全量暴露；工具变多时只暴露核心
   工具和 `tool_search`，搜索命中的工具会在下一轮 schema 里出现。
 - **Semantic memory：** 每轮都会按当前 prompt 做 query-scoped 记忆召回，并以发送时
@@ -274,7 +275,8 @@ cargo run -p ncx-cli -- --memory-merge
 Rust REPL 里可以用 `/config` 查看解析后的配置文件路径、当前 model/sandbox/approval
 值和可写 key。`/config key=value` 会把设置持久写入 `~/.nanocodex/config.toml`；
 provider、model、sandbox 或预算类变更需要重启 REPL 后影响当前会话。`/usage`（或
-`/cost`）会显示上一轮和当前 REPL session 的原始 token 用量。
+`/cost`）会显示上一轮和当前 REPL session 的原始 token 用量；`/context` 会显示当前
+context-edit 策略、session 大小、上一轮 telemetry 和下一次 provider 发送预览。
 
 Python CLI，原始功能线：
 
@@ -356,8 +358,9 @@ Rust REPL 可以把 Markdown prompt 模板变成 slash command。项目级命令
 并兼容 `~/.claude/commands/<name>.md`。
 
 内置 REPL slash command 也暴露平台状态面：`/usage` 查看原始 token 和 context-edit
-telemetry，`/skills` 查看已发现 skill catalog，`/history` 查看保存的会话，`/mcp` 查看
-enabled MCP server 以及当前会话已注册的 MCP 工具。
+telemetry，`/context` 查看当前 context-edit 策略和下一次发送预览，`/skills` 查看已发现
+skill catalog，`/history` 查看保存的会话，`/mcp` 查看 enabled MCP server 以及当前会话
+已注册的 MCP 工具。
 
 Tauri GUI 也通过标题栏的 `/` 按钮暴露同一套 project/user command catalog。可以在面板里
 填写参数后直接运行，也可以在聊天输入框里直接输入 custom slash command；GUI 会用和 CLI
@@ -533,9 +536,10 @@ Look for behavior regressions first, then missing tests, then maintainability.
 触发估算用偏中文的 chars/token 比例，所以中文为主的对话不会压缩得太晚。
 
 Rust CLI 里的 `/compact` 会把当前 context-edit 策略物化到 live session，并重写工作区
-session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。Rust `/usage` 和 Tauri
-GUI 的 `U` 面板也会展示 send-time context editing telemetry：原始字符数、编辑后字符数、
-节省字符数、压缩工具结果数和丢弃消息数。
+session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。Rust `/context` 会用同一套
+发送时编辑策略做无变异预览，展示策略旋钮、消息数、上一轮 telemetry，以及下一次发送会
+压缩/丢弃多少。Rust `/usage` 和 Tauri GUI 的 `U` 面板也会展示 send-time context editing
+telemetry：原始字符数、编辑后字符数、节省字符数、压缩工具结果数和丢弃消息数。
 
 ## Token 用量与成本
 

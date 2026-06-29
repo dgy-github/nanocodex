@@ -97,7 +97,7 @@ tool.
   one-shot commands as well as interactive REPL use.
 - Typed ownership makes parallel worker isolation and result promotion easier
   to reason about without shared mutable state leaks.
-- 264 offline Rust tests cover the current crate boundary, including memory
+- 265 offline Rust tests cover the current crate boundary, including memory
   consolidation, provider request/response parsing, sandbox policy, tools, and
   orchestration.
 
@@ -109,7 +109,8 @@ tool.
   message history stays valid.
 - **Context editing:** the full local session remains intact, but the provider
   sees a send-time edited view that compresses old tool results and drops older
-  prefixes once the context budget is exceeded.
+  prefixes once the context budget is exceeded. The Rust REPL exposes `/context`
+  for active policy, session size, last-turn telemetry, and next-send preview.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
   hits are made visible in the next schema view.
@@ -322,7 +323,9 @@ Inside the Rust REPL, `/config` shows the resolved config file path, current
 model/sandbox/approval values, and writable keys. `/config key=value` persists a
 setting to `~/.nanocodex/config.toml`; restart the REPL for provider, model,
 sandbox, or budget changes to affect the active session. `/usage` (or `/cost`)
-shows raw token usage for the last turn and current REPL session.
+shows raw token usage for the last turn and current REPL session. `/context`
+shows the active context-edit policy, session size, last-turn telemetry, and a
+preview of the next provider send.
 
 Python CLI, original line:
 
@@ -416,9 +419,10 @@ commands in `.nanocodex/commands/<name>.md`; for Claude Code compatibility,
 compatibility fallback.
 
 Built-in REPL slash commands also expose platform status surfaces: `/usage`
-for raw token and context-edit telemetry, `/skills` for the discovered skill
-catalog, `/history` for saved sessions, and `/mcp` for enabled MCP servers plus
-currently registered MCP tools.
+for raw token and context-edit telemetry, `/context` for the active context-edit
+policy and next-send preview, `/skills` for the discovered skill catalog,
+`/history` for saved sessions, and `/mcp` for enabled MCP servers plus currently
+registered MCP tools.
 
 The Tauri GUI exposes the same project/user command catalog from the `/` header
 button. You can run a command from the panel with arguments, or type the custom
@@ -617,9 +621,12 @@ don't compact too late.
 
 In the Rust CLI, `/compact` materializes the active context-edit policy into the
 live session and rewrites the workspace session log, so future turns and
-`--resume` continue from the compacted history. Rust `/usage` and the Tauri
-GUI's `U` panel also surface send-time context editing telemetry: original
-chars, edited chars, saved chars, compressed tool results, and dropped messages.
+`--resume` continue from the compacted history. Rust `/context` previews that
+same send-time edit without mutating the session, including policy knobs,
+message counts, last-turn telemetry, and the next-send compression/drop stats.
+Rust `/usage` and the Tauri GUI's `U` panel also surface send-time context
+editing telemetry: original chars, edited chars, saved chars, compressed tool
+results, and dropped messages.
 
 ## Token Usage & Cost
 
