@@ -16,7 +16,7 @@
     | { kind: "tool_start"; name: string; args: string }
     | { kind: "tool_result"; name: string; result: string }
     | { kind: "approval"; id: number; command: string; reason: string; cwd: string; details: string }
-    | { kind: "done"; final_text: string; iterations: number; stop_reason: string; tools_used: string[]; usage: UsageMap; context_edit: ContextEditStats; task_ledger: TaskLedgerStats }
+    | { kind: "done"; final_text: string; iterations: number; stop_reason: string; visible_tools: string[]; tools_used: string[]; usage: UsageMap; context_edit: ContextEditStats; task_ledger: TaskLedgerStats }
     | { kind: "loaded"; messages: { role: string; text: string }[] }
     | { kind: "tool_catalog"; tools: ToolInfo[]; mcp_servers: McpRuntimeStatus[] }
     | { kind: "error"; message: string };
@@ -143,6 +143,7 @@
   type TurnMetrics = {
     iterations: number;
     stop_reason: string;
+    visible_tool_count: number;
     tool_calls: number;
     usage: UsageMap;
     context_edit: ContextEditStats;
@@ -211,6 +212,7 @@
     lastMetrics = {
       iterations: turn.iterations ?? 0,
       stop_reason: turn.stop_reason,
+      visible_tool_count: turn.visible_tools?.length ?? 0,
       tool_calls: turn.tools_used?.length ?? 0,
       usage: turn.usage ?? {},
       context_edit: contextEdit,
@@ -1671,6 +1673,7 @@
             <strong>上一轮</strong>
             {#if lastMetrics}
               <div class="usage-row"><span>模型调用</span><b>{lastMetrics.iterations}</b></div>
+              <div class="usage-row"><span>可见工具</span><b>{lastMetrics.visible_tool_count}</b></div>
               <div class="usage-row"><span>工具调用</span><b>{lastMetrics.tool_calls}</b></div>
               <div class="usage-row"><span>停止原因</span><b>{lastMetrics.stop_reason}</b></div>
               <div class="usage-row"><span>输入 token</span><b>{usageValue(lastMetrics.usage, "prompt_tokens")}</b></div>

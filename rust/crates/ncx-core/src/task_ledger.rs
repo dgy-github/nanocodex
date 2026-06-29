@@ -21,6 +21,8 @@ pub struct TaskLedgerRecord {
     pub duration_ms: u64,
     pub model_calls: usize,
     pub tool_calls: usize,
+    pub visible_tools: Vec<String>,
+    pub called_tools: Vec<String>,
     pub approval_requests: usize,
     pub stop_reason: String,
     pub task_model_budget: usize,
@@ -38,11 +40,13 @@ impl TaskLedgerRecord {
             "duration_ms": self.duration_ms,
             "model_calls": self.model_calls,
             "tool_calls": self.tool_calls,
+            "visible_tools": self.visible_tools.clone(),
+            "called_tools": self.called_tools.clone(),
             "approval_requests": self.approval_requests,
             "stop_reason": self.stop_reason,
             "task_model_budget": self.task_model_budget,
             "task_tool_budget": self.task_tool_budget,
-            "usage": self.usage,
+            "usage": self.usage.clone(),
         })
     }
 
@@ -55,6 +59,8 @@ impl TaskLedgerRecord {
             duration_ms: u64_field(value, "duration_ms"),
             model_calls: usize_field(value, "model_calls"),
             tool_calls: usize_field(value, "tool_calls"),
+            visible_tools: string_vec_field(value, "visible_tools"),
+            called_tools: string_vec_field(value, "called_tools"),
             approval_requests: usize_field(value, "approval_requests"),
             stop_reason: string_field(value, "stop_reason"),
             task_model_budget: usize_field(value, "task_model_budget"),
@@ -191,18 +197,24 @@ impl TaskLedger {
         );
         out.push_str("\n\nRecent tasks:");
         for row in rows {
+            let visible = compact_tool_list(&row.visible_tools, 8);
+            let called = compact_tool_list(&row.called_tools, 8);
             out.push_str(&format!(
-                "\n- [{}] {} model={}/{} tools={}/{} approvals={} time={}ms session={} model_name={}",
+                "\n- [{}] {} model={}/{} tools={}/{} visible={} called={} approvals={} time={}ms session={} model_name={} visible_tools=[{}] called_tools=[{}]",
                 row.started_at,
                 row.stop_reason,
                 row.model_calls,
                 row.task_model_budget,
                 row.tool_calls,
                 row.task_tool_budget,
+                row.visible_tools.len(),
+                row.called_tools.len(),
                 row.approval_requests,
                 row.duration_ms,
                 short_id(&row.session_id),
-                row.model
+                row.model,
+                visible,
+                called
             ));
         }
         out
@@ -283,6 +295,18 @@ fn string_field(value: &Value, key: &str) -> String {
         .to_string()
 }
 
+fn string_vec_field(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn usize_field(value: &Value, key: &str) -> usize {
     value
         .get(key)
@@ -311,6 +335,17 @@ fn short_id(id: &str) -> &str {
     id.get(..id.len().min(10)).unwrap_or(id)
 }
 
+fn compact_tool_list(tools: &[String], limit: usize) -> String {
+    if tools.is_empty() {
+        return "(none)".into();
+    }
+    let mut shown = tools.iter().take(limit).cloned().collect::<Vec<_>>();
+    if tools.len() > limit {
+        shown.push(format!("+{} more", tools.len() - limit));
+    }
+    shown.join(",")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,6 +367,8 @@ mod tests {
                 duration_ms: 25,
                 model_calls: 2,
                 tool_calls: 3,
+                visible_tools: vec!["read_file".into(), "shell".into(), "tool_search".into()],
+                called_tools: vec!["read_file".into(), "shell".into(), "read_file".into()],
                 approval_requests: 1,
                 stop_reason: "completed".into(),
                 task_model_budget: 5,
@@ -348,6 +385,8 @@ mod tests {
                 duration_ms: 50,
                 model_calls: 1,
                 tool_calls: 0,
+                visible_tools: vec!["read_file".into(), "tool_search".into()],
+                called_tools: Vec::new(),
                 approval_requests: 0,
                 stop_reason: "task_budget".into(),
                 task_model_budget: 1,
@@ -358,6 +397,22 @@ mod tests {
 
         let rows = ledger.records();
         assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0].visible_tools,
+            vec![
+                "read_file".to_string(),
+                "shell".to_string(),
+                "tool_search".to_string()
+            ]
+        );
+        assert_eq!(
+            rows[0].called_tools,
+            vec![
+                "read_file".to_string(),
+                "shell".to_string(),
+                "read_file".to_string()
+            ]
+        );
         assert_eq!(ledger.recent(1)[0].session_id, "s2");
 
         let totals = ledger.totals(None);
@@ -387,5 +442,7 @@ mod tests {
         assert!(report.contains("model_budget_utilization: 3/6 (50%)"));
         assert!(report.contains("tool_budget_utilization: 3/8 (37%)"));
         assert!(report.contains("Recent tasks:"));
+        assert!(report.contains("visible_tools=[read_file,tool_search]"));
+        assert!(report.contains("called_tools=[(none)]"));
     }
 }

@@ -116,6 +116,7 @@ pub struct TurnResult {
     pub final_text: String,
     pub iterations: usize,
     pub stop_reason: String,
+    pub visible_tools: Vec<String>,
     pub tools_used: Vec<String>,
     pub usage: std::collections::BTreeMap<String, i64>,
     pub context_edit: ContextEditStats,
@@ -348,6 +349,7 @@ impl AgentLoop {
                 final_text: text,
                 iterations: 0,
                 stop_reason: "blocked".into(),
+                visible_tools: Vec::new(),
                 tools_used: Vec::new(),
                 usage: Default::default(),
                 context_edit: ContextEditStats::default(),
@@ -367,6 +369,7 @@ impl AgentLoop {
         self.session.add_user(user_input);
 
         let mut tools_used: Vec<String> = Vec::new();
+        let mut visible_tools: Vec<String> = Vec::new();
         let mut turn_usage: std::collections::BTreeMap<String, i64> = Default::default();
         let mut turn_context_edit = ContextEditStats::default();
 
@@ -383,6 +386,7 @@ impl AgentLoop {
                     final_text: text,
                     iterations: iteration + 1,
                     stop_reason: "cancelled".into(),
+                    visible_tools,
                     tools_used,
                     usage: turn_usage,
                     context_edit: turn_context_edit,
@@ -390,6 +394,7 @@ impl AgentLoop {
             }
 
             let schemas = self.tools.schemas_for_query(&tool_query);
+            record_schema_tools(&mut visible_tools, &schemas);
             let mut notes = vec![self.budget_note(iteration + 1, tools_used.len())];
             notes.extend(prompt_hook_notes.clone());
             notes.extend(memory_notes.clone());
@@ -428,6 +433,7 @@ impl AgentLoop {
                     final_text: text,
                     iterations: iteration + 1,
                     stop_reason: "error".into(),
+                    visible_tools,
                     tools_used,
                     usage: turn_usage,
                     context_edit: turn_context_edit,
@@ -444,6 +450,7 @@ impl AgentLoop {
                     final_text: text,
                     iterations: iteration + 1,
                     stop_reason: "completed".into(),
+                    visible_tools,
                     tools_used,
                     usage: turn_usage,
                     context_edit: turn_context_edit,
@@ -478,6 +485,7 @@ impl AgentLoop {
                     return self.cancel_result(
                         true,
                         iteration,
+                        visible_tools,
                         tools_used,
                         turn_usage,
                         turn_context_edit,
@@ -490,6 +498,7 @@ impl AgentLoop {
                 if remaining_tools == 0 {
                     return self.budget_result(
                         iteration,
+                        visible_tools,
                         tools_used,
                         turn_usage,
                         turn_context_edit,
@@ -568,6 +577,7 @@ impl AgentLoop {
                     return self.cancel_result(
                         false,
                         iteration,
+                        visible_tools,
                         tools_used,
                         turn_usage,
                         turn_context_edit,
@@ -585,6 +595,7 @@ impl AgentLoop {
             final_text: text,
             iterations: max_model_calls,
             stop_reason: "task_budget".into(),
+            visible_tools,
             tools_used,
             usage: turn_usage,
             context_edit: turn_context_edit,
@@ -610,6 +621,7 @@ impl AgentLoop {
         let args = json!({
             "stop_reason": result.stop_reason.clone(),
             "iterations": result.iterations,
+            "visible_tools": result.visible_tools.clone(),
             "tools_used": result.tools_used.clone(),
         });
         let hook = run_matching_hooks(
@@ -636,6 +648,7 @@ impl AgentLoop {
         &mut self,
         before: bool,
         iteration: usize,
+        visible_tools: Vec<String>,
         tools_used: Vec<String>,
         turn_usage: std::collections::BTreeMap<String, i64>,
         context_edit: ContextEditStats,
@@ -652,6 +665,7 @@ impl AgentLoop {
             final_text: text,
             iterations: iteration + 1,
             stop_reason: "cancelled".into(),
+            visible_tools,
             tools_used,
             usage: turn_usage,
             context_edit,
@@ -661,6 +675,7 @@ impl AgentLoop {
     fn budget_result(
         &mut self,
         iteration: usize,
+        visible_tools: Vec<String>,
         tools_used: Vec<String>,
         turn_usage: std::collections::BTreeMap<String, i64>,
         context_edit: ContextEditStats,
@@ -680,6 +695,7 @@ impl AgentLoop {
             final_text: text,
             iterations: iteration + 1,
             stop_reason: "task_budget".into(),
+            visible_tools,
             tools_used,
             usage: turn_usage,
             context_edit,
@@ -736,6 +752,14 @@ fn user_query_text(user_input: &Value) -> String {
             .join("\n");
     }
     user_input.to_string()
+}
+
+fn record_schema_tools(out: &mut Vec<String>, schemas: &[Value]) {
+    for name in schema_tool_names(schemas) {
+        if !out.iter().any(|existing| existing == &name) {
+            out.push(name);
+        }
+    }
 }
 
 fn dump_args(arguments: &Value) -> String {
@@ -905,6 +929,9 @@ mod tests {
         assert_eq!(r.stop_reason, "completed");
         assert_eq!(r.final_text, "All done.");
         assert_eq!(r.iterations, 1);
+        assert!(r.visible_tools.contains(&"read_file".to_string()));
+        assert!(r.visible_tools.contains(&"tool_search".to_string()));
+        assert!(r.tools_used.is_empty());
     }
 
     #[tokio::test]

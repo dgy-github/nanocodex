@@ -1039,6 +1039,8 @@ fn record_task_ledger(
         duration_ms,
         model_calls: result.iterations,
         tool_calls: result.tools_used.len(),
+        visible_tools: result.visible_tools.clone(),
+        called_tools: result.tools_used.clone(),
         approval_requests,
         stop_reason: result.stop_reason.clone(),
         task_model_budget: budget.max_model_calls,
@@ -1857,6 +1859,7 @@ mod tests {
             final_text: "ok".into(),
             iterations: 2,
             stop_reason: "completed".into(),
+            visible_tools: vec!["read_file".into(), "tool_search".into()],
             tools_used: vec!["read_file".into()],
             usage: first_usage,
             context_edit: ContextEditStats {
@@ -1876,6 +1879,7 @@ mod tests {
             final_text: "ok".into(),
             iterations: 1,
             stop_reason: "completed".into(),
+            visible_tools: vec!["read_file".into(), "tool_search".into()],
             tools_used: vec![],
             usage: second_usage,
             context_edit: ContextEditStats {
@@ -1937,6 +1941,7 @@ mod tests {
             final_text: "ok".into(),
             iterations: 2,
             stop_reason: "completed".into(),
+            visible_tools: vec!["read_file".into(), "shell".into(), "grep".into()],
             tools_used: vec!["read_file".into(), "shell".into(), "grep".into()],
             usage: BTreeMap::new(),
             context_edit: ContextEditStats::default(),

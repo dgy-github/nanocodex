@@ -407,6 +407,7 @@ mod tests {
             final_text: "done".into(),
             iterations,
             stop_reason: "completed".into(),
+            visible_tools: (0..tools).map(|i| format!("tool-{i}")).collect(),
             tools_used: (0..tools).map(|i| format!("tool-{i}")).collect(),
             usage: BTreeMap::new(),
             context_edit: ContextEditStats::default(),
