@@ -553,11 +553,24 @@ fn catalog_terms(entry: &ToolCatalogEntry) -> Vec<String> {
 fn query_aliases(word: &str) -> &'static [&'static str] {
     match word {
         "repo" | "repository" => &["git", "github"],
-        "issue" | "issues" => &["ticket", "tickets", "bug", "bugs"],
+        "issue" | "issues" | "ticket" | "tickets" => &["ticket", "tickets", "bug", "bugs", "jira"],
+        "pr" | "pull" => &["pull", "request", "github"],
         "web" | "url" | "page" => &["fetch", "http", "browser"],
+        "browser" | "dom" => &["page", "screenshot", "snapshot"],
         "installer" => &["nsis", "setup", "release", "package"],
         "release" => &["installer", "package", "build"],
+        "build" | "test" | "tests" => &["shell", "command", "cargo", "pytest"],
         "shell" | "terminal" => &["command", "powershell", "cmd"],
+        "edit" | "patch" => &["apply", "update", "file"],
+        "read" | "file" => &["read", "contents", "path"],
+        "plan" | "todo" => &["steps", "status", "update"],
+        "memory" | "remember" => &["note", "recall", "learning"],
+        "skill" | "playbook" => &["instructions", "guide"],
+        "database" | "sql" => &["postgres", "query"],
+        "slack" | "chat" => &["message", "channel"],
+        "calendar" | "meeting" => &["event", "schedule"],
+        "oauth" | "auth" => &["authentication", "authorization"],
+        "docs" | "document" => &["notion", "page", "wiki"],
         _ => &[],
     }
 }
@@ -997,9 +1010,67 @@ mod tests {
     fn tool_search_gold_cases_rank_namespaces_and_capabilities() {
         let catalog = vec![
             ToolCatalogEntry {
+                name: "read_file".into(),
+                description: "Read file contents from a workspace path.".into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "apply_patch".into(),
+                description: "Apply patch edits to create, update, delete, or move files.".into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
+                name: "update_plan".into(),
+                description: "Update a step plan with pending, in_progress, and completed statuses."
+                    .into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
+                name: "shell".into(),
+                description:
+                    "Run shell commands in the workspace to build, test, run git, or inspect output."
+                        .into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
+                name: "tool_search".into(),
+                description: "Search available tools by keyword or capability.".into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "remember".into(),
+                description: "Save verified project memory notes and reusable learnings.".into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
+                name: "skill".into(),
+                description: "Load a skill playbook with detailed instructions.".into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "release_packager".into(),
+                description: "Build release packages, Windows setup bundles, and NSIS installers."
+                    .into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
                 name: "mcp__github__search_issues".into(),
                 description:
                     "MCP server 'github' tool 'search_issues'. Search repository issues and pull requests."
+                        .into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "mcp__github__create_pull_request".into(),
+                description:
+                    "MCP server 'github' tool 'create_pull_request'. Open pull requests for repository branches."
+                        .into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
+                name: "mcp__github__list_pr_checks".into(),
+                description:
+                    "MCP server 'github' tool 'list_pr_checks'. Review pull request CI checks."
                         .into(),
                 read_only: true,
             },
@@ -1009,27 +1080,77 @@ mod tests {
                 read_only: false,
             },
             ToolCatalogEntry {
+                name: "mcp__jira__search_issues".into(),
+                description: "Search Jira issue boards and ticket status.".into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
                 name: "mcp__fetch__fetch".into(),
                 description: "MCP server 'fetch' tool 'fetch'. Fetch and extract web content from a URL."
                     .into(),
                 read_only: true,
             },
             ToolCatalogEntry {
-                name: "shell".into(),
-                description: "Run a shell command in the workspace.".into(),
+                name: "mcp__browser__screenshot".into(),
+                description: "Take a browser page screenshot for visual inspection.".into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "mcp__browser__dom_snapshot".into(),
+                description: "Inspect browser DOM snapshots and page structure.".into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "mcp__postgres__query".into(),
+                description: "Run read-only SQL queries against a Postgres database.".into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "mcp__slack__post_message".into(),
+                description: "Post chat messages to Slack channels.".into(),
                 read_only: false,
             },
             ToolCatalogEntry {
-                name: "release_packager".into(),
-                description: "Build release packages and NSIS installers.".into(),
+                name: "mcp__google_calendar__create_event".into(),
+                description: "Create calendar events and schedule meetings.".into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
+                name: "mcp__notion__search_pages".into(),
+                description: "Search Notion docs, wiki pages, and project documents.".into(),
+                read_only: true,
+            },
+            ToolCatalogEntry {
+                name: "mcp__cloudflare__deploy_worker".into(),
+                description: "Deploy Cloudflare workers and edge functions.".into(),
                 read_only: false,
             },
         ];
         let cases = [
             ("triage github issue", "mcp__github__search_issues"),
+            ("create jira ticket", "mcp__jira__create_ticket"),
+            ("search jira board", "mcp__jira__search_issues"),
+            ("open pull request", "mcp__github__create_pull_request"),
+            ("review pr checks", "mcp__github__list_pr_checks"),
             ("open web url", "mcp__fetch__fetch"),
+            ("fetch http json", "mcp__fetch__fetch"),
+            ("browser screenshot page", "mcp__browser__screenshot"),
+            ("inspect browser dom", "mcp__browser__dom_snapshot"),
+            ("query database sql", "mcp__postgres__query"),
+            ("send slack chat message", "mcp__slack__post_message"),
+            ("schedule calendar meeting", "mcp__google_calendar__create_event"),
+            ("search docs wiki", "mcp__notion__search_pages"),
+            ("deploy cloudflare worker", "mcp__cloudflare__deploy_worker"),
+            ("read source file", "read_file"),
+            ("edit code patch", "apply_patch"),
+            ("write todo plan", "update_plan"),
             ("run terminal command", "shell"),
+            ("run unit tests", "shell"),
+            ("save project memory note", "remember"),
+            ("load skill playbook", "skill"),
+            ("search tools capability", "tool_search"),
             ("windows nsis installer package", "release_packager"),
+            ("build tauri installer", "release_packager"),
         ];
 
         for (query, expected) in cases {
