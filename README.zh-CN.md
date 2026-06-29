@@ -602,6 +602,7 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 - Sessions 面板提供全局历史、日志 / snapshot 打开入口，以及同 workspace snapshot 恢复。
 - Checkpoint 面板提供手动保存 / 列表 / 恢复。
 - Custom command 面板复用 CLI 同一套 `.nanocodex/.claude` 模板展开器。
+- Tools 面板展示当前运行时真实注册的 core/MCP 工具目录，以及 read-only / effectful 分类。
 - Usage 面板展示上一轮和当前 session 的模型调用数、工具调用数、输入/输出 token、
   缓存命中/未命中 token、费用估算，以及 context editing telemetry。
 - Memory 面板可查看项目笔记、新增 verified note、打开 `LEARNINGS.md`、启发式去重和 LLM 记忆合并。

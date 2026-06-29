@@ -65,6 +65,13 @@ pub struct ContextEditView {
     dropped_messages: usize,
 }
 
+#[derive(Clone, Serialize)]
+pub struct ToolCatalogView {
+    name: String,
+    description: String,
+    read_only: bool,
+}
+
 /// A request from the UI to the agent thread.
 pub enum Command {
     /// A user turn. `images` are absolute paths attached via the file picker;
@@ -96,6 +103,8 @@ pub enum Command {
     /// permission mode). The frontend calls this once its listener is up, since
     /// the agent thread's initial emit can fire before that listener exists.
     RequestReady,
+    /// Emit the active runtime tool catalog to the frontend.
+    RequestTools,
     /// Archive / unarchive a saved session (persists in the session index).
     ArchiveSession(String, bool),
 }
@@ -142,6 +151,8 @@ pub enum UiEvent {
     /// A session was resumed/forked — the UI should replace its transcript with
     /// these restored messages.
     Loaded { messages: Vec<UiMsg> },
+    /// Runtime tool catalog for the Tools panel.
+    ToolCatalog { tools: Vec<ToolCatalogView> },
     /// Fatal setup/turn error.
     Error { message: String },
 }
@@ -189,6 +200,23 @@ fn emit_ready(app: &AppHandle, workspace: &std::path::Path, session_id: &str) {
             },
         );
     }
+}
+
+fn tool_catalog(agent: &AgentLoop) -> Vec<ToolCatalogView> {
+    let mut tools = agent
+        .tools
+        .ctx
+        .tool_catalog
+        .borrow()
+        .iter()
+        .map(|entry| ToolCatalogView {
+            name: entry.name.clone(),
+            description: entry.description.clone(),
+            read_only: entry.read_only,
+        })
+        .collect::<Vec<_>>();
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
+    tools
 }
 
 /// Approval handler that round-trips through the frontend modal.
@@ -531,6 +559,11 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                             }
                         }
                         Command::RequestReady => emit_ready(&app, &workspace, &session_id),
+                        Command::RequestTools => {
+                            emit(&app, UiEvent::ToolCatalog {
+                                tools: tool_catalog(&agent),
+                            });
+                        }
                         Command::ArchiveSession(id, archived) => {
                             session_index.set_archived(&id, archived);
                         }

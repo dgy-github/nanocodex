@@ -179,6 +179,15 @@ fn request_ready(state: tauri::State<'_, AppState>) -> Result<(), String> {
         .map_err(|_| "agent thread is not running".to_string())
 }
 
+/// Ask the agent thread to emit the active runtime tool catalog.
+#[tauri::command]
+fn request_tools(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state
+        .tx
+        .send(Command::RequestTools)
+        .map_err(|_| "agent thread is not running".to_string())
+}
+
 /// Archive (or unarchive) a saved session; persisted in the session index.
 #[tauri::command]
 fn archive_session(
@@ -945,7 +954,8 @@ pub fn run() {
             set_sandbox,
             set_model,
             set_permission_mode,
-            request_ready
+            request_ready,
+            request_tools
         ])
         .run(tauri::generate_context!())
         .expect("error while running the nanocodex GUI");

@@ -701,6 +701,8 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
 - Checkpoint panel for manual save/list/restore.
 - Custom command panel backed by the same core `.nanocodex/.claude` template
   engine the CLI uses.
+- Tools panel for the live runtime catalog, including core/MCP grouping and
+  read-only versus effectful tool classification.
 - Usage panel for last-turn and session model calls, tool calls, prompt tokens,
   completion tokens, cache hit/miss tokens, estimated cost, and context-edit
   telemetry.

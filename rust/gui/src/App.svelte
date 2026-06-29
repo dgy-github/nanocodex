@@ -18,6 +18,7 @@
     | { kind: "approval"; id: number; command: string; reason: string; cwd: string; details: string }
     | { kind: "done"; final_text: string; iterations: number; stop_reason: string; tools_used: string[]; usage: UsageMap; context_edit: ContextEditStats }
     | { kind: "loaded"; messages: { role: string; text: string }[] }
+    | { kind: "tool_catalog"; tools: ToolInfo[] }
     | { kind: "error"; message: string };
 
   type Approval = { id: number; command: string; reason: string; cwd: string; details: string };
@@ -70,6 +71,17 @@
   let checkpoints = $state<Checkpoint[]>([]);
   let checkpointLabel = $state("");
   let checkpointBusy = $state(false);
+  type ToolInfo = {
+    name: string;
+    description: string;
+    read_only: boolean;
+  };
+  let toolCatalog = $state<ToolInfo[]>([]);
+  let toolBusy = $state(false);
+  const totalToolCount = $derived(toolCatalog.length);
+  const readOnlyToolCount = $derived(toolCatalog.filter((t) => t.read_only).length);
+  const effectfulToolCount = $derived(totalToolCount - readOnlyToolCount);
+  const mcpToolCount = $derived(toolCatalog.filter((t) => t.name.startsWith("mcp__")).length);
 
   type Msg =
     | { role: "user" | "assistant" | "note"; text: string }
@@ -281,9 +293,9 @@
   function toggleTool(m: Msg) {
     if (m.role === "tool" && m.result !== undefined) m.collapsed = !m.collapsed;
   }
-  let rightPanel = $state(""); // "" | files | branches | diff | memory | checkpoints | usage
+  let rightPanel = $state(""); // "" | files | branches | diff | memory | checkpoints | usage | tools
   const PANEL_TITLES: Record<string, string> = {
-    files: "文件", branches: "Git 分支", diff: "工作区改动", memory: "项目记忆", checkpoints: "检查点", usage: "用量",
+    files: "文件", branches: "Git 分支", diff: "工作区改动", memory: "项目记忆", checkpoints: "检查点", usage: "用量", tools: "工具",
   };
   let currentSessionId = $state("");
   // Topbar model quick-switch
@@ -430,6 +442,10 @@
           streamingIdx = null;
           busy = false;
           refreshSessions(); // keep the session you just left visible in 最近会话
+          break;
+        case "tool_catalog":
+          toolCatalog = p.tools ?? [];
+          toolBusy = false;
           break;
         case "error":
           streamingIdx = null;
@@ -838,6 +854,7 @@
       else if (rightPanel === "diff") { diffOpenFiles = {}; diffFiles = await invoke<FileChange[]>("git_changes"); }
       else if (rightPanel === "memory") await loadNotes();
       else if (rightPanel === "checkpoints") await loadCheckpoints();
+      else if (rightPanel === "tools") await loadTools();
     } catch (e) {
       messages.push({ role: "note", text: `刷新失败：${e}` });
     }
@@ -943,6 +960,33 @@
   function openUsage() {
     rightPanel = rightPanel === "usage" ? "" : "usage";
   }
+  async function loadTools() {
+    toolBusy = true;
+    try {
+      await invoke("request_tools");
+    } catch (e) {
+      toolBusy = false;
+      messages.push({ role: "note", text: `读取工具目录失败：${e}` });
+    }
+  }
+  async function openTools() {
+    if (rightPanel === "tools") { rightPanel = ""; return; }
+    rightPanel = "tools";
+    await loadTools();
+  }
+  function splitMcpTool(name: string) {
+    if (!name.startsWith("mcp__")) return null;
+    const rest = name.slice(5);
+    const idx = rest.indexOf("__");
+    if (idx < 0) return null;
+    return { server: rest.slice(0, idx), tool: rest.slice(idx + 2) };
+  }
+  function shortToolName(name: string) {
+    return splitMcpTool(name)?.tool ?? name;
+  }
+  function toolServer(name: string) {
+    return splitMcpTool(name)?.server ?? "core";
+  }
 
   // ── Slash command palette (type `/` in the composer) ──────────────────────
   let slashIdx = $state(0);
@@ -997,6 +1041,7 @@
     { id: "files", label: "文件", desc: "浏览 / 预览工作区文件", run: () => openFiles() },
     { id: "diff", label: "改动", desc: "查看工作区 diff", run: () => openDiff() },
     { id: "branches", label: "分支", desc: "Git 分支", run: () => openBranches() },
+    { id: "tools", label: "工具", desc: "查看运行时工具目录", run: () => openTools() },
     { id: "memory", label: "记忆", desc: "项目记忆", run: () => openHermes() },
     { id: "mcp", label: "MCP", desc: "列出已配置的 MCP 服务器", run: () => cmdMcp() },
     { id: "feedback", label: "反馈", desc: "打开 GitHub Issues", run: () => cmdFeedback() },
@@ -1102,6 +1147,9 @@
         </button>
         <button class="tbtn" class:on={rightPanel === "usage"} onclick={openUsage} title="用量" aria-label="用量">
           <svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-3"/></svg>
+        </button>
+        <button class="tbtn" class:on={rightPanel === "tools"} onclick={openTools} title="工具" aria-label="工具">
+          <svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a3 3 0 0 0-4.1 3.8l-5.8 5.8a2 2 0 0 0 2.8 2.8l5.8-5.8a3 3 0 0 0 3.8-4.1l-2.1 2.1-2-2 2.1-2.1z"/><path d="M18 16l2 2"/><path d="M16 18l2 2"/></svg>
         </button>
         <button class="tbtn" class:on={rightPanel === "memory"} onclick={openHermes} title="记忆" aria-label="记忆">
           <svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z"/><path d="M9 4v16"/></svg>
@@ -1451,6 +1499,38 @@
             <div class="usage-row"><span>累计丢弃</span><b>{sessionDroppedMessages}</b></div>
           </div>
         </div>
+      </div>
+    </aside>
+  {/if}
+
+  {#if rightPanel === "tools"}
+    <aside class="rightpanel">
+      <div class="rp-head"><span class="rp-title">工具目录</span><span class="rp-actions"><button class="plain rp-refresh" onclick={loadTools} disabled={toolBusy}>刷新</button><button class="rp-close" onclick={() => (rightPanel = "")} aria-label="关闭">×</button></span></div>
+      <div class="rp-body">
+        <div class="tool-stats">
+          <span>总数 <b>{totalToolCount}</b></span>
+          <span>只读 <b>{readOnlyToolCount}</b></span>
+          <span>需审批 <b>{effectfulToolCount}</b></span>
+          <span>MCP <b>{mcpToolCount}</b></span>
+        </div>
+        {#if toolBusy}
+          <p class="emptyline">正在读取运行时工具目录…</p>
+        {:else if toolCatalog.length === 0}
+          <p class="emptyline">暂无工具目录快照。</p>
+        {:else}
+          <div class="tool-list">
+            {#each toolCatalog as t}
+              <div class="tool-row">
+                <div class="tool-main">
+                  <strong>{shortToolName(t.name)}</strong>
+                  <code>{toolServer(t.name)}</code>
+                </div>
+                <span class="tool-badge" class:effectful={!t.read_only}>{t.read_only ? "read-only" : "effectful"}</span>
+                <p>{t.description}</p>
+              </div>
+            {/each}
+          </div>
+        {/if}
       </div>
     </aside>
   {/if}

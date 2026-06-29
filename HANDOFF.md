@@ -18,7 +18,8 @@
 - ✅ **GUI/Tauri release 线已收进 `codex/gui-mcp-integration`**：Tauri installer/config
   入口、permission mode、模型快切、workspace/session/fork/archive、右侧 Files/Diff/Branches/Memory
   面板已合并；GUI `Usage` 面板已补回 last-turn/session usage、费用估算和 context-edit
-  telemetry。详细差距路线图见 `docs/claude-fable-gap-roadmap.zh-CN.md`。
+  telemetry；GUI `Tools` 面板已能从 agent 线程读取真实 runtime tool catalog，展示 core/MCP
+  与 read-only/effectful 分类。详细差距路线图见 `docs/claude-fable-gap-roadmap.zh-CN.md`。
 
 ## ncx-forge 训练框架（分支 `feat/train`，已推 origin）— 当前活跃工作线
 目标：让强模型当"教师"迭代优化 agent 骨架（system_prompt + 工具描述），用 bench 通过率当
