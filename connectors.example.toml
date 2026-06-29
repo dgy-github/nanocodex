@@ -13,6 +13,8 @@ source = "npm:mcp-server-fetch"
 enabled = true
 trusted = false
 permission = "ask"
+# allowed_tools is enforced at registration time. Use raw or mcp__server__tool
+# names; empty means all server tools.
 allowed_tools = ["fetch"]
 
 # Example remote connector spec. This is visible in `/mcp` but not launched yet.

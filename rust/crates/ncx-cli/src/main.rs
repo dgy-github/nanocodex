@@ -26,11 +26,12 @@ use std::rc::Rc;
 
 use ncx_core::{
     custom_command_prompt, discover_skills, expand_file_mentions, list_custom_commands,
-    load_project_instructions, new_session_id, parse_custom_command_query, register_mcp_server,
-    skills_index_block, AgentLoop, CheckpointMeta, CheckpointStore, ContextEditPolicy,
-    ContextEditStats, ContextPayloadSnapshotStore, Genome, MemoryStore, Orchestrator,
-    OrchestratorConfig, Provider, Session, SessionIndex, SessionSummary, TaskBudget, TaskLedger,
-    TaskLedgerRecord, ToolContext, ToolRegistry, TurnResult,
+    load_project_instructions, new_session_id, parse_custom_command_query,
+    register_mcp_server_with_policy, skills_index_block, AgentLoop, CheckpointMeta,
+    CheckpointStore, ContextEditPolicy, ContextEditStats, ContextPayloadSnapshotStore, Genome,
+    McpToolPolicy, MemoryStore, Orchestrator, OrchestratorConfig, Provider, Session,
+    SessionIndex, SessionSummary, TaskBudget, TaskLedger, TaskLedgerRecord, ToolContext,
+    ToolRegistry, TurnResult,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -224,8 +225,16 @@ async fn run(args: Args) -> i32 {
             eprintln!("mcp: --mcp set but no enabled servers found in ~/.nanocodex/mcp.toml");
         }
         for srv in servers {
-            match register_mcp_server(&mut tools, &srv.name, &srv.command, &srv.args, &srv.env)
-                .await
+            let policy = mcp_tool_policy(&srv);
+            match register_mcp_server_with_policy(
+                &mut tools,
+                &srv.name,
+                &srv.command,
+                &srv.args,
+                &srv.env,
+                &policy,
+            )
+            .await
             {
                 Ok(n) => eprintln!("mcp({}): {} tool(s) registered", srv.name, n),
                 Err(e) => eprintln!("mcp({}): connect failed: {e}", srv.name),
@@ -748,7 +757,15 @@ fn render_mcp_status(
             } else {
                 format!(" {}", server.args.join(" "))
             };
-            out.push_str(&format!("\n  {}: {}{}", server.name, server.command, args));
+            let allowed = if server.allowed_tools.is_empty() {
+                "*".to_string()
+            } else {
+                server.allowed_tools.join(",")
+            };
+            out.push_str(&format!(
+                "\n  {}: {}{} permission={} trusted={} allowed_tools={}",
+                server.name, server.command, args, server.permission, server.trusted, allowed
+            ));
         }
     }
 
@@ -809,6 +826,14 @@ fn render_mcp_status(
         ));
     }
     out
+}
+
+fn mcp_tool_policy(server: &ncx_config::McpServerConfig) -> McpToolPolicy {
+    McpToolPolicy {
+        allowed_tools: server.allowed_tools.clone(),
+        trusted: server.trusted,
+        permission: server.permission.clone(),
+    }
 }
 
 fn mcp_tool_name_parts(name: &str) -> Option<(&str, &str)> {
@@ -1897,6 +1922,9 @@ mod tests {
             args: vec!["-y".into(), "server-fs".into()],
             env: HashMap::new(),
             enabled: true,
+            trusted: false,
+            permission: "ask".into(),
+            allowed_tools: vec![],
         }];
         let connectors = vec![ncx_config::McpConnectorConfig {
             name: "fs".into(),

@@ -29,10 +29,10 @@ use ncx_config::{
 };
 use ncx_core::{
     discover_skills, expand_file_mentions, load_workspace_instructions, new_session_id,
-    register_mcp_server, skills_index_block, AgentLoop, ApprovalDecision, ApprovalHandler,
-    ApprovalRequest, CheckpointStore, ContextEditPolicy, LoopEvent, MemoryStore, Provider,
-    Session, SessionGrants, SessionIndex, TaskBudget, TaskLedger, TaskLedgerRecord, ToolContext,
-    ToolRegistry, TurnResult,
+    register_mcp_server_with_policy, skills_index_block, AgentLoop, ApprovalDecision,
+    ApprovalHandler, ApprovalRequest, CheckpointStore, ContextEditPolicy, LoopEvent,
+    McpToolPolicy, MemoryStore, Provider, Session, SessionGrants, SessionIndex, TaskBudget,
+    TaskLedger, TaskLedgerRecord, ToolContext, ToolRegistry, TurnResult,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -346,7 +346,17 @@ async fn build_agent(
         } else {
             format!("{} {}", srv.command, srv.args.join(" "))
         };
-        match register_mcp_server(&mut tools, &srv.name, &srv.command, &srv.args, &srv.env).await {
+        let policy = mcp_tool_policy(&srv);
+        match register_mcp_server_with_policy(
+            &mut tools,
+            &srv.name,
+            &srv.command,
+            &srv.args,
+            &srv.env,
+            &policy,
+        )
+        .await
+        {
             Ok(n) => mcp_servers.push(McpRuntimeStatusView {
                 name: srv.name.clone(),
                 command,
@@ -399,6 +409,14 @@ fn compose_system_prompt(base: &str, blocks: &[String]) -> String {
         }
     }
     out
+}
+
+fn mcp_tool_policy(server: &ncx_config::McpServerConfig) -> McpToolPolicy {
+    McpToolPolicy {
+        allowed_tools: server.allowed_tools.clone(),
+        trusted: server.trusted,
+        permission: server.permission.clone(),
+    }
 }
 
 fn positive_usize(value: i64, fallback: usize) -> usize {

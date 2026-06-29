@@ -45,6 +45,9 @@ pub struct McpServerConfig {
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
     pub enabled: bool,
+    pub trusted: bool,
+    pub permission: String,
+    pub allowed_tools: Vec<String>,
 }
 
 /// Auditable MCP connector install spec, loaded from
@@ -82,6 +85,9 @@ impl McpConnectorConfig {
             args: self.args.clone(),
             env: self.env.clone(),
             enabled: true,
+            trusted: self.trusted,
+            permission: self.permission.clone(),
+            allowed_tools: self.allowed_tools.clone(),
         })
     }
 }

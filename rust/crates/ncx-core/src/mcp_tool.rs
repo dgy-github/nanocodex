@@ -5,8 +5,9 @@
 //! `Rc<tokio::sync::Mutex<McpClient>>`, which serialises concurrent calls safely
 //! on the current-thread runtime.
 //!
-//! Non-read-only tools go through the normal `ctx.approver` approval path before
-//! calling the MCP server — same escalation model as `ShellTool`.
+//! Non-read-only tools go through the normal `ctx.approver` approval path unless
+//! a connector policy marks the server trusted. Policies can also filter tools
+//! before registration.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -22,19 +23,80 @@ use crate::tools::{ApprovalRequest, Tool, ToolContext, ToolRegistry};
 // ── McpTool ───────────────────────────────────────────────────────────────────
 
 pub struct McpTool {
+    display_name: String,
     def: McpToolDef,
     client: Rc<Mutex<McpClient>>,
     read_only: bool,
+    approval_required: bool,
 }
 
 impl McpTool {
     pub fn new(def: McpToolDef, client: Rc<Mutex<McpClient>>) -> Self {
         let read_only = is_read_only_name(&def.name);
+        let display_name = def.name.clone();
         McpTool {
+            display_name,
             def,
             client,
             read_only,
+            approval_required: !read_only,
         }
+    }
+
+    pub fn with_policy(
+        server: &str,
+        def: McpToolDef,
+        client: Rc<Mutex<McpClient>>,
+        policy: &McpToolPolicy,
+    ) -> Self {
+        let read_only = is_read_only_name(&def.name);
+        let approval_required = policy.approval_required(read_only);
+        let display_name = mcp_tool_name(server, &def.name);
+        McpTool {
+            display_name,
+            def,
+            client,
+            read_only,
+            approval_required,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct McpToolPolicy {
+    pub allowed_tools: Vec<String>,
+    pub trusted: bool,
+    pub permission: String,
+}
+
+impl McpToolPolicy {
+    pub fn allows(&self, server: &str, tool: &str) -> bool {
+        let permission = self.permission.trim().to_ascii_lowercase();
+        if matches!(permission.as_str(), "deny" | "disabled" | "none") {
+            return false;
+        }
+        if self.allowed_tools.is_empty() {
+            return true;
+        }
+        let qualified = mcp_tool_name(server, tool);
+        self.allowed_tools
+            .iter()
+            .any(|allowed| matches_allowed_tool(allowed, tool, &qualified))
+    }
+
+    fn approval_required(&self, read_only: bool) -> bool {
+        let permission = self.permission.trim().to_ascii_lowercase();
+        if read_only {
+            return false;
+        }
+        if self.trusted || matches!(permission.as_str(), "trusted" | "auto" | "auto-approve") {
+            return false;
+        }
+        true
+    }
+
+    fn read_only_only(&self) -> bool {
+        self.permission.trim().eq_ignore_ascii_case("read-only")
     }
 }
 
@@ -49,10 +111,37 @@ fn is_read_only_name(name: &str) -> bool {
     matches!(lower.as_str(), "read" | "get" | "list" | "search" | "find")
 }
 
+fn matches_allowed_tool(allowed: &str, tool: &str, qualified: &str) -> bool {
+    let allowed = allowed.trim();
+    allowed == "*" || allowed == tool || allowed == qualified
+}
+
+fn mcp_tool_name(server: &str, tool: &str) -> String {
+    format!("mcp__{}__{}", sanitize_tool_part(server), sanitize_tool_part(tool))
+}
+
+fn sanitize_tool_part(value: &str) -> String {
+    let out = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if out.is_empty() {
+        "tool".to_string()
+    } else {
+        out
+    }
+}
+
 #[async_trait(?Send)]
 impl Tool for McpTool {
     fn name(&self) -> &str {
-        &self.def.name
+        &self.display_name
     }
 
     fn description(&self) -> &str {
@@ -68,13 +157,13 @@ impl Tool for McpTool {
     }
 
     async fn execute(&self, ctx: &ToolContext, args: &Value) -> String {
-        if !self.read_only {
-            let decision = Approver::new(&ctx.approval_policy).classify(&self.def.name, true);
+        if self.approval_required {
+            let decision = Approver::new(&ctx.approval_policy).classify(&self.display_name, true);
             match decision {
                 Decision::AutoDeny => {
                     return format!(
                         "Error: MCP tool '{}' denied by approval policy '{}' (non-read-only).",
-                        self.def.name, ctx.approval_policy
+                        self.display_name, ctx.approval_policy
                     );
                 }
                 Decision::Ask => {
@@ -82,10 +171,10 @@ impl Tool for McpTool {
                         let details = serde_json::to_string_pretty(args).unwrap_or_default();
                         let ans = approver
                             .request(ApprovalRequest {
-                                command: format!("mcp:{} {args}", self.def.name),
+                                command: format!("mcp:{} {args}", self.display_name),
                                 reason: format!(
                                     "MCP tool '{}' may have side effects.",
-                                    self.def.name
+                                    self.display_name
                                 ),
                                 cwd: ctx.workspace.display().to_string(),
                                 escalated: true,
@@ -95,7 +184,7 @@ impl Tool for McpTool {
                         if !ans.approved() {
                             return format!(
                                 "Error: MCP tool '{}' not approved by the user.",
-                                self.def.name
+                                self.display_name
                             );
                         }
                     }
@@ -109,7 +198,7 @@ impl Tool for McpTool {
         let mut client = self.client.lock().await;
         match client.call_tool(&self.def.name, args).await {
             Ok(out) => out,
-            Err(e) => format!("Error: MCP tool '{}' failed: {e}", self.def.name),
+            Err(e) => format!("Error: MCP tool '{}' failed: {e}", self.display_name),
         }
     }
 }
@@ -125,12 +214,43 @@ pub async fn register_mcp_server(
     args: &[String],
     env: &HashMap<String, String>,
 ) -> Result<usize, String> {
+    register_mcp_server_with_policy(
+        tools,
+        name,
+        command,
+        args,
+        env,
+        &McpToolPolicy::default(),
+    )
+    .await
+}
+
+pub async fn register_mcp_server_with_policy(
+    tools: &mut ToolRegistry,
+    name: &str,
+    command: &str,
+    args: &[String],
+    env: &HashMap<String, String>,
+    policy: &McpToolPolicy,
+) -> Result<usize, String> {
     let mut client = McpClient::connect(name, command, args, env).await?;
     let defs = client.list_tools().await?;
-    let n = defs.len();
     let shared = Rc::new(Mutex::new(client));
+    let mut n = 0;
     for def in defs {
-        tools.register(Box::new(McpTool::new(def, shared.clone())));
+        if !policy.allows(name, &def.name) {
+            continue;
+        }
+        if policy.read_only_only() && !is_read_only_name(&def.name) {
+            continue;
+        }
+        tools.register(Box::new(McpTool::with_policy(
+            name,
+            def,
+            shared.clone(),
+            policy,
+        )));
+        n += 1;
     }
     Ok(n)
 }
@@ -155,6 +275,48 @@ mod tests {
         assert!(!is_read_only_name("create_issue"));
         assert!(!is_read_only_name("delete_branch"));
         assert!(!is_read_only_name("execute_code"));
+    }
+
+    #[test]
+    fn policy_allows_exact_or_qualified_tool_names() {
+        let policy = McpToolPolicy {
+            allowed_tools: vec!["list".into(), "mcp__fs__read".into()],
+            trusted: false,
+            permission: "ask".into(),
+        };
+
+        assert!(policy.allows("fs", "list"));
+        assert!(policy.allows("fs", "read"));
+        assert!(!policy.allows("fs", "write"));
+    }
+
+    #[test]
+    fn mcp_tool_names_are_qualified_for_the_model() {
+        assert_eq!(mcp_tool_name("fs", "list"), "mcp__fs__list");
+        assert_eq!(
+            mcp_tool_name("server.name", "read/path"),
+            "mcp__server_name__read_path"
+        );
+    }
+
+    #[test]
+    fn policy_permission_controls_registration_and_approval() {
+        let deny = McpToolPolicy {
+            permission: "deny".into(),
+            ..Default::default()
+        };
+        assert!(!deny.allows("fs", "list"));
+
+        let trusted = McpToolPolicy {
+            trusted: true,
+            permission: "ask".into(),
+            ..Default::default()
+        };
+        assert!(!trusted.approval_required(false));
+
+        let ask = McpToolPolicy::default();
+        assert!(ask.approval_required(false));
+        assert!(!ask.approval_required(true));
     }
 
     // A live round-trip (connect → list_tools → register → execute echo tool)
@@ -222,14 +384,12 @@ for line in sys.stdin:
         };
         assert_eq!(n, 2);
 
-        // echo is read-only by heuristic (starts with "echo"… actually not)
-        // write_note is non-read-only — check it's registered.
-        assert!(reg.get("echo").is_some());
-        assert!(reg.get("write_note").is_some());
-        assert!(!reg.is_read_only("write_note"));
+        assert!(reg.get("mcp__mock__echo").is_some());
+        assert!(reg.get("mcp__mock__write_note").is_some());
+        assert!(!reg.is_read_only("mcp__mock__write_note"));
 
         let out = reg
-            .execute("echo", &serde_json::json!({"text": "hello mcp"}))
+            .execute("mcp__mock__echo", &serde_json::json!({"text": "hello mcp"}))
             .await;
         assert_eq!(out, "echo: hello mcp");
     }

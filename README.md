@@ -540,7 +540,10 @@ Each server's tools surface to the model as `mcp__<server>__<tool>`. Set
 For a more auditable connector install layer, `~/.nanocodex/connectors.toml`
 also supports `[connectors.<name>]` specs with `transport`, `source`, `trusted`,
 `permission`, and `allowed_tools`. Stdio connectors are converted into MCP
-servers when `ncx --mcp` starts; remote `sse`/`http` specs are parsed and shown
+servers when `ncx --mcp` starts, and `allowed_tools` plus `permission`
+(`ask`, `trusted`, `read-only`, `deny`) are enforced while registering tools.
+`allowed_tools` accepts raw MCP tool names or fully qualified
+`mcp__<server>__<tool>` names. Remote `sse`/`http` specs are parsed and shown
 for audit, but are not launched until first-class auth/OAuth support lands. See
 `mcp.example.toml` and `connectors.example.toml`.
 

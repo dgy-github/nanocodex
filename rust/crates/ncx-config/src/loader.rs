@@ -350,6 +350,9 @@ pub fn list_profiles() -> Vec<String> {
 /// args = ["-y", "@modelcontextprotocol/server-everything"]
 /// env = { MY_VAR = "value" }   # optional
 /// enabled = true               # optional, defaults true
+/// trusted = false              # optional, defaults false
+/// permission = "ask"           # ask | trusted | read-only | deny
+/// allowed_tools = ["fetch"]    # optional allow-list, empty = all
 /// ```
 ///
 /// Legacy `[[servers]]` entries with an explicit `name` field are also accepted.
@@ -476,6 +479,17 @@ fn parse_mcp_server(name: &str, spec: &Value) -> Option<crate::config::McpServer
         args,
         env,
         enabled,
+        trusted: spec
+            .get("trusted")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        permission: spec
+            .get("permission")
+            .and_then(|v| v.as_str())
+            .unwrap_or("ask")
+            .trim()
+            .to_ascii_lowercase(),
+        allowed_tools: string_array_field(spec, "allowed_tools"),
     })
 }
 
@@ -1119,6 +1133,8 @@ enabled = false
         assert_eq!(servers[0].name, "fetch");
         assert_eq!(servers[0].command, "uvx");
         assert_eq!(servers[0].args, vec!["mcp-server-fetch"]);
+        assert_eq!(servers[0].permission, "ask");
+        assert!(servers[0].allowed_tools.is_empty());
         assert_eq!(
             servers[0].env.get("TOKEN").map(String::as_str),
             Some("secret")
@@ -1146,6 +1162,7 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0].name, "everything");
         assert_eq!(servers[0].command, "npx");
+        assert!(!servers[0].trusted);
     }
 
     #[test]
@@ -1222,6 +1239,8 @@ transport = "http"
         assert_eq!(server.name, "fetch");
         assert_eq!(server.command, "cmd");
         assert_eq!(server.args, vec!["/c", "npx"]);
+        assert_eq!(server.permission, "ask");
+        assert_eq!(server.allowed_tools, vec!["fetch"]);
     }
 
     #[test]

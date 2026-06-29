@@ -4,13 +4,18 @@
 [mcp_servers.fetch]
 command = "uvx"
 args = ["mcp-server-fetch"]
+permission = "ask"        # ask | trusted | read-only | deny
+trusted = false
+allowed_tools = ["fetch"] # optional raw or mcp__server__tool names; empty = all
 # enabled = true  # optional; set false to keep the entry but skip connecting
 
 [mcp_servers.filesystem]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "D:\\agent_prac"]
+permission = "read-only"
 
 # Project-local Windows computer-use server example:
 # [mcp_servers.windows_computer_use]
 # command = "python"
 # args = ["D:\\agent_prac\\windows-computer-use-mcp\\server.py"]
+# permission = "ask"

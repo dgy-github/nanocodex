@@ -470,6 +470,9 @@ ncx --mcp
 `[connectors.<name>]` 可以声明 `transport`、`source`、`trusted`、`permission` 和
 `allowed_tools`。stdio connector 会在 `ncx --mcp` 启动时转换成 MCP server；远程
 `sse`/`http` spec 目前只解析并在 `/mcp` 里展示，等后续补一方 auth/OAuth 后再真正启动。
+stdio connector/server 注册时会执行 `allowed_tools` 和 `permission`
+（`ask`、`trusted`、`read-only`、`deny`）；`allowed_tools` 可写原始 MCP 工具名，
+也可写完整的 `mcp__<server>__<tool>` 名。
 更多见 `mcp.example.toml` 和 `connectors.example.toml`。
 
 Rust REPL 内可用 `/mcp` 查看 enabled server、connector install spec、connector 权限/信任
