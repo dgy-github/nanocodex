@@ -165,6 +165,8 @@ async fn run(args: Args) -> i32 {
     // Periodic consolidation: fold near-duplicate notes on every start (cheap,
     // idempotent) so the store stays tidy as it grows.
     let _ = memory.consolidate(0.85);
+    let recall_query = args.prompt.as_deref().unwrap_or("");
+    let recall = memory.recall(recall_query, 8, 4000);
     let instructions = load_project_instructions(&cfg.workspace, 16_000);
     // Agent Skills: inject only the name+description index (progressive
     // disclosure); the `skill` tool loads a full SKILL.md body on demand.
@@ -187,7 +189,7 @@ async fn run(args: Args) -> i32 {
         String::new()
     };
     let system_prompt =
-        compose_system_prompt(&base_prompt, &[instructions, skills_index, plan_note]);
+        compose_system_prompt(&base_prompt, &[instructions, recall, skills_index, plan_note]);
     let ctx = ToolContext::new(cfg.workspace.clone(), policy)
         .with_approval_policy(approval_policy)
         .with_require_edit_approval(require_edit)
