@@ -108,6 +108,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   也会补上确定性的 category/capability hints，弥补稀疏 connector metadata。Rust REPL 提供
   `/tools` 检查工具 catalog、当前可见 schema 视图和 active search hints；
   Tauri Tools 面板读取同一份 live catalog，并展示 MCP server 连接状态、注册工具数、启动耗时和最近错误。
+  每轮完成后会把 visible schemas / called tools 写入 task ledger，`/tools eval [N]`
+  和 `--tools-eval-report` 可输出 schema recall、missed calls、MCP recall 和最近 miss 样本。
 - **Semantic memory：** 每轮都会按当前 prompt 做 query-scoped 记忆召回，并以发送时
   system note 注入；排序使用关键词、标签、短语、Jaccard 相似度、时间新近度，以及一小组
   agent/runtime 领域同义词。Rust REPL 提供 `/memory` 查看记忆文件、条目数、最近记录、
@@ -164,7 +166,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.8、Sonnet 4.6 的 1M context
 | --- | ---: | --- |
 | Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
 | Context editing | 72-80% | 发送时编辑会压缩旧 tool result，按 `context_token_budget`/`context_window` 自动推导适配 1M context 的字符与分桶上限，并在丢弃旧前缀前物化带 focus anchors 的确定性摘要 checkpoint；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文质量、模型引导的 focus compaction、平台自动 compact 和更完整的 context regression suites。 |
-| Tool search / connectors | 70-80% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、27 条跨类别 gold-case 排名测试、确定性 MCP category/capability hints、visible-vs-called task-ledger trace、`/tools eval` schema-recall 报告，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry、更大的真实 trace 样本、更丰富的类别体系和大规模动态工具排序。 |
+| Tool search / connectors | 70-80% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、27 条跨类别 gold-case 排名测试、确定性 MCP category/capability hints、visible-vs-called task-ledger trace、`/tools eval` / `--tools-eval-report` schema-recall 报告，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry、更大的真实 trace 样本、更丰富的类别体系和大规模动态工具排序。 |
 | Semantic memory | 74-82% | query-scoped lexical-semantic recall、本地 vector sidecar recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼，以及运行时纠正/失败 proposal 提炼已有；还缺外部 embedding provider 和平台级长期 memory。 |
 
 最大的剩余差距不是普通 Rust 代码量，而是平台能力：Anthropic 原生工具/connector
@@ -718,6 +720,12 @@ Rust workspace release 版本。脚本使用和 `scripts\verify-rust.ps1` 相同
 探测路径；Rust 安装在非 PATH 位置时可传 `-Cargo C:\path\to\cargo.exe`。只需要 CLI 包时
 可加 `-SkipTauri`；只有同 target 已在 CI 或本地 release 验证通过时，才建议加
 `-SkipTests`。
+
+release/benchmark 审计时，打包出的 CLI 也可以非交互输出 tool-search trace 健康度：
+
+```powershell
+.\releases\<unzipped>\ncx.exe --tools-eval-report
+```
 
 手动 Windows GNU CLI release：
 

@@ -133,6 +133,10 @@ async fn run(args: Args) -> i32 {
         println!("{}", render_budget_report(&TaskLedger::new(&cfg.workspace), 20));
         return 0;
     }
+    if args.tools_eval_report {
+        println!("{}", render_tool_trace_eval(&TaskLedger::new(&cfg.workspace), 50));
+        return 0;
+    }
 
     // Maintenance: LLM-fold near-duplicate memory notes, then exit.
     if args.memory_merge {

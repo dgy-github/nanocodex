@@ -88,6 +88,7 @@ For the CLI package:
 ```powershell
 .\releases\<unzipped>\ncx.exe --help
 .\releases\<unzipped>\ncx.exe --dump-genome
+.\releases\<unzipped>\ncx.exe --tools-eval-report
 ```
 
 For the Tauri installer:
@@ -97,6 +98,8 @@ For the Tauri installer:
 - Confirm Sessions, Usage, Memory, and checkpoint panels open.
 - Confirm the CLI status surfaces remain documented: `/budget`, `/context`,
   `/tools`, `/memory`, `/mcp`, and `/usage`.
+- Confirm the non-interactive trace reports work for release/benchmark notes:
+  `--budget-report` and `--tools-eval-report`.
 
 ## 7. Release Notes
 

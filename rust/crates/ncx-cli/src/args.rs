@@ -45,6 +45,7 @@ OPTIONS:
     -r, --resume            Resume the workspace session log before starting.
         --history           List recent saved sessions, then exit.
         --budget-report     Print the workspace task budget ledger, then exit.
+        --tools-eval-report Print visible-vs-called tool trace evaluation, then exit.
     -o, --orchestrate       Run the prompt through the tiered flash/pro orchestrator
                             (classify → plan → parallel workers → verify). One-shot only.
         --memory-merge      Maintenance: LLM-fold near-duplicate project memory notes, then exit.
@@ -78,6 +79,7 @@ pub struct Args {
     pub resume: bool,
     pub history: bool,
     pub budget_report: bool,
+    pub tools_eval_report: bool,
     pub orchestrate: bool,
     pub memory_merge: bool,
     /// Print the default genome (system_prompt + core tool descriptions) as TOML and exit.
@@ -110,6 +112,7 @@ pub fn parse_args(argv: &[String]) -> Result<Args, String> {
             "-r" | "--resume" => args.resume = true,
             "--history" => args.history = true,
             "--budget-report" => args.budget_report = true,
+            "--tools-eval-report" | "--tool-trace-report" => args.tools_eval_report = true,
             "--memory-merge" => args.memory_merge = true,
             "--dump-genome" => args.dump_genome = true,
             "--disable-context-edit" => args.disable_context_edit = true,
@@ -215,6 +218,14 @@ mod tests {
     fn budget_report_flag() {
         let a = args(&["--budget-report"]).unwrap();
         assert!(a.budget_report);
+    }
+
+    #[test]
+    fn tools_eval_report_flag() {
+        let a = args(&["--tools-eval-report"]).unwrap();
+        assert!(a.tools_eval_report);
+        let a = args(&["--tool-trace-report"]).unwrap();
+        assert!(a.tools_eval_report);
     }
 
     #[test]
