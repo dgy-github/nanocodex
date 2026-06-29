@@ -188,11 +188,10 @@ fn build_agent(
     let policy = SandboxPolicy::new(cfg.sandbox_mode.clone(), &cfg.workspace)
         .with_network_access(cfg.network_access);
     let memory = Rc::new(MemoryStore::new(cfg.workspace.join(".ncx").join("memory")));
-    let recall = memory.recall("", 8, 4000); // recency at session start (no task yet)
     let instructions = load_project_instructions(&cfg.workspace, 16_000);
     let skills = discover_skills(&cfg.workspace);
     let skills_index = skills_index_block(&skills);
-    let system_prompt = compose_system_prompt(SYSTEM_PROMPT, &[instructions, recall, skills_index]);
+    let system_prompt = compose_system_prompt(SYSTEM_PROMPT, &[instructions, skills_index]);
     let ctx = ToolContext::new(cfg.workspace.clone(), policy)
         .with_approval_policy(cfg.approval_policy.clone())
         .with_timeout(cfg.timeout_s as u64)

@@ -113,9 +113,10 @@ tool.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
   hits are made visible in the next schema view.
-- **Semantic memory:** project memory retrieval now uses a hybrid lexical
-  semantic ranker: keywords, tags, phrase matches, Jaccard similarity, recency,
-  and a small domain synonym map for agent/runtime terms.
+- **Semantic memory:** every turn receives a query-scoped memory recall note at
+  send time. Retrieval uses a hybrid lexical semantic ranker: keywords, tags,
+  phrase matches, Jaccard similarity, recency, and a small domain synonym map
+  for agent/runtime terms.
 - **Deterministic hooks:** `[[hooks]]` can run project commands before or after
   matching tools and at turn lifecycle points. A failing `pre_tool` or
   `user_prompt` hook blocks the action; `post_tool` and `stop` output is
@@ -512,9 +513,10 @@ A user skill of the same name shadows the built-in.
 
 Three complementary layers of persistent context:
 
-- **Project memory** (`.ncx/memory/LEARNINGS.md`) — verified project notes used
-  as recall leads. Written by the `remember` tool or the Tauri Memory panel;
-  maintained with `ncx --memory-merge`, heuristic Merge, or LLM merge.
+- **Project memory** (`.ncx/memory/LEARNINGS.md`) — verified project notes
+  retrieved as query-scoped recall leads for each turn. Written by the
+  `remember` tool or the Tauri Memory panel; maintained with
+  `ncx --memory-merge`, heuristic Merge, or LLM merge.
 - **User memory** (`~/.nanocodex/memory.md`) — durable personal facts and
   preferences. Written by the `remember` tool, by typing `# something` in the
   legacy Python GUI composer (quick-capture), or by hand. Wrapped in a
@@ -524,7 +526,8 @@ Three complementary layers of persistent context:
   `CLAUDE.md`, and `.claude/CLAUDE.md` from the repo root down to the workspace,
   so nested directories refine their parents. Total size is capped so a huge
   file can't blow the context. Rust CLI, orchestrator workers, and the Tauri GUI
-  all inject this block at session startup.
+  all inject this project-instruction block at session startup; project memory is
+  recalled separately at send time for the current prompt.
 
 Memory is "who/what" (preferences, facts); skills are "how to do X";
 AGENTS.md / CLAUDE.md are project-scoped guidance.

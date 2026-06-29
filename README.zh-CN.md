@@ -87,8 +87,9 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   会压缩旧 tool result，并在超过上下文预算时丢弃更早的前缀。
 - **Tool search：** 工具注册时会进入 catalog。小工具集仍全量暴露；工具变多时只暴露核心
   工具和 `tool_search`，搜索命中的工具会在下一轮 schema 里出现。
-- **Semantic memory：** 项目记忆检索从纯关键词升级为混合语义排序：关键词、标签、短语、
-  Jaccard 相似度、时间新近度，以及一小组 agent/runtime 领域同义词。
+- **Semantic memory：** 每轮都会按当前 prompt 做 query-scoped 记忆召回，并以发送时
+  system note 注入；排序使用关键词、标签、短语、Jaccard 相似度、时间新近度，以及一小组
+  agent/runtime 领域同义词。
 
 ### 第二阶段为什么改用 Rust
 
@@ -101,7 +102,7 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - **并行编排更稳：** 隔离 worker 副本、verifier 选择、结果 promote 回真实工作区这些
   流程，在显式所有权和类型系统下更容易证明不会互相踩写。
 - **运行时控制面：** task budget、context editing、tool search、semantic memory 放在
-  Rust runtime 边界里，而不是只靠模型提示词约定。
+  Rust runtime 边界里；memory 召回按每轮 prompt 发送时注入，而不是只靠启动 prompt 约定。
 - **Checkpoint / restore：** Rust CLI 和 Tauri GUI 都会在模型轮次前创建文件
   checkpoint。CLI 提供 `/checkpoint`、`/checkpoints`、`/restore <id>`；GUI 提供
   checkpoint 面板用于手动保存、列表查看和恢复。
@@ -446,16 +447,17 @@ Look for behavior regressions first, then missing tests, then maintainability.
 
 三层互补的持久上下文：
 
-- **项目记忆**（`.ncx/memory/LEARNINGS.md`）—— 作为 recall 线索使用的已验证项目笔记。
-  由 `remember` 工具或 Tauri Memory 面板写入；可用 `ncx --memory-merge`、启发式 Merge
-  或 LLM merge 维护。
+- **项目记忆**（`.ncx/memory/LEARNINGS.md`）—— 经过验证的项目笔记，每轮按当前 prompt
+  检索成 recall 线索。由 `remember` 工具或 Tauri Memory 面板写入；可用
+  `ncx --memory-merge`、启发式 Merge 或 LLM merge 维护。
 - **用户记忆**（`~/.nanocodex/memory.md`）—— 持久的个人事实和偏好。由 `remember`
   工具写入、在 legacy Python GUI 输入框里打 `# 内容` 快速捕获、或手工编辑。Python 线会包在
   `<user_memory>` 块里。
 - **AGENTS.md / CLAUDE.md** —— 项目指令，从 `~/.codex/AGENTS.md` 和
   `~/.claude/CLAUDE.md` 开始，再分层读取从仓库根到工作区的每个 `AGENTS.md`、
   `CLAUDE.md` 和 `.claude/CLAUDE.md`，所以嵌套目录可以细化父级。总大小有上限，避免
-  一个超大文件撑爆上下文。Rust CLI、orchestrator worker 和 Tauri GUI 都会在会话启动时注入这一块。
+  一个超大文件撑爆上下文。Rust CLI、orchestrator worker 和 Tauri GUI 都会在会话启动时注入
+  项目指令；项目记忆则按当前 prompt 在发送时单独召回。
 
 记忆讲「谁/什么」（偏好、事实）；skills 讲「怎么做 X」；AGENTS.md / CLAUDE.md 是项目级指引。
 

@@ -135,14 +135,12 @@ async fn run(args: Args) -> i32 {
     );
     let policy = SandboxPolicy::new(cfg.sandbox_mode.clone(), &cfg.workspace)
         .with_network_access(cfg.network_access);
-    // Project memory: recalled into the system prompt as leads; the `remember`
-    // tool lets the agent append verified notes (it gets smarter on THIS repo).
+    // Project memory: recalled per prompt by AgentLoop; the `remember` tool lets
+    // the agent append verified notes (it gets smarter on THIS repo).
     let memory = Rc::new(MemoryStore::new(cfg.workspace.join(".ncx").join("memory")));
     // Periodic consolidation: fold near-duplicate notes on every start (cheap,
     // idempotent) so the store stays tidy as it grows.
     let _ = memory.consolidate(0.85);
-    let recall_query = args.prompt.as_deref().unwrap_or("");
-    let recall = memory.recall(recall_query, 8, 4000);
     let instructions = load_project_instructions(&cfg.workspace, 16_000);
     // Agent Skills: inject only the name+description index (progressive
     // disclosure); the `skill` tool loads a full SKILL.md body on demand.
@@ -159,7 +157,7 @@ async fn run(args: Args) -> i32 {
         );
     }
     let base_prompt = genome.base_system_prompt(SYSTEM_PROMPT).to_string();
-    let system_prompt = compose_system_prompt(&base_prompt, &[instructions, recall, skills_index]);
+    let system_prompt = compose_system_prompt(&base_prompt, &[instructions, skills_index]);
     let ctx = ToolContext::new(cfg.workspace.clone(), policy)
         .with_approval_policy(cfg.approval_policy.clone())
         .with_timeout(cfg.timeout_s as u64)
