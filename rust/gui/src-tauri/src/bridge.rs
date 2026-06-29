@@ -23,13 +23,14 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use ncx_config::{
-    load_config, permission_mode_to_knobs, write_nanocodex_config, Config, ConfigPaths, Overrides,
+    load_config, load_mcp_servers, permission_mode_to_knobs, write_nanocodex_config, Config,
+    ConfigPaths, Overrides,
 };
 use ncx_core::{
     discover_skills, expand_file_mentions, load_workspace_instructions, new_session_id,
-    skills_index_block, AgentLoop, ApprovalDecision, ApprovalHandler, ApprovalRequest,
-    CheckpointStore, ContextEditPolicy, LoopEvent, MemoryStore, Provider, Session, SessionGrants,
-    SessionIndex, TaskBudget, ToolContext, ToolRegistry,
+    register_mcp_server, skills_index_block, AgentLoop, ApprovalDecision, ApprovalHandler,
+    ApprovalRequest, CheckpointStore, ContextEditPolicy, LoopEvent, MemoryStore, Provider,
+    Session, SessionGrants, SessionIndex, TaskBudget, ToolContext, ToolRegistry,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -70,6 +71,16 @@ pub struct ToolCatalogView {
     name: String,
     description: String,
     read_only: bool,
+}
+
+#[derive(Clone, Serialize)]
+pub struct McpRuntimeStatusView {
+    name: String,
+    command: String,
+    status: String,
+    tools: usize,
+    elapsed_ms: u64,
+    error: Option<String>,
 }
 
 /// A request from the UI to the agent thread.
@@ -152,7 +163,10 @@ pub enum UiEvent {
     /// these restored messages.
     Loaded { messages: Vec<UiMsg> },
     /// Runtime tool catalog for the Tools panel.
-    ToolCatalog { tools: Vec<ToolCatalogView> },
+    ToolCatalog {
+        tools: Vec<ToolCatalogView>,
+        mcp_servers: Vec<McpRuntimeStatusView>,
+    },
     /// Fatal setup/turn error.
     Error { message: String },
 }
@@ -251,11 +265,21 @@ impl ApprovalHandler for GuiApprover {
 ///
 /// `seed` reseeds the conversation: `(session_id, messages)` — used by Resume
 /// (keep the id) and Fork (a new id). `None` starts a fresh session.
-fn build_agent(
+async fn build_agent(
     approver: Rc<dyn ApprovalHandler>,
     seed: Option<(String, Vec<Value>)>,
     grants: Rc<RefCell<SessionGrants>>,
-) -> Result<(AgentLoop, PathBuf, String, PathBuf, SessionIndex), String> {
+) -> Result<
+    (
+        AgentLoop,
+        PathBuf,
+        String,
+        PathBuf,
+        SessionIndex,
+        Vec<McpRuntimeStatusView>,
+    ),
+    String,
+> {
     let workspace = std::env::current_dir().ok();
     let overrides = Overrides {
         workspace,
@@ -302,7 +326,34 @@ fn build_agent(
         .with_hooks(cfg.hooks.clone())
         .with_skills(skills)
         .with_approver(approver);
-    let tools = ToolRegistry::new(ctx);
+    let mut tools = ToolRegistry::new(ctx);
+    let mut mcp_servers = Vec::new();
+    for srv in load_mcp_servers() {
+        let started = std::time::Instant::now();
+        let command = if srv.args.is_empty() {
+            srv.command.clone()
+        } else {
+            format!("{} {}", srv.command, srv.args.join(" "))
+        };
+        match register_mcp_server(&mut tools, &srv.name, &srv.command, &srv.args, &srv.env).await {
+            Ok(n) => mcp_servers.push(McpRuntimeStatusView {
+                name: srv.name.clone(),
+                command,
+                status: "connected".into(),
+                tools: n,
+                elapsed_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                error: None,
+            }),
+            Err(e) => mcp_servers.push(McpRuntimeStatusView {
+                name: srv.name.clone(),
+                command,
+                status: "error".into(),
+                tools: 0,
+                elapsed_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                error: Some(e.to_string()),
+            }),
+        }
+    }
     let log_path = cfg.workspace.join(".nanocodex").join("session.jsonl");
     let (session_id, session) = match seed {
         Some((id, messages)) => (
@@ -324,6 +375,7 @@ fn build_agent(
         session_id,
         log_path,
         SessionIndex::default(),
+        mcp_servers,
     ))
 }
 
@@ -385,14 +437,20 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                 // Session "always allow" grants — fresh per session, kept across
                 // model / permission-mode rebuilds, replaced on new/resume/fork.
                 let mut grants = Rc::new(RefCell::new(SessionGrants::default()));
-                let (mut agent, mut workspace, mut session_id, mut log_path, mut session_index) =
-                    match build_agent(approver.clone(), None, grants.clone()) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            emit(&app, UiEvent::Error { message: e });
-                            return;
-                        }
-                    };
+                let (
+                    mut agent,
+                    mut workspace,
+                    mut session_id,
+                    mut log_path,
+                    mut session_index,
+                    mut mcp_servers,
+                ) = match build_agent(approver.clone(), None, grants.clone()).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        emit(&app, UiEvent::Error { message: e });
+                        return;
+                    }
+                };
                 agent.set_event_sink(make_sink(app.clone()));
                 emit_ready(&app, &workspace, &session_id);
 
@@ -437,13 +495,14 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                         }
                         Command::Reload => {
                             grants = Rc::new(RefCell::new(SessionGrants::default()));
-                            match build_agent(approver.clone(), None, grants.clone()) {
-                                Ok((a, ws, sid, lp, idx)) => {
+                            match build_agent(approver.clone(), None, grants.clone()).await {
+                                Ok((a, ws, sid, lp, idx, mcp)) => {
                                     agent = a;
                                     workspace = ws;
                                     session_id = sid;
                                     log_path = lp;
                                     session_index = idx;
+                                    mcp_servers = mcp;
                                     agent.set_event_sink(make_sink(app.clone()));
                                     emit_ready(&app, &workspace, &session_id);
                                 }
@@ -464,13 +523,14 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                             let msgs = session_index.load_snapshot(&id).unwrap_or_default();
                             let ui = snapshot_to_ui(&msgs);
                             grants = Rc::new(RefCell::new(SessionGrants::default()));
-                            match build_agent(approver.clone(), Some((id, msgs)), grants.clone()) {
-                                Ok((a, ws, sid, lp, idx)) => {
+                            match build_agent(approver.clone(), Some((id, msgs)), grants.clone()).await {
+                                Ok((a, ws, sid, lp, idx, mcp)) => {
                                     agent = a;
                                     workspace = ws;
                                     session_id = sid;
                                     log_path = lp;
                                     session_index = idx;
+                                    mcp_servers = mcp;
                                     agent.set_event_sink(make_sink(app.clone()));
                                     emit(&app, UiEvent::Loaded { messages: ui });
                                     emit_ready(&app, &workspace, &session_id);
@@ -482,13 +542,20 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                             let msgs = session_index.load_snapshot(&id).unwrap_or_default();
                             let ui = snapshot_to_ui(&msgs);
                             grants = Rc::new(RefCell::new(SessionGrants::default()));
-                            match build_agent(approver.clone(), Some((new_session_id(), msgs)), grants.clone()) {
-                                Ok((a, ws, sid, lp, idx)) => {
+                            match build_agent(
+                                approver.clone(),
+                                Some((new_session_id(), msgs)),
+                                grants.clone(),
+                            )
+                            .await
+                            {
+                                Ok((a, ws, sid, lp, idx, mcp)) => {
                                     agent = a;
                                     workspace = ws;
                                     session_id = sid;
                                     log_path = lp;
                                     session_index = idx;
+                                    mcp_servers = mcp;
                                     agent.set_event_sink(make_sink(app.clone()));
                                     emit(&app, UiEvent::Loaded { messages: ui });
                                     emit_ready(&app, &workspace, &session_id);
@@ -520,13 +587,20 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                             let _ = write_nanocodex_config(&m, &ConfigPaths::default().nanocodex);
                             let msgs = session_index.load_snapshot(&session_id).unwrap_or_default();
                             // Same session → keep the "always allow" grants.
-                            match build_agent(approver.clone(), Some((session_id.clone(), msgs)), grants.clone()) {
-                                Ok((a, ws, sid, lp, idx)) => {
+                            match build_agent(
+                                approver.clone(),
+                                Some((session_id.clone(), msgs)),
+                                grants.clone(),
+                            )
+                            .await
+                            {
+                                Ok((a, ws, sid, lp, idx, mcp)) => {
                                     agent = a;
                                     workspace = ws;
                                     session_id = sid;
                                     log_path = lp;
                                     session_index = idx;
+                                    mcp_servers = mcp;
                                     agent.set_event_sink(make_sink(app.clone()));
                                     emit_ready(&app, &workspace, &session_id);
                                 }
@@ -545,13 +619,20 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                             let _ = write_nanocodex_config(&m, &ConfigPaths::default().nanocodex);
                             let msgs = session_index.load_snapshot(&session_id).unwrap_or_default();
                             // Same session → keep the "always allow" grants.
-                            match build_agent(approver.clone(), Some((session_id.clone(), msgs)), grants.clone()) {
-                                Ok((a, ws, sid, lp, idx)) => {
+                            match build_agent(
+                                approver.clone(),
+                                Some((session_id.clone(), msgs)),
+                                grants.clone(),
+                            )
+                            .await
+                            {
+                                Ok((a, ws, sid, lp, idx, mcp)) => {
                                     agent = a;
                                     workspace = ws;
                                     session_id = sid;
                                     log_path = lp;
                                     session_index = idx;
+                                    mcp_servers = mcp;
                                     agent.set_event_sink(make_sink(app.clone()));
                                     emit_ready(&app, &workspace, &session_id);
                                 }
@@ -562,6 +643,7 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                         Command::RequestTools => {
                             emit(&app, UiEvent::ToolCatalog {
                                 tools: tool_catalog(&agent),
+                                mcp_servers: mcp_servers.clone(),
                             });
                         }
                         Command::ArchiveSession(id, archived) => {

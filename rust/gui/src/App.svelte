@@ -18,7 +18,7 @@
     | { kind: "approval"; id: number; command: string; reason: string; cwd: string; details: string }
     | { kind: "done"; final_text: string; iterations: number; stop_reason: string; tools_used: string[]; usage: UsageMap; context_edit: ContextEditStats }
     | { kind: "loaded"; messages: { role: string; text: string }[] }
-    | { kind: "tool_catalog"; tools: ToolInfo[] }
+    | { kind: "tool_catalog"; tools: ToolInfo[]; mcp_servers: McpRuntimeStatus[] }
     | { kind: "error"; message: string };
 
   type Approval = { id: number; command: string; reason: string; cwd: string; details: string };
@@ -76,12 +76,23 @@
     description: string;
     read_only: boolean;
   };
+  type McpRuntimeStatus = {
+    name: string;
+    command: string;
+    status: string;
+    tools: number;
+    elapsed_ms: number;
+    error?: string | null;
+  };
   let toolCatalog = $state<ToolInfo[]>([]);
+  let mcpRuntime = $state<McpRuntimeStatus[]>([]);
   let toolBusy = $state(false);
   const totalToolCount = $derived(toolCatalog.length);
   const readOnlyToolCount = $derived(toolCatalog.filter((t) => t.read_only).length);
   const effectfulToolCount = $derived(totalToolCount - readOnlyToolCount);
   const mcpToolCount = $derived(toolCatalog.filter((t) => t.name.startsWith("mcp__")).length);
+  const connectedMcpServerCount = $derived(mcpRuntime.filter((s) => s.status === "connected").length);
+  const errorMcpServerCount = $derived(mcpRuntime.filter((s) => s.status === "error").length);
 
   type Msg =
     | { role: "user" | "assistant" | "note"; text: string }
@@ -445,6 +456,7 @@
           break;
         case "tool_catalog":
           toolCatalog = p.tools ?? [];
+          mcpRuntime = p.mcp_servers ?? [];
           toolBusy = false;
           break;
         case "error":
@@ -1512,7 +1524,23 @@
           <span>只读 <b>{readOnlyToolCount}</b></span>
           <span>需审批 <b>{effectfulToolCount}</b></span>
           <span>MCP <b>{mcpToolCount}</b></span>
+          <span>服务 <b>{connectedMcpServerCount}/{mcpRuntime.length}</b></span>
+          <span>错误 <b>{errorMcpServerCount}</b></span>
         </div>
+        {#if mcpRuntime.length > 0}
+          <div class="mcp-runtime">
+            {#each mcpRuntime as s}
+              <div class="mcp-row" class:error={s.status !== "connected"}>
+                <div class="mcp-main">
+                  <strong>{s.name}</strong>
+                  <code>{s.command}</code>
+                </div>
+                <span class="mcp-badge">{s.status === "connected" ? `${s.tools} 工具` : "错误"}</span>
+                <small>{s.elapsed_ms} ms{#if s.error} - {s.error}{/if}</small>
+              </div>
+            {/each}
+          </div>
+        {/if}
         {#if toolBusy}
           <p class="emptyline">正在读取运行时工具目录…</p>
         {:else if toolCatalog.length === 0}

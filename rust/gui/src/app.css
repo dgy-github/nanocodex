@@ -1521,6 +1521,64 @@ main.app { flex-direction: row; }
   font-family: var(--font-mono);
   font-variant-ligatures: none;
 }
+.mcp-runtime {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+.mcp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem var(--sp-2);
+  border: 1px solid color-mix(in srgb, var(--ok) 26%, var(--line));
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--ok) 5%, var(--paper-2));
+  padding: var(--sp-3);
+}
+.mcp-row.error {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--line));
+  background: color-mix(in srgb, var(--danger) 5%, var(--paper-2));
+}
+.mcp-main {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.mcp-main strong {
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
+.mcp-main code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+}
+.mcp-badge {
+  justify-self: end;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: var(--r-pill);
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  padding: 0.12rem 0.45rem;
+  white-space: nowrap;
+}
+.mcp-row.error .mcp-badge {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
+}
+.mcp-row small {
+  grid-column: 1 / -1;
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 .tool-list {
   display: flex;
   flex-direction: column;
