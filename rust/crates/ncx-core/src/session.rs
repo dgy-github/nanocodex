@@ -1037,6 +1037,178 @@ mod tests {
     }
 
     #[test]
+    fn context_regression_keeps_runtime_notes_when_history_and_tools_compete() {
+        let mut s = Session::new("system contract");
+        for i in 0..9 {
+            let id = format!("call-{i}");
+            s.add_user_text(&format!(
+                "inspect migration shard {i} for auth latency regression"
+            ));
+            s.add_assistant(
+                "",
+                Some(vec![json!({
+                    "id": id,
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": "{}"}
+                })]),
+                "",
+            );
+            s.add_tool_result(
+                &format!("call-{i}"),
+                "shell",
+                &format!("auth latency shard {i}\n{}", "x".repeat(900)),
+            );
+        }
+        s.add_user_text("continue the auth latency regression migration");
+
+        let out = s.for_model_edited(
+            &[
+                "Runtime task budget: model=3 tool=8".into(),
+                "[memory recall for this prompt]\n- auth latency regression uses migration shard notes"
+                    .into(),
+            ],
+            &ContextEditPolicy {
+                enabled: true,
+                max_chars: 1_800,
+                keep_recent_messages: 1,
+                max_tool_result_chars: 64,
+                max_history_chars: 1_000,
+                max_tool_result_total_chars: 420,
+            },
+        );
+
+        assert!(out.stats.edited_chars < out.stats.original_chars);
+        assert!(out.stats.compressed_tool_results > 0);
+        assert!(out.stats.dropped_messages > 0);
+        assert!(out.stats.summary_checkpoints > 0);
+        assert!(out.stats.tool_result_chars <= 420, "{:?}", out.stats);
+        assert_eq!(out.messages[0]["role"], "system");
+        assert!(out.messages.iter().any(|m| {
+            m["role"] == "system"
+                && m["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("Runtime task budget")
+        }));
+        assert!(out.messages.iter().any(|m| {
+            m["role"] == "system"
+                && m["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("[memory recall for this prompt]")
+        }));
+        let summary = summary_checkpoint_text(&out.messages);
+        assert!(summary.contains("tools_seen: shell"), "{summary}");
+        assert!(summary.contains("focus_anchors"), "{summary}");
+        assert!(
+            summary.contains("auth latency regression")
+                || summary.contains("migration shard"),
+            "{summary}"
+        );
+        assert_valid_tool_protocol(&out.messages);
+    }
+
+    #[test]
+    fn context_regression_preserves_recent_tool_call_pair() {
+        let mut s = Session::new("sys");
+        for i in 0..10 {
+            s.add_user_text(&format!("old unrelated topic {i} {}", "x".repeat(90)));
+            s.add_assistant(&format!("old answer {i} {}", "y".repeat(90)), None, "");
+        }
+        s.add_user_text("inspect final failing build log");
+        s.add_assistant(
+            "",
+            Some(vec![json!({
+                "id": "recent-tool",
+                "type": "function",
+                "function": {"name": "read_file", "arguments": "{\"path\":\"build.log\"}"}
+            })]),
+            "",
+        );
+        s.add_tool_result("recent-tool", "read_file", "final build failure root cause");
+        s.add_user_text("summarize the final failing build log root cause");
+
+        let out = s.for_model_edited(
+            &[],
+            &ContextEditPolicy {
+                enabled: true,
+                max_chars: 1_400,
+                keep_recent_messages: 4,
+                max_tool_result_chars: 32,
+                max_history_chars: 900,
+                max_tool_result_total_chars: 400,
+            },
+        );
+
+        assert!(out.stats.dropped_messages > 0);
+        assert!(out.stats.summary_checkpoints > 0);
+        assert!(out.messages.iter().any(|m| {
+            m["role"] == "assistant"
+                && m.get("tool_calls")
+                    .and_then(|v| v.as_array())
+                    .map(|calls| calls.iter().any(|c| c["id"] == "recent-tool"))
+                    .unwrap_or(false)
+        }));
+        assert!(out.messages.iter().any(|m| {
+            m["role"] == "tool" && m["tool_call_id"] == "recent-tool"
+        }));
+        assert_valid_tool_protocol(&out.messages);
+    }
+
+    fn summary_checkpoint_text(messages: &[Value]) -> String {
+        messages
+            .iter()
+            .find_map(|m| {
+                let content = m["content"].as_str().unwrap_or("");
+                content
+                    .contains("[context summary checkpoint]")
+                    .then(|| content.to_string())
+            })
+            .unwrap_or_default()
+    }
+
+    fn assert_valid_tool_protocol(messages: &[Value]) {
+        let mut pending = HashSet::<String>::new();
+        for msg in messages {
+            match role(msg) {
+                Some("assistant") => {
+                    assert!(
+                        pending.is_empty(),
+                        "assistant started before tool replies completed: {pending:?}"
+                    );
+                    if let Some(calls) = msg.get("tool_calls").and_then(|v| v.as_array()) {
+                        for call in calls {
+                            let Some(id) = call.get("id").and_then(|v| v.as_str()) else {
+                                continue;
+                            };
+                            pending.insert(id.to_string());
+                        }
+                    }
+                }
+                Some("tool") => {
+                    let id = msg
+                        .get("tool_call_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    assert!(
+                        pending.remove(id),
+                        "tool result without visible assistant call: {id}"
+                    );
+                }
+                Some("user") | Some("system") => {
+                    assert!(
+                        pending.is_empty(),
+                        "{} started before tool replies completed: {pending:?}",
+                        role(msg).unwrap_or("message")
+                    );
+                }
+                _ => {}
+            }
+        }
+        assert!(pending.is_empty(), "dangling tool calls: {pending:?}");
+    }
+
+    #[test]
     fn compact_materializes_context_edit_and_rewrites_log() {
         let dir = std::env::temp_dir().join(format!("ncx_session_compact_{}", now_stamp()));
         let path = dir.join("session.jsonl");

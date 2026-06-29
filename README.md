@@ -99,9 +99,9 @@ tool.
   one-shot commands as well as interactive REPL use.
 - Typed ownership makes parallel worker isolation and result promotion easier
   to reason about without shared mutable state leaks.
-- 269 offline Rust tests cover the current crate boundary, including memory
-  consolidation, provider request/response parsing, sandbox policy, tools, and
-  orchestration.
+- 319 source-counted offline Rust test functions cover the current crate
+  boundary, including memory consolidation, provider request/response parsing,
+  sandbox policy, tools, orchestration, and context-editing regressions.
 
 **Platform control-plane upgrades**
 
@@ -134,7 +134,9 @@ tool.
   caps actively govern the send-time view. When these caps are omitted or set
   to `0`, the Rust config loader derives them from `context_token_budget` and
   `context_window`, so 1M-context model profiles are not forced through the old
-  120k-character send-time ceiling.
+  120k-character send-time ceiling. Regression tests now cover large tool
+  outputs, long histories, runtime-note/memory competition, and tool-call/result
+  pairing after compaction.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
   hits are made visible in the next schema view. Ranking is namespace-aware for
@@ -218,7 +220,7 @@ are local-runtime implementations:
 | Capability | Current coverage | Remaining gap |
 | --- | ---: | --- |
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
-| Context editing | 72-80% | Send-time editing compresses tool results, derives 1M-friendly character and bucket caps from `context_token_budget`/`context_window`, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model quality, model-guided focus compaction, platform automatic compact, and broader context regression suites. |
+| Context editing | 72-80% | Send-time editing compresses tool results, derives 1M-friendly character and bucket caps from `context_token_budget`/`context_window`, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; provider payload snapshots, context-pack bucket telemetry, and regression coverage for large tool outputs/long histories make the actual model input more auditable. Still missing Anthropic-scale long-context model quality, model-guided focus compaction, platform automatic compact, and broader quality evaluation suites. |
 | Tool search / connectors | 70-80% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, 27-query cross-category gold-case ranking tests, deterministic MCP category/capability hints, visible-vs-called task-ledger traces, `/tools eval` / `--tools-eval-report` schema-recall reporting, and an auditable `connectors.toml` install/auth spec reduce schema and connector ambiguity. Missing complete OAuth login UX, remote transport startup, a managed registry, broader trace corpus, richer category ontologies, and large-scale dynamic tool ranking. |
 | Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, and runtime correction/failure proposal harvesting exist. Remaining gaps are external embedding providers and platform-grade long-term memory. |
 
