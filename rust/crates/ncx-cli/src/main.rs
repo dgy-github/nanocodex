@@ -451,6 +451,10 @@ fn dispatch_slash(
             }
         }
         "/skills" => SlashOutcome::Printed(render_skills(&agent.tools.ctx.skills)),
+        "/memory" => SlashOutcome::Printed(render_memory_status(
+            agent.tools.ctx.memory.as_deref(),
+            arg,
+        )),
         "/tools" => SlashOutcome::Printed(render_tools_status(&agent.tools, arg)),
         "/mcp" => {
             let servers = load_mcp_servers();
@@ -496,6 +500,80 @@ fn render_skills(skills: &[ncx_core::Skill]) -> String {
         }
     }
     out.push_str("\n\nThe agent loads a skill's full instructions on demand via the `skill` tool.");
+    out
+}
+
+fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
+    let Some(memory) = memory else {
+        return "Project memory is not enabled in this runtime.".into();
+    };
+    let query = query.trim();
+    let mut entries = memory.entries();
+    entries.sort_by(|a, b| b.ts.cmp(&a.ts));
+
+    let mut tag_counts: BTreeMap<String, usize> = BTreeMap::new();
+    for entry in &entries {
+        for tag in &entry.tags {
+            *tag_counts.entry(tag.clone()).or_insert(0) += 1;
+        }
+    }
+    let mut tags = tag_counts.into_iter().collect::<Vec<_>>();
+    tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let tag_line = if tags.is_empty() {
+        "(none)".into()
+    } else {
+        tags.into_iter()
+            .take(8)
+            .map(|(tag, count)| format!("{tag}={count}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let mut out = format!(
+        "Project memory\npath: {}\nentries: {}\nmax_entries: {}\ntop_tags: {}",
+        memory.path().display(),
+        entries.len(),
+        ncx_core::memory::MAX_ENTRIES,
+        tag_line
+    );
+    out.push_str("\n\nRecent notes:");
+    if entries.is_empty() {
+        out.push_str(" (none)");
+    } else {
+        for entry in entries.iter().take(5) {
+            out.push_str(&format!(
+                "\n- [{}] {}",
+                entry.ts,
+                truncate_one_line(&entry.text, 120)
+            ));
+        }
+    }
+
+    if query.is_empty() {
+        out.push_str("\n\nUse /memory <query> to preview query-scoped recall.");
+    } else {
+        let recall = memory.recall(query, 5, 2_000);
+        out.push_str(&format!("\n\nRecall preview for '{query}':"));
+        if recall.trim().is_empty() {
+            out.push_str(" (none)");
+        } else {
+            out.push('\n');
+            out.push_str(&recall);
+        }
+    }
+    out
+}
+
+fn truncate_one_line(text: &str, max_chars: usize) -> String {
+    let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = String::new();
+    for (i, ch) in one_line.chars().enumerate() {
+        if i >= max_chars {
+            out.push_str("...");
+            return out;
+        }
+        out.push(ch);
+    }
     out
 }
 
@@ -1465,6 +1543,43 @@ mod tests {
         assert!(out.contains("sid"));
         assert!(out.contains("fix bug"));
         assert!(out.contains("tools=3"));
+    }
+
+    #[test]
+    fn memory_status_renders_entries_tags_and_recall() {
+        let dir = std::env::temp_dir().join(format!("ncx_memory_status_{}", new_session_id()));
+        let memory = MemoryStore::new(&dir);
+        memory
+            .remember(
+                "Tauri desktop shell builds compact Windows bundles",
+                &["release".into(), "windows".into()],
+                10,
+            )
+            .unwrap();
+        memory
+            .remember(
+                "Use crate-type lib for the Tauri backend on GNU",
+                &["build".into()],
+                20,
+            )
+            .unwrap();
+
+        let out = render_memory_status(Some(&memory), "native installer release");
+
+        assert!(out.contains("Project memory"));
+        assert!(out.contains("LEARNINGS.md"));
+        assert!(out.contains("entries: 2"));
+        assert!(out.contains("release=1"));
+        assert!(out.contains("Recent notes:"));
+        assert!(out.contains("Recall preview"));
+        assert!(out.contains("Tauri desktop shell"));
+    }
+
+    #[test]
+    fn memory_status_mentions_when_disabled() {
+        let out = render_memory_status(None, "");
+
+        assert!(out.contains("not enabled"));
     }
 
     #[test]

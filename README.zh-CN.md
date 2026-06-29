@@ -75,7 +75,7 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - 启动路径避开 Python 解释器和 import 开销，适合短的一次性命令，也适合交互 REPL。
 - 显式所有权让并行 worker 隔离、结果选择和 promote 更容易推理，不容易出现共享可变状态
   泄漏。
-- 266 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
+- 268 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
   沙箱策略、工具和编排器。
 
 **平台控制面补齐**
@@ -91,7 +91,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   `/tools` 检查工具 catalog、当前可见 schema 视图和 active search hints。
 - **Semantic memory：** 每轮都会按当前 prompt 做 query-scoped 记忆召回，并以发送时
   system note 注入；排序使用关键词、标签、短语、Jaccard 相似度、时间新近度，以及一小组
-  agent/runtime 领域同义词。
+  agent/runtime 领域同义词。Rust REPL 提供 `/memory` 查看记忆文件、条目数、最近记录、
+  tag 摘要和 query-scoped recall 预览。
 
 ### 第二阶段为什么改用 Rust
 
@@ -360,8 +361,9 @@ Rust REPL 可以把 Markdown prompt 模板变成 slash command。项目级命令
 
 内置 REPL slash command 也暴露平台状态面：`/usage` 查看原始 token 和 context-edit
 telemetry，`/context` 查看当前 context-edit 策略和下一次发送预览，`/tools` 查看工具
-catalog 和当前可见 schema 视图，`/skills` 查看已发现 skill catalog，`/history` 查看保存的
-会话，`/mcp` 查看 enabled MCP server 以及当前会话已注册的 MCP 工具。
+catalog 和当前可见 schema 视图，`/memory` 查看项目记忆状态和 recall 预览，`/skills` 查看
+已发现 skill catalog，`/history` 查看保存的会话，`/mcp` 查看 enabled MCP server 以及当前
+会话已注册的 MCP 工具。
 
 Tauri GUI 也通过标题栏的 `/` 按钮暴露同一套 project/user command catalog。可以在面板里
 填写参数后直接运行，也可以在聊天输入框里直接输入 custom slash command；GUI 会用和 CLI
@@ -494,7 +496,8 @@ Look for behavior regressions first, then missing tests, then maintainability.
 
 - **项目记忆**（`.ncx/memory/LEARNINGS.md`）—— 经过验证的项目笔记，每轮按当前 prompt
   检索成 recall 线索。由 `remember` 工具或 Tauri Memory 面板写入；可用
-  `ncx --memory-merge`、启发式 Merge 或 LLM merge 维护。
+  `ncx --memory-merge`、启发式 Merge 或 LLM merge 维护。Rust `/memory [query]`
+  会显示文件路径、条目数、最近记录、tags 和 recall 预览。
 - **用户记忆**（`~/.nanocodex/memory.md`）—— 持久的个人事实和偏好。由 `remember`
   工具写入、在 legacy Python GUI 输入框里打 `# 内容` 快速捕获、或手工编辑。Python 线会包在
   `<user_memory>` 块里。

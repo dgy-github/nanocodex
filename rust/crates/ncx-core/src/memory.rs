@@ -54,6 +54,11 @@ impl MemoryStore {
         }
     }
 
+    /// Path to the backing markdown file.
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
     /// Record a verified note. Returns `Ok(false)` if it duplicates an existing
     /// entry (skipped). `now` is the epoch-seconds timestamp (caller supplies it
     /// so this is deterministic / testable).

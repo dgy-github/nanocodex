@@ -45,6 +45,10 @@ pub const SLASH_HELP: &[(&str, &str)] = &[
         "List available agent skills (name + when to use).",
     ),
     (
+        "/memory",
+        "Show project memory status, recent notes, and recall preview.",
+    ),
+    (
         "/tools",
         "Show registered tools, currently visible schemas, and tool_search hints.",
     ),
@@ -201,6 +205,7 @@ mod tests {
             "/approvals",
             "/diff",
             "/skills",
+            "/memory",
             "/tools",
             "/history",
             "/checkpoint",

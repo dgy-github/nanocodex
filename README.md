@@ -97,7 +97,7 @@ tool.
   one-shot commands as well as interactive REPL use.
 - Typed ownership makes parallel worker isolation and result promotion easier
   to reason about without shared mutable state leaks.
-- 266 offline Rust tests cover the current crate boundary, including memory
+- 268 offline Rust tests cover the current crate boundary, including memory
   consolidation, provider request/response parsing, sandbox policy, tools, and
   orchestration.
 
@@ -118,7 +118,8 @@ tool.
 - **Semantic memory:** every turn receives a query-scoped memory recall note at
   send time. Retrieval uses a hybrid lexical semantic ranker: keywords, tags,
   phrase matches, Jaccard similarity, recency, and a small domain synonym map
-  for agent/runtime terms.
+  for agent/runtime terms. The Rust REPL exposes `/memory` for the backing file,
+  entry count, recent notes, tag summary, and query-scoped recall preview.
 - **Deterministic hooks:** `[[hooks]]` can run project commands before or after
   matching tools and at turn lifecycle points. A failing `pre_tool` or
   `user_prompt` hook blocks the action; `post_tool` and `stop` output is
@@ -422,8 +423,9 @@ compatibility fallback.
 Built-in REPL slash commands also expose platform status surfaces: `/usage`
 for raw token and context-edit telemetry, `/context` for the active context-edit
 policy and next-send preview, `/tools` for the tool catalog and visible schema
-view, `/skills` for the discovered skill catalog, `/history` for saved sessions,
-and `/mcp` for enabled MCP servers plus currently registered MCP tools.
+view, `/memory` for project memory status and recall preview, `/skills` for the
+discovered skill catalog, `/history` for saved sessions, and `/mcp` for enabled
+MCP servers plus currently registered MCP tools.
 
 The Tauri GUI exposes the same project/user command catalog from the `/` header
 button. You can run a command from the panel with arguments, or type the custom
@@ -568,7 +570,8 @@ Three complementary layers of persistent context:
 - **Project memory** (`.ncx/memory/LEARNINGS.md`) — verified project notes
   retrieved as query-scoped recall leads for each turn. Written by the
   `remember` tool or the Tauri Memory panel; maintained with
-  `ncx --memory-merge`, heuristic Merge, or LLM merge.
+  `ncx --memory-merge`, heuristic Merge, or LLM merge. Rust `/memory [query]`
+  shows the file path, entry count, recent notes, tags, and a recall preview.
 - **User memory** (`~/.nanocodex/memory.md`) — durable personal facts and
   preferences. Written by the `remember` tool, by typing `# something` in the
   legacy Python GUI composer (quick-capture), or by hand. Wrapped in a
