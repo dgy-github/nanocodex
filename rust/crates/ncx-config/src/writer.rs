@@ -26,6 +26,8 @@ pub const WRITABLE_KEYS: &[&str] = &[
     "context_edit_max_chars",
     "context_edit_keep_recent_messages",
     "context_edit_max_tool_result_chars",
+    "context_edit_max_history_chars",
+    "context_edit_max_tool_result_total_chars",
     "price_in",
     "price_out",
 ];
@@ -193,6 +195,8 @@ mod tests {
             ("context_edit_max_chars", "9000"),
             ("context_edit_keep_recent_messages", "8"),
             ("context_edit_max_tool_result_chars", "600"),
+            ("context_edit_max_history_chars", "8000"),
+            ("context_edit_max_tool_result_total_chars", "1200"),
         ]));
         let parsed = text.parse::<toml::Value>().unwrap();
         assert_eq!(parsed["max_iterations"].as_str().unwrap(), "12");
@@ -210,6 +214,16 @@ mod tests {
                 .as_str()
                 .unwrap(),
             "600"
+        );
+        assert_eq!(
+            parsed["context_edit_max_history_chars"].as_str().unwrap(),
+            "8000"
+        );
+        assert_eq!(
+            parsed["context_edit_max_tool_result_total_chars"]
+                .as_str()
+                .unwrap(),
+            "1200"
         );
     }
 }

@@ -122,7 +122,8 @@ tool.
   for active policy, session size, last-turn telemetry, next-send preview, and
   recent provider payload snapshots via `/context payload [N]`. Telemetry now
   breaks the edited payload into context-pack buckets: system prompt, runtime
-  notes, memory recall, history, and tool-result characters.
+  notes, memory recall, history, and tool-result characters; configurable
+  history and total tool-result bucket caps actively govern the send-time view.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
   hits are made visible in the next schema view. Ranking is namespace-aware for
@@ -181,7 +182,8 @@ Reference surface: Claude Code
 [context window](https://code.claude.com/docs/en/context-window),
 [memory](https://code.claude.com/docs/en/memory),
 [MCP](https://code.claude.com/docs/en/mcp), and
-[hooks](https://code.claude.com/docs/en/hooks).
+[hooks](https://code.claude.com/docs/en/hooks), plus Anthropic's
+[models overview](https://docs.anthropic.com/en/docs/about-claude/models/overview).
 Detailed current backlog and gap sizing live in
 [`docs/claude-fable-gap-roadmap.zh-CN.md`](docs/claude-fable-gap-roadmap.zh-CN.md).
 
@@ -199,7 +201,7 @@ are local-runtime implementations:
 | Capability | Current coverage | Remaining gap |
 | --- | ---: | --- |
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
-| Context editing | 58-68% | Send-time editing compresses tool results and drops old prefixes under budget; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model variants and policy-driven context budget allocation. |
+| Context editing | 64-74% | Send-time editing compresses tool results, enforces configurable history/tool-result bucket caps, and drops old prefixes under budget; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model variants, focus compaction, and automatic summary checkpoints for long tasks. |
 | Tool search / connectors | 62-72% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, gold-case ranking tests, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, and large-scale dynamic tool ranking. |
 | Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, and runtime correction/failure proposal harvesting exist. Remaining gaps are external embedding providers and platform-grade long-term memory. |
 
@@ -405,6 +407,8 @@ reasoning_effort = "auto"          # auto | low | high | max | off
 # context_edit_max_chars = 120000
 # context_edit_keep_recent_messages = 30
 # context_edit_max_tool_result_chars = 4000
+# context_edit_max_history_chars = 90000
+# context_edit_max_tool_result_total_chars = 35000
 # available_models = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"]
 
 # [[hooks]]
@@ -417,10 +421,13 @@ reasoning_effort = "auto"          # auto | low | high | max | off
 Runtime control-plane settings can also be set with environment variables:
 `NANOCODEX_MAX_ITERATIONS`, `NANOCODEX_MAX_TOOL_CALLS`,
 `NANOCODEX_CONTEXT_EDIT_ENABLED`, `NANOCODEX_CONTEXT_EDIT_MAX_CHARS`,
-`NANOCODEX_CONTEXT_EDIT_KEEP_RECENT`, and
-`NANOCODEX_CONTEXT_EDIT_TOOL_RESULT_CHARS`. The Rust CLI also accepts
+`NANOCODEX_CONTEXT_EDIT_KEEP_RECENT`,
+`NANOCODEX_CONTEXT_EDIT_TOOL_RESULT_CHARS`,
+`NANOCODEX_CONTEXT_EDIT_MAX_HISTORY_CHARS`, and
+`NANOCODEX_CONTEXT_EDIT_TOOL_RESULT_TOTAL_CHARS`. The Rust CLI also accepts
 `--max-iterations`, `--max-tool-calls`, `--context-edit-max-chars`,
-`--context-edit-keep-recent`, `--context-edit-tool-result-chars`, and
+`--context-edit-keep-recent`, `--context-edit-tool-result-chars`,
+`--context-edit-history-chars`, `--context-edit-tool-result-total-chars`, and
 `--disable-context-edit`.
 
 A full example lives in `config.example.toml`.
@@ -677,10 +684,13 @@ same send-time edit without mutating the session, including policy knobs,
 message counts, last-turn telemetry, and the next-send compression/drop stats.
 Rust `/usage` and the Tauri GUI's `U` panel also surface send-time context
 editing telemetry: original chars, edited chars, saved chars, compressed tool
-results, and dropped messages. Each provider call also writes a redacted JSON
-snapshot under `.nanocodex/context-payloads/`, so `/context payload [N]` and
-the GUI Usage panel can inspect exactly which edited messages and tool schemas
-were sent.
+results, dropped messages, and context-pack buckets. The send-time policy also
+enforces `context_edit_max_history_chars` and
+`context_edit_max_tool_result_total_chars` so long history and old tool output
+cannot crowd out system notes and memory recall. Each provider call also writes
+a redacted JSON snapshot under `.nanocodex/context-payloads/`, so
+`/context payload [N]` and the GUI Usage panel can inspect exactly which edited
+messages and tool schemas were sent.
 
 ## Token Usage & Cost
 

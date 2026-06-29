@@ -36,6 +36,8 @@
     context_edit_max_chars: number;
     context_edit_keep_recent_messages: number;
     context_edit_max_tool_result_chars: number;
+    context_edit_max_history_chars: number;
+    context_edit_max_tool_result_total_chars: number;
     price_in: number;
     price_out: number;
     api_key_masked: string;
@@ -726,6 +728,8 @@
       context_edit_max_chars: String(settings.context_edit_max_chars),
       context_edit_keep_recent_messages: String(settings.context_edit_keep_recent_messages),
       context_edit_max_tool_result_chars: String(settings.context_edit_max_tool_result_chars),
+      context_edit_max_history_chars: String(settings.context_edit_max_history_chars),
+      context_edit_max_tool_result_total_chars: String(settings.context_edit_max_tool_result_total_chars),
       price_in: String(settings.price_in),
       price_out: String(settings.price_out),
     };
@@ -1947,6 +1951,14 @@
         <label>
           <span>工具结果字符上限</span>
           <input type="number" min="1" bind:value={settings.context_edit_max_tool_result_chars} />
+        </label>
+        <label>
+          <span>历史桶字符上限</span>
+          <input type="number" min="1" bind:value={settings.context_edit_max_history_chars} />
+        </label>
+        <label>
+          <span>工具结果总桶上限</span>
+          <input type="number" min="1" bind:value={settings.context_edit_max_tool_result_total_chars} />
         </label>
         <label>
           <span>输入单价 ¥/百万</span>

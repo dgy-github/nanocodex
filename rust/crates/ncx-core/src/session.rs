@@ -19,6 +19,8 @@ pub struct ContextEditPolicy {
     pub max_chars: usize,
     pub keep_recent_messages: usize,
     pub max_tool_result_chars: usize,
+    pub max_history_chars: usize,
+    pub max_tool_result_total_chars: usize,
 }
 
 impl Default for ContextEditPolicy {
@@ -28,6 +30,8 @@ impl Default for ContextEditPolicy {
             max_chars: 120_000,
             keep_recent_messages: 30,
             max_tool_result_chars: 4_000,
+            max_history_chars: 90_000,
+            max_tool_result_total_chars: 35_000,
         }
     }
 }
@@ -229,20 +233,22 @@ impl Session {
                 }
             }
 
+            stats.compressed_tool_results += enforce_tool_result_bucket(
+                &mut body,
+                policy.keep_recent_messages,
+                policy.max_tool_result_total_chars,
+            );
+
+            if body.iter().map(json_chars).sum::<usize>() > policy.max_history_chars {
+                stats.dropped_messages +=
+                    drop_old_prefix(&mut body, policy.keep_recent_messages);
+            }
+
             if total_chars(&self.system, system_notes, &body) > policy.max_chars
                 && body.len() > policy.keep_recent_messages
             {
-                let mut start = body.len().saturating_sub(policy.keep_recent_messages);
-                if let Some(rel) = body[start..].iter().position(|m| role(m) == Some("user")) {
-                    start += rel;
-                }
-                while start < body.len() && role(&body[start]) == Some("tool") {
-                    start += 1;
-                }
-                if start > 0 && start < body.len() {
-                    stats.dropped_messages = start;
-                    body = body[start..].to_vec();
-                }
+                stats.dropped_messages +=
+                    drop_old_prefix(&mut body, policy.keep_recent_messages);
             }
         }
 
@@ -475,6 +481,27 @@ fn tool_result_chars(messages: &[Value]) -> usize {
         .sum()
 }
 
+fn enforce_tool_result_bucket(
+    messages: &mut [Value],
+    keep_recent_messages: usize,
+    max_total_chars: usize,
+) -> usize {
+    let recent_cutoff = messages.len().saturating_sub(keep_recent_messages);
+    let mut compressed = 0;
+    for i in 0..recent_cutoff {
+        if tool_result_chars(messages) <= max_total_chars {
+            break;
+        }
+        if role(&messages[i]) != Some("tool") {
+            continue;
+        }
+        if summarize_tool_result(&mut messages[i]) {
+            compressed += 1;
+        }
+    }
+    compressed
+}
+
 fn compress_tool_result(msg: &mut Value, max_chars: usize) -> bool {
     let Some(obj) = msg.as_object_mut() else {
         return false;
@@ -495,6 +522,44 @@ fn compress_tool_result(msg: &mut Value, max_chars: usize) -> bool {
         )),
     );
     true
+}
+
+fn summarize_tool_result(msg: &mut Value) -> bool {
+    let Some(obj) = msg.as_object_mut() else {
+        return false;
+    };
+    let Some(content) = obj.get("content").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    let original_chars = content.chars().count();
+    let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
+    let summary = format!(
+        "[context edited: omitted prior {name} result to preserve tool-result context bucket; original_chars={original_chars}]"
+    );
+    if summary.chars().count() >= original_chars || content == summary.as_str() {
+        return false;
+    }
+    obj.insert("content".into(), json!(summary));
+    true
+}
+
+fn drop_old_prefix(body: &mut Vec<Value>, keep_recent_messages: usize) -> usize {
+    if body.len() <= keep_recent_messages {
+        return 0;
+    }
+    let mut start = body.len().saturating_sub(keep_recent_messages);
+    if let Some(rel) = body[start..].iter().position(|m| role(m) == Some("user")) {
+        start += rel;
+    }
+    while start < body.len() && role(&body[start]) == Some("tool") {
+        start += 1;
+    }
+    if start > 0 && start < body.len() {
+        *body = body[start..].to_vec();
+        start
+    } else {
+        0
+    }
 }
 
 #[cfg(test)]
@@ -558,6 +623,7 @@ mod tests {
                 max_chars: 10_000,
                 keep_recent_messages: 1,
                 max_tool_result_chars: 20,
+                ..Default::default()
             },
         );
         assert_eq!(out.stats.compressed_tool_results, 1);
@@ -591,6 +657,7 @@ mod tests {
                 max_chars: 10_000,
                 keep_recent_messages: 4,
                 max_tool_result_chars: 20,
+                ..Default::default()
             },
         );
 
@@ -613,8 +680,76 @@ mod tests {
                 max_chars: 500,
                 keep_recent_messages: 4,
                 max_tool_result_chars: 20,
+                ..Default::default()
             },
         );
+        assert!(out.stats.dropped_messages > 0);
+        assert!(out.stats.edited_chars < out.stats.original_chars);
+        assert_eq!(out.messages[0]["role"], "system");
+    }
+
+    #[test]
+    fn context_edit_enforces_tool_result_bucket() {
+        let mut s = Session::new("sys");
+        for i in 0..3 {
+            let id = format!("c{i}");
+            s.add_user_text(&format!("inspect chunk {i}"));
+            s.add_assistant(
+                "",
+                Some(vec![json!({
+                    "id": id,
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": "{}"}
+                })]),
+                "",
+            );
+            s.add_tool_result(&format!("c{i}"), "shell", &"x".repeat(600));
+        }
+        s.add_user_text("continue");
+
+        let out = s.for_model_edited(
+            &[],
+            &ContextEditPolicy {
+                enabled: true,
+                max_chars: 10_000,
+                keep_recent_messages: 1,
+                max_tool_result_chars: 10_000,
+                max_history_chars: 10_000,
+                max_tool_result_total_chars: 450,
+            },
+        );
+
+        assert!(out.stats.compressed_tool_results >= 3);
+        assert!(out.stats.tool_result_chars <= 450);
+        assert!(out.messages.iter().any(|m| {
+            m["role"] == "tool"
+                && m["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("tool-result context bucket")
+        }));
+    }
+
+    #[test]
+    fn context_edit_enforces_history_bucket_before_global_limit() {
+        let mut s = Session::new("sys");
+        for i in 0..12 {
+            s.add_user_text(&format!("old user {i} {}", "x".repeat(80)));
+            s.add_assistant(&format!("old answer {i} {}", "y".repeat(80)), None, "");
+        }
+
+        let out = s.for_model_edited(
+            &[],
+            &ContextEditPolicy {
+                enabled: true,
+                max_chars: 100_000,
+                keep_recent_messages: 4,
+                max_tool_result_chars: 10_000,
+                max_history_chars: 1_500,
+                max_tool_result_total_chars: 10_000,
+            },
+        );
+
         assert!(out.stats.dropped_messages > 0);
         assert!(out.stats.edited_chars < out.stats.original_chars);
         assert_eq!(out.messages[0]["role"], "system");
@@ -636,6 +771,7 @@ mod tests {
             max_chars: 500,
             keep_recent_messages: 4,
             max_tool_result_chars: 20,
+            ..Default::default()
         });
 
         assert!(stats.dropped_messages > 0);
@@ -656,6 +792,7 @@ mod tests {
             max_chars: 10_000,
             keep_recent_messages: 4,
             max_tool_result_chars: 20,
+            ..Default::default()
         });
 
         assert_eq!(stats.dropped_messages, 0);

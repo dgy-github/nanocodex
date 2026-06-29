@@ -448,6 +448,11 @@ fn context_edit_from_config(cfg: &Config) -> ContextEditPolicy {
         max_chars: positive_usize(cfg.context_edit_max_chars, 120_000),
         keep_recent_messages: positive_usize(cfg.context_edit_keep_recent_messages, 30),
         max_tool_result_chars: positive_usize(cfg.context_edit_max_tool_result_chars, 4_000),
+        max_history_chars: positive_usize(cfg.context_edit_max_history_chars, 90_000),
+        max_tool_result_total_chars: positive_usize(
+            cfg.context_edit_max_tool_result_total_chars,
+            35_000,
+        ),
     }
 }
 

@@ -100,6 +100,8 @@ async fn run(args: Args) -> i32 {
         context_edit_max_chars: args.context_edit_max_chars,
         context_edit_keep_recent_messages: args.context_edit_keep_recent_messages,
         context_edit_max_tool_result_chars: args.context_edit_max_tool_result_chars,
+        context_edit_max_history_chars: args.context_edit_max_history_chars,
+        context_edit_max_tool_result_total_chars: args.context_edit_max_tool_result_total_chars,
         profile: args.profile.clone(),
         ..Default::default()
     };
@@ -1092,7 +1094,7 @@ fn render_help_for_workspace(workspace: &Path) -> String {
 fn render_status(cfg: &ncx_config::Config) -> String {
     let red = cfg.redacted();
     format!(
-        "model:     {}\nbase_url:  {}\nsandbox:   {}\napproval:  {}\nworkspace: {}\napi_key:   {}\nmodel_budget: {}  tool_budget: {}  retries: {}\ncontext_edit: {}  max_chars: {}  keep_recent: {}  tool_result_chars: {}\nhooks:     {}",
+        "model:     {}\nbase_url:  {}\nsandbox:   {}\napproval:  {}\nworkspace: {}\napi_key:   {}\nmodel_budget: {}  tool_budget: {}  retries: {}\ncontext_edit: {}  max_chars: {}  keep_recent: {}  tool_result_chars: {}  history_chars: {}  tool_total_chars: {}\nhooks:     {}",
         cfg.model,
         cfg.base_url,
         cfg.sandbox_mode,
@@ -1106,6 +1108,8 @@ fn render_status(cfg: &ncx_config::Config) -> String {
         cfg.context_edit_max_chars,
         cfg.context_edit_keep_recent_messages,
         cfg.context_edit_max_tool_result_chars,
+        cfg.context_edit_max_history_chars,
+        cfg.context_edit_max_tool_result_total_chars,
         cfg.hooks.len(),
     )
 }
@@ -1176,11 +1180,13 @@ fn render_context_status(
         .to_string();
 
     format!(
-        "Context editing\nenabled: {}\nmax_chars: {}\nkeep_recent_messages: {}\nmax_tool_result_chars: {}\ncontext_token_budget: {}\npayload_snapshots: {}\n\nSession\nmessages: {}\nrestored_messages: {}\nlog: {}\n\nNext send preview\n{}\n\nLast turn context edit\n{}\n\nUse /context payload [N] to inspect recent provider payload snapshots.",
+        "Context editing\nenabled: {}\nmax_chars: {}\nkeep_recent_messages: {}\nmax_tool_result_chars: {}\nmax_history_chars: {}\nmax_tool_result_total_chars: {}\ncontext_token_budget: {}\npayload_snapshots: {}\n\nSession\nmessages: {}\nrestored_messages: {}\nlog: {}\n\nNext send preview\n{}\n\nLast turn context edit\n{}\n\nUse /context payload [N] to inspect recent provider payload snapshots.",
         agent.context_edit.enabled,
         agent.context_edit.max_chars,
         agent.context_edit.keep_recent_messages,
         agent.context_edit.max_tool_result_chars,
+        agent.context_edit.max_history_chars,
+        agent.context_edit.max_tool_result_total_chars,
         cfg.context_token_budget,
         snapshot_dir,
         agent.session.messages.len(),
@@ -1683,6 +1689,11 @@ fn context_edit_from_config(cfg: &ncx_config::Config) -> ContextEditPolicy {
         max_chars: positive_usize(cfg.context_edit_max_chars, 120_000),
         keep_recent_messages: positive_usize(cfg.context_edit_keep_recent_messages, 30),
         max_tool_result_chars: positive_usize(cfg.context_edit_max_tool_result_chars, 4_000),
+        max_history_chars: positive_usize(cfg.context_edit_max_history_chars, 90_000),
+        max_tool_result_total_chars: positive_usize(
+            cfg.context_edit_max_tool_result_total_chars,
+            35_000,
+        ),
     }
 }
 
@@ -1960,6 +1971,8 @@ mod tests {
             max_chars: 120,
             keep_recent_messages: 1,
             max_tool_result_chars: 20,
+            max_history_chars: 90,
+            max_tool_result_total_chars: 40,
         });
         let cfg = ncx_config::Config {
             workspace: ws,
@@ -1972,6 +1985,8 @@ mod tests {
         assert!(out.contains("Context editing"));
         assert!(out.contains("enabled: true"));
         assert!(out.contains("max_chars: 120"));
+        assert!(out.contains("max_history_chars: 90"));
+        assert!(out.contains("max_tool_result_total_chars: 40"));
         assert!(out.contains("context_token_budget: 2048"));
         assert!(out.contains("messages: 3"));
         assert!(out.contains("Next send preview"));

@@ -1214,6 +1214,7 @@ mod tests {
             max_chars: 260,
             keep_recent_messages: 1,
             max_tool_result_chars: 16,
+            ..Default::default()
         });
         loop_.session.add_user_text("inspect historical logs");
         loop_.session.add_assistant(

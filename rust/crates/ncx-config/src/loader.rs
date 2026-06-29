@@ -71,6 +71,8 @@ pub struct Overrides {
     pub context_edit_max_chars: Option<i64>,
     pub context_edit_keep_recent_messages: Option<i64>,
     pub context_edit_max_tool_result_chars: Option<i64>,
+    pub context_edit_max_history_chars: Option<i64>,
+    pub context_edit_max_tool_result_total_chars: Option<i64>,
     pub available_models: Option<Vec<String>>,
     pub profile: Option<String>,
 }
@@ -171,6 +173,8 @@ fn nanocodex_values(raw: &Table) -> BTreeMap<String, String> {
         "context_edit_max_chars",
         "context_edit_keep_recent_messages",
         "context_edit_max_tool_result_chars",
+        "context_edit_max_history_chars",
+        "context_edit_max_tool_result_total_chars",
         "price_in",
         "price_out",
     ] {
@@ -220,6 +224,8 @@ const PROFILE_KEYS: &[&str] = &[
     "context_edit_max_chars",
     "context_edit_keep_recent_messages",
     "context_edit_max_tool_result_chars",
+    "context_edit_max_history_chars",
+    "context_edit_max_tool_result_total_chars",
 ];
 
 fn profile_values(selected: &Table) -> BTreeMap<String, String> {
@@ -669,6 +675,14 @@ pub(crate) fn load_config_impl(
             "context_edit_max_tool_result_chars",
             &["NANOCODEX_CONTEXT_EDIT_TOOL_RESULT_CHARS"],
         ),
+        (
+            "context_edit_max_history_chars",
+            &["NANOCODEX_CONTEXT_EDIT_MAX_HISTORY_CHARS"],
+        ),
+        (
+            "context_edit_max_tool_result_total_chars",
+            &["NANOCODEX_CONTEXT_EDIT_TOOL_RESULT_TOTAL_CHARS"],
+        ),
         ("available_models", &["NANOCODEX_MODELS"]),
         ("max_iterations", &["NANOCODEX_MAX_ITERATIONS"]),
         ("max_tool_calls", &["NANOCODEX_MAX_TOOL_CALLS"]),
@@ -725,6 +739,8 @@ pub(crate) fn load_config_impl(
     apply_int!(context_edit_max_chars);
     apply_int!(context_edit_keep_recent_messages);
     apply_int!(context_edit_max_tool_result_chars);
+    apply_int!(context_edit_max_history_chars);
+    apply_int!(context_edit_max_tool_result_total_chars);
     if let Some(models) = overrides.available_models {
         merged.insert("available_models".into(), models.join(","));
     }
@@ -807,6 +823,18 @@ pub(crate) fn load_config_impl(
                 .get("context_edit_max_tool_result_chars")
                 .map(|s| s.as_str()),
             4_000,
+        ),
+        context_edit_max_history_chars: as_int(
+            merged
+                .get("context_edit_max_history_chars")
+                .map(|s| s.as_str()),
+            90_000,
+        ),
+        context_edit_max_tool_result_total_chars: as_int(
+            merged
+                .get("context_edit_max_tool_result_total_chars")
+                .map(|s| s.as_str()),
+            35_000,
         ),
         available_models: model_list(
             merged.get("available_models").map(|s| s.as_str()),
@@ -1037,6 +1065,8 @@ approval_policy = "on-request"
                 "context_edit_max_chars = 9000\n",
                 "context_edit_keep_recent_messages = 11\n",
                 "context_edit_max_tool_result_chars = 700\n",
+                "context_edit_max_history_chars = 8000\n",
+                "context_edit_max_tool_result_total_chars = 2000\n",
             ),
         );
         let paths = ConfigPaths {
@@ -1064,6 +1094,8 @@ approval_policy = "on-request"
         assert_eq!(cfg.context_edit_max_chars, 12_345);
         assert_eq!(cfg.context_edit_keep_recent_messages, 11);
         assert_eq!(cfg.context_edit_max_tool_result_chars, 700);
+        assert_eq!(cfg.context_edit_max_history_chars, 8000);
+        assert_eq!(cfg.context_edit_max_tool_result_total_chars, 2000);
     }
 
     #[test]

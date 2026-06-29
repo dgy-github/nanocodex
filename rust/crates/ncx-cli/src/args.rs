@@ -32,6 +32,10 @@ OPTIONS:
                             Messages kept before older prefixes may be dropped.
         --context-edit-tool-result-chars <N>
                             Max chars for compressed old tool results.
+        --context-edit-history-chars <N>
+                            Max chars reserved for conversation history bucket.
+        --context-edit-tool-result-total-chars <N>
+                            Max chars reserved for the total tool-result bucket.
         --disable-context-edit
                             Send full history without runtime context editing.
         --image <PATH>      Attach an image to the prompt (repeatable). Routes the
@@ -65,6 +69,8 @@ pub struct Args {
     pub context_edit_max_chars: Option<i64>,
     pub context_edit_keep_recent_messages: Option<i64>,
     pub context_edit_max_tool_result_chars: Option<i64>,
+    pub context_edit_max_history_chars: Option<i64>,
+    pub context_edit_max_tool_result_total_chars: Option<i64>,
     pub disable_context_edit: bool,
     /// Image files to attach to the one-shot prompt (multimodal / vision turn).
     pub images: Vec<PathBuf>,
@@ -128,6 +134,12 @@ pub fn parse_args(argv: &[String]) -> Result<Args, String> {
             }
             "--context-edit-tool-result-chars" => {
                 args.context_edit_max_tool_result_chars = Some(take_i64(argv, &mut i, a)?);
+            }
+            "--context-edit-history-chars" => {
+                args.context_edit_max_history_chars = Some(take_i64(argv, &mut i, a)?);
+            }
+            "--context-edit-tool-result-total-chars" => {
+                args.context_edit_max_tool_result_total_chars = Some(take_i64(argv, &mut i, a)?);
             }
             other => return Err(format!("unknown option '{other}'")),
         }
@@ -235,6 +247,15 @@ mod tests {
         assert!(args(&["--max-tool-calls", "abc"]).is_err());
         let a = args(&["--disable-context-edit"]).unwrap();
         assert!(a.disable_context_edit);
+        let a = args(&[
+            "--context-edit-history-chars",
+            "8000",
+            "--context-edit-tool-result-total-chars",
+            "1200",
+        ])
+        .unwrap();
+        assert_eq!(a.context_edit_max_history_chars, Some(8000));
+        assert_eq!(a.context_edit_max_tool_result_total_chars, Some(1200));
     }
 
     #[test]

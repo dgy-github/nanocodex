@@ -94,7 +94,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   会压缩旧 tool result，并在超过上下文预算时丢弃更早的前缀。Rust REPL 提供
   `/context` 查看当前策略、session 大小、上一轮 telemetry、下一次发送预览，并可通过
   `/context payload [N]` 查看最近 provider payload 快照。telemetry 会把发送 payload
-  拆成 context-pack 桶：system prompt、运行注记、memory recall、历史和 tool result 字符数。
+  拆成 context-pack 桶：system prompt、运行注记、memory recall、历史和 tool result 字符数；
+  history 与 tool-result 总桶上限也会实际参与发送时治理。
 - **Tool search：** 工具注册时会进入 catalog。小工具集仍全量暴露；工具变多时只暴露核心
   工具和 `tool_search`，搜索命中的工具会在下一轮 schema 里出现。排序会识别 MCP
   工具命名空间（`mcp__server__tool`），并用 tool-selection gold cases 做回归覆盖。
@@ -137,7 +138,8 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 [context window](https://code.claude.com/docs/en/context-window)、
 [memory](https://code.claude.com/docs/en/memory)、
 [MCP](https://code.claude.com/docs/en/mcp) 和
-[hooks](https://code.claude.com/docs/en/hooks)。
+[hooks](https://code.claude.com/docs/en/hooks)，以及 Anthropic 官方
+[models overview](https://docs.anthropic.com/en/docs/about-claude/models/overview)。
 更细的缺口拆解和近期 backlog 见
 [`docs/claude-fable-gap-roadmap.zh-CN.md`](docs/claude-fable-gap-roadmap.zh-CN.md)。
 
@@ -154,7 +156,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 | 能力 | 当前覆盖 | 剩余差距 |
 | --- | ---: | --- |
 | Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
-| Context editing | 58-68% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体和策略化 context 预算分配。 |
+| Context editing | 64-74% | 发送时编辑会压缩旧 tool result、执行可配置的 history/tool-result 分桶上限，并在超预算时丢弃旧前缀；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体、focus compaction 和长期任务自动摘要 checkpoint。 |
 | Tool search / connectors | 62-72% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、gold-case 排名测试，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry 和大规模动态工具排序。 |
 | Semantic memory | 74-82% | query-scoped lexical-semantic recall、本地 vector sidecar recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼，以及运行时纠正/失败 proposal 提炼已有；还缺外部 embedding provider 和平台级长期 memory。 |
 
@@ -351,6 +353,8 @@ reasoning_effort = "auto"          # auto | low | high | max | off
 # context_edit_max_chars = 120000
 # context_edit_keep_recent_messages = 30
 # context_edit_max_tool_result_chars = 4000
+# context_edit_max_history_chars = 90000
+# context_edit_max_tool_result_total_chars = 35000
 # available_models = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"]
 
 # [[hooks]]
@@ -578,8 +582,10 @@ Rust CLI 里的 `/compact` 会把当前 context-edit 策略物化到 live sessio
 session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。Rust `/context` 会用同一套
 发送时编辑策略做无变异预览，展示策略旋钮、消息数、上一轮 telemetry，以及下一次发送会
 压缩/丢弃多少。Rust `/usage` 和 Tauri GUI 的 `U` 面板也会展示 send-time context editing
-telemetry：原始字符数、编辑后字符数、节省字符数、压缩工具结果数和丢弃消息数。每次
-provider 调用还会把脱敏 JSON 快照写到 `.nanocodex/context-payloads/`，所以
+telemetry：原始字符数、编辑后字符数、节省字符数、压缩工具结果数、丢弃消息数和
+context-pack 桶。发送时策略还会执行 `context_edit_max_history_chars` 和
+`context_edit_max_tool_result_total_chars` 两个分桶上限，避免长历史或旧工具输出挤掉
+system notes 与 memory recall。每次 provider 调用还会把脱敏 JSON 快照写到 `.nanocodex/context-payloads/`，所以
 `/context payload [N]` 和 GUI Usage 面板可以检查真实发给模型的编辑后消息与工具 schema。
 
 ## Token 用量与成本

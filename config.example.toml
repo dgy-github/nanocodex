@@ -24,6 +24,8 @@ reasoning_effort = "auto"
 # context_edit_max_chars = 120000
 # context_edit_keep_recent_messages = 30
 # context_edit_max_tool_result_chars = 4000
+# context_edit_max_history_chars = 90000
+# context_edit_max_tool_result_total_chars = 35000
 # available_models = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"]
 
 # Deterministic hooks around tool execution and turn lifecycle. A non-zero

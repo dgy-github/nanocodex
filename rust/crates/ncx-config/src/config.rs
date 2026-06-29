@@ -145,6 +145,8 @@ pub struct Config {
     pub context_edit_max_chars: i64,
     pub context_edit_keep_recent_messages: i64,
     pub context_edit_max_tool_result_chars: i64,
+    pub context_edit_max_history_chars: i64,
+    pub context_edit_max_tool_result_total_chars: i64,
     pub available_models: Vec<String>,
     /// Cost estimate rates: price per 1,000,000 tokens (input / output), in the
     /// user's currency. 0 = unknown (the GUI then shows only token counts).
@@ -185,6 +187,8 @@ impl Default for Config {
             context_edit_max_chars: 120_000,
             context_edit_keep_recent_messages: 30,
             context_edit_max_tool_result_chars: 4_000,
+            context_edit_max_history_chars: 90_000,
+            context_edit_max_tool_result_total_chars: 35_000,
             available_models: DEFAULT_MODELS.iter().map(|s| s.to_string()).collect(),
             price_in: 0.0,
             price_out: 0.0,
@@ -288,6 +292,14 @@ impl Config {
         m.insert(
             "context_edit_max_tool_result_chars",
             self.context_edit_max_tool_result_chars.to_string(),
+        );
+        m.insert(
+            "context_edit_max_history_chars",
+            self.context_edit_max_history_chars.to_string(),
+        );
+        m.insert(
+            "context_edit_max_tool_result_total_chars",
+            self.context_edit_max_tool_result_total_chars.to_string(),
         );
         m.insert("hooks", self.hooks.len().to_string());
         m
