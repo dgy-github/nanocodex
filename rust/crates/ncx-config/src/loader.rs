@@ -256,6 +256,36 @@ fn as_bool(s: Option<&str>, default: bool) -> bool {
     }
 }
 
+fn configured_int_or(
+    values: &BTreeMap<String, String>,
+    key: &str,
+    default: impl FnOnce() -> i64,
+) -> i64 {
+    values
+        .get(key)
+        .and_then(|v| v.parse::<i64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or_else(default)
+}
+
+fn context_budget_chars(context_token_budget: i64, context_window: i64) -> i64 {
+    let budget = context_token_budget.max(1);
+    let window = context_window.max(1);
+    budget.min(window).saturating_mul(3).clamp(120_000, 3_000_000)
+}
+
+fn context_history_chars(max_chars: i64) -> i64 {
+    max_chars.saturating_mul(3).saturating_div(4).max(90_000)
+}
+
+fn context_tool_total_chars(max_chars: i64) -> i64 {
+    max_chars.saturating_div(4).clamp(35_000, 750_000)
+}
+
+fn context_tool_result_chars(max_chars: i64) -> i64 {
+    max_chars.saturating_div(80).clamp(4_000, 32_000)
+}
+
 fn selected_scalar(raw: &Table, key: &str) -> Option<String> {
     raw.get(key).and_then(to_string_val)
 }
@@ -767,6 +797,26 @@ pub(crate) fn load_config_impl(
         .workspace
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let workspace = workspace_base.canonicalize().unwrap_or(workspace_base);
+    let context_token_budget = as_int(
+        merged.get("context_token_budget").map(|s| s.as_str()),
+        512_000,
+    );
+    let context_window = as_int(merged.get("context_window").map(|s| s.as_str()), 1_048_576);
+    let context_edit_max_chars = configured_int_or(&merged, "context_edit_max_chars", || {
+        context_budget_chars(context_token_budget, context_window)
+    });
+    let context_edit_max_history_chars =
+        configured_int_or(&merged, "context_edit_max_history_chars", || {
+            context_history_chars(context_edit_max_chars)
+        });
+    let context_edit_max_tool_result_total_chars =
+        configured_int_or(&merged, "context_edit_max_tool_result_total_chars", || {
+            context_tool_total_chars(context_edit_max_chars)
+        });
+    let context_edit_max_tool_result_chars =
+        configured_int_or(&merged, "context_edit_max_tool_result_chars", || {
+            context_tool_result_chars(context_edit_max_chars)
+        });
 
     let cfg = Config {
         api_key: merged.get("api_key").cloned().unwrap_or_default(),
@@ -802,40 +852,19 @@ pub(crate) fn load_config_impl(
         max_tool_calls: as_int(merged.get("max_tool_calls").map(|s| s.as_str()), 120),
         timeout_s: 120,
         max_retries: as_int(merged.get("max_retries").map(|s| s.as_str()), 3),
-        context_token_budget: as_int(
-            merged.get("context_token_budget").map(|s| s.as_str()),
-            512_000,
-        ),
-        context_window: as_int(merged.get("context_window").map(|s| s.as_str()), 1_048_576),
+        context_token_budget,
+        context_window,
         context_edit_enabled: as_bool(merged.get("context_edit_enabled").map(|s| s.as_str()), true),
-        context_edit_max_chars: as_int(
-            merged.get("context_edit_max_chars").map(|s| s.as_str()),
-            120_000,
-        ),
+        context_edit_max_chars,
         context_edit_keep_recent_messages: as_int(
             merged
                 .get("context_edit_keep_recent_messages")
                 .map(|s| s.as_str()),
             30,
         ),
-        context_edit_max_tool_result_chars: as_int(
-            merged
-                .get("context_edit_max_tool_result_chars")
-                .map(|s| s.as_str()),
-            4_000,
-        ),
-        context_edit_max_history_chars: as_int(
-            merged
-                .get("context_edit_max_history_chars")
-                .map(|s| s.as_str()),
-            90_000,
-        ),
-        context_edit_max_tool_result_total_chars: as_int(
-            merged
-                .get("context_edit_max_tool_result_total_chars")
-                .map(|s| s.as_str()),
-            35_000,
-        ),
+        context_edit_max_tool_result_chars,
+        context_edit_max_history_chars,
+        context_edit_max_tool_result_total_chars,
         available_models: model_list(
             merged.get("available_models").map(|s| s.as_str()),
             &active_model,
@@ -917,6 +946,60 @@ mod tests {
         assert!(cfg.context_token_budget > 0);
         assert_eq!(cfg.context_token_budget, 512_000);
         assert_eq!(cfg.context_window, 1_048_576);
+    }
+
+    #[test]
+    fn context_edit_defaults_scale_from_token_budget() {
+        let tmp = std::env::temp_dir().join("ncx_config_test_context_scale");
+        fs::create_dir_all(&tmp).unwrap();
+        let cfg = load_config_impl(
+            Overrides {
+                workspace: Some(tmp.clone()),
+                context_token_budget: Some(1_000_000),
+                context_window: Some(1_048_576),
+                ..Default::default()
+            },
+            &no_paths(&tmp),
+            &empty_env(),
+        )
+        .unwrap();
+        assert_eq!(cfg.context_edit_max_chars, 3_000_000);
+        assert_eq!(cfg.context_edit_max_history_chars, 2_250_000);
+        assert_eq!(cfg.context_edit_max_tool_result_total_chars, 750_000);
+        assert_eq!(cfg.context_edit_max_tool_result_chars, 32_000);
+    }
+
+    #[test]
+    fn explicit_context_edit_budget_overrides_auto_scale() {
+        let tmp = std::env::temp_dir().join("ncx_config_test_context_scale_explicit");
+        fs::create_dir_all(&tmp).unwrap();
+        let nano = tmp.join("nano.toml");
+        write(
+            &nano,
+            concat!(
+                "api_key = \"sk-base\"\n",
+                "context_token_budget = 1000000\n",
+                "context_edit_max_chars = 9000\n",
+                "context_edit_max_history_chars = 8000\n",
+            ),
+        );
+        let paths = ConfigPaths {
+            deepseek: tmp.join("nope-ds.toml"),
+            codex: tmp.join("nope-cx.toml"),
+            nanocodex: nano,
+        };
+        let cfg = load_config_impl(
+            Overrides {
+                workspace: Some(tmp),
+                ..Default::default()
+            },
+            &paths,
+            &empty_env(),
+        )
+        .unwrap();
+        assert_eq!(cfg.context_edit_max_chars, 9000);
+        assert_eq!(cfg.context_edit_max_history_chars, 8000);
+        assert_eq!(cfg.context_edit_max_tool_result_total_chars, 35_000);
     }
 
     #[test]

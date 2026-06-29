@@ -22,6 +22,8 @@ pub const WRITABLE_KEYS: &[&str] = &[
     "ark_api_key",
     "max_iterations",
     "max_tool_calls",
+    "context_token_budget",
+    "context_window",
     "context_edit_enabled",
     "context_edit_max_chars",
     "context_edit_keep_recent_messages",
@@ -191,6 +193,8 @@ mod tests {
         let text = dump_nanocodex_toml(&map(&[
             ("max_iterations", "12"),
             ("max_tool_calls", "34"),
+            ("context_token_budget", "1000000"),
+            ("context_window", "1048576"),
             ("context_edit_enabled", "false"),
             ("context_edit_max_chars", "9000"),
             ("context_edit_keep_recent_messages", "8"),
@@ -201,6 +205,8 @@ mod tests {
         let parsed = text.parse::<toml::Value>().unwrap();
         assert_eq!(parsed["max_iterations"].as_str().unwrap(), "12");
         assert_eq!(parsed["max_tool_calls"].as_str().unwrap(), "34");
+        assert_eq!(parsed["context_token_budget"].as_str().unwrap(), "1000000");
+        assert_eq!(parsed["context_window"].as_str().unwrap(), "1048576");
         assert_eq!(parsed["context_edit_enabled"].as_str().unwrap(), "false");
         assert_eq!(parsed["context_edit_max_chars"].as_str().unwrap(), "9000");
         assert_eq!(

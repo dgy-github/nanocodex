@@ -32,6 +32,8 @@
     reasoning_effort: string;
     max_iterations: number;
     max_tool_calls: number;
+    context_token_budget: number;
+    context_window: number;
     context_edit_enabled: boolean;
     context_edit_max_chars: number;
     context_edit_keep_recent_messages: number;
@@ -729,6 +731,8 @@
       reasoning_effort: settings.reasoning_effort,
       max_iterations: String(settings.max_iterations),
       max_tool_calls: String(settings.max_tool_calls),
+      context_token_budget: String(settings.context_token_budget),
+      context_window: String(settings.context_window),
       context_edit_enabled: String(settings.context_edit_enabled),
       context_edit_max_chars: String(settings.context_edit_max_chars),
       context_edit_keep_recent_messages: String(settings.context_edit_keep_recent_messages),
@@ -1943,13 +1947,21 @@
           <span>工具调用上限</span>
           <input type="number" min="0" bind:value={settings.max_tool_calls} />
         </label>
+        <label>
+          <span>Context token budget</span>
+          <input type="number" min="1" bind:value={settings.context_token_budget} />
+        </label>
+        <label>
+          <span>Context window</span>
+          <input type="number" min="1" bind:value={settings.context_window} />
+        </label>
         <label class="check">
           <span>上下文裁剪</span>
           <input type="checkbox" bind:checked={settings.context_edit_enabled} />
         </label>
         <label>
           <span>上下文字符上限</span>
-          <input type="number" min="1" bind:value={settings.context_edit_max_chars} />
+          <input type="number" min="0" bind:value={settings.context_edit_max_chars} />
         </label>
         <label>
           <span>保留最近消息数</span>
@@ -1957,15 +1969,15 @@
         </label>
         <label>
           <span>工具结果字符上限</span>
-          <input type="number" min="1" bind:value={settings.context_edit_max_tool_result_chars} />
+          <input type="number" min="0" bind:value={settings.context_edit_max_tool_result_chars} />
         </label>
         <label>
           <span>历史桶字符上限</span>
-          <input type="number" min="1" bind:value={settings.context_edit_max_history_chars} />
+          <input type="number" min="0" bind:value={settings.context_edit_max_history_chars} />
         </label>
         <label>
           <span>工具结果总桶上限</span>
-          <input type="number" min="1" bind:value={settings.context_edit_max_tool_result_total_chars} />
+          <input type="number" min="0" bind:value={settings.context_edit_max_tool_result_total_chars} />
         </label>
         <label>
           <span>输入单价 ¥/百万</span>

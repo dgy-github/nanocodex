@@ -128,7 +128,10 @@ tool.
   `/context payload [N]`. Telemetry now breaks the edited payload into
   context-pack buckets: system prompt, runtime notes, memory recall, history,
   and tool-result characters; configurable history and total tool-result bucket
-  caps actively govern the send-time view.
+  caps actively govern the send-time view. When these caps are omitted or set
+  to `0`, the Rust config loader derives them from `context_token_budget` and
+  `context_window`, so 1M-context model profiles are not forced through the old
+  120k-character send-time ceiling.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
   hits are made visible in the next schema view. Ranking is namespace-aware for
@@ -206,7 +209,7 @@ are local-runtime implementations:
 | Capability | Current coverage | Remaining gap |
 | --- | ---: | --- |
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
-| Context editing | 70-78% | Send-time editing compresses tool results, enforces configurable history/tool-result bucket caps, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model variants, model-guided focus compaction, platform automatic compact, and broader context regression suites. |
+| Context editing | 72-80% | Send-time editing compresses tool results, derives 1M-friendly character and bucket caps from `context_token_budget`/`context_window`, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model quality, model-guided focus compaction, platform automatic compact, and broader context regression suites. |
 | Tool search / connectors | 62-72% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, gold-case ranking tests, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, and large-scale dynamic tool ranking. |
 | Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, and runtime correction/failure proposal harvesting exist. Remaining gaps are external embedding providers and platform-grade long-term memory. |
 
@@ -409,11 +412,11 @@ reasoning_effort = "auto"          # auto | low | high | max | off
 # max_iterations = 60
 # max_tool_calls = 120
 # context_edit_enabled = true
-# context_edit_max_chars = 120000
+# context_edit_max_chars = 0                 # 0/omitted = derive from token budget
 # context_edit_keep_recent_messages = 30
-# context_edit_max_tool_result_chars = 4000
-# context_edit_max_history_chars = 90000
-# context_edit_max_tool_result_total_chars = 35000
+# context_edit_max_tool_result_chars = 0     # 0/omitted = derive from max chars
+# context_edit_max_history_chars = 0         # 0/omitted = derive from max chars
+# context_edit_max_tool_result_total_chars = 0
 # available_models = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"]
 
 # [[hooks]]
@@ -695,7 +698,10 @@ is smaller than the omitted prefix, so `/compact` and later `--resume` keep an
 auditable bridge over older history. The summary also includes deterministic
 focus anchors from older messages that overlap the latest user request, which
 keeps a few task-relevant facts visible after long-history trimming. The
-send-time policy also enforces
+send-time policy derives `context_edit_max_chars`,
+`context_edit_max_history_chars`, `context_edit_max_tool_result_chars`, and
+`context_edit_max_tool_result_total_chars` from `context_token_budget` and
+`context_window` when those caps are omitted or set to `0`, then enforces
 `context_edit_max_history_chars` and
 `context_edit_max_tool_result_total_chars` so long history and old tool output
 cannot crowd out system notes and memory recall. Each provider call also writes
