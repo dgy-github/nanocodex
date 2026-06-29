@@ -97,7 +97,7 @@ tool.
   one-shot commands as well as interactive REPL use.
 - Typed ownership makes parallel worker isolation and result promotion easier
   to reason about without shared mutable state leaks.
-- 265 offline Rust tests cover the current crate boundary, including memory
+- 266 offline Rust tests cover the current crate boundary, including memory
   consolidation, provider request/response parsing, sandbox policy, tools, and
   orchestration.
 
@@ -113,7 +113,8 @@ tool.
   for active policy, session size, last-turn telemetry, and next-send preview.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
-  hits are made visible in the next schema view.
+  hits are made visible in the next schema view. The Rust REPL exposes `/tools`
+  to inspect the catalog, visible schema view, and active search hints.
 - **Semantic memory:** every turn receives a query-scoped memory recall note at
   send time. Retrieval uses a hybrid lexical semantic ranker: keywords, tags,
   phrase matches, Jaccard similarity, recency, and a small domain synonym map
@@ -420,9 +421,9 @@ compatibility fallback.
 
 Built-in REPL slash commands also expose platform status surfaces: `/usage`
 for raw token and context-edit telemetry, `/context` for the active context-edit
-policy and next-send preview, `/skills` for the discovered skill catalog,
-`/history` for saved sessions, and `/mcp` for enabled MCP servers plus currently
-registered MCP tools.
+policy and next-send preview, `/tools` for the tool catalog and visible schema
+view, `/skills` for the discovered skill catalog, `/history` for saved sessions,
+and `/mcp` for enabled MCP servers plus currently registered MCP tools.
 
 The Tauri GUI exposes the same project/user command catalog from the `/` header
 button. You can run a command from the panel with arguments, or type the custom

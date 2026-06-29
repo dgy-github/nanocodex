@@ -75,7 +75,7 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - 启动路径避开 Python 解释器和 import 开销，适合短的一次性命令，也适合交互 REPL。
 - 显式所有权让并行 worker 隔离、结果选择和 promote 更容易推理，不容易出现共享可变状态
   泄漏。
-- 265 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
+- 266 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
   沙箱策略、工具和编排器。
 
 **平台控制面补齐**
@@ -87,7 +87,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   会压缩旧 tool result，并在超过上下文预算时丢弃更早的前缀。Rust REPL 提供
   `/context` 查看当前策略、session 大小、上一轮 telemetry 和下一次发送预览。
 - **Tool search：** 工具注册时会进入 catalog。小工具集仍全量暴露；工具变多时只暴露核心
-  工具和 `tool_search`，搜索命中的工具会在下一轮 schema 里出现。
+  工具和 `tool_search`，搜索命中的工具会在下一轮 schema 里出现。Rust REPL 提供
+  `/tools` 检查工具 catalog、当前可见 schema 视图和 active search hints。
 - **Semantic memory：** 每轮都会按当前 prompt 做 query-scoped 记忆召回，并以发送时
   system note 注入；排序使用关键词、标签、短语、Jaccard 相似度、时间新近度，以及一小组
   agent/runtime 领域同义词。
@@ -358,9 +359,9 @@ Rust REPL 可以把 Markdown prompt 模板变成 slash command。项目级命令
 并兼容 `~/.claude/commands/<name>.md`。
 
 内置 REPL slash command 也暴露平台状态面：`/usage` 查看原始 token 和 context-edit
-telemetry，`/context` 查看当前 context-edit 策略和下一次发送预览，`/skills` 查看已发现
-skill catalog，`/history` 查看保存的会话，`/mcp` 查看 enabled MCP server 以及当前会话
-已注册的 MCP 工具。
+telemetry，`/context` 查看当前 context-edit 策略和下一次发送预览，`/tools` 查看工具
+catalog 和当前可见 schema 视图，`/skills` 查看已发现 skill catalog，`/history` 查看保存的
+会话，`/mcp` 查看 enabled MCP server 以及当前会话已注册的 MCP 工具。
 
 Tauri GUI 也通过标题栏的 `/` 按钮暴露同一套 project/user command catalog。可以在面板里
 填写参数后直接运行，也可以在聊天输入框里直接输入 custom slash command；GUI 会用和 CLI

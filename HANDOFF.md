@@ -103,12 +103,12 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
   （config 里是 `ark_api_key`，未必对）；④ 自检别用"refuse genome→通过率降"（模型常无视，不可靠），
   用 sentinel 注入。
 
-## 当前状态（已完成；上一轮 264 个 Rust 测试全绿，本轮新增 `/context` 测试后需在 cargo 可用环境复跑）
+## 当前状态（已完成；上一轮 264 个 Rust 测试全绿，本轮新增 `/context` + `/tools` 测试后文档计 266，需在 cargo 可用环境复跑）
 - 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、Sessions、Usage、custom command、memory 面板）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册 + REPL `/mcp` 状态面板）
 - 工具：read_file·apply_patch·shell·update_plan·grep·glob·web_search·web_fetch·tool_search·remember·skill
 - **Skills（已并入 rust-capability）**：SKILL.md 发现 + 渐进披露注入 + `skill` 工具 + builtin（`commit-message`，include_str! 编入二进制，FS 同名可覆盖）+ `/skills` 命令。stream C vision 基础（`7de2235`）也随 FF 一起进了 rust-capability。
 - 分层 flash/pro 编排器（`-o`，verifier 选 BEST worker + promote）；memory 自进化 + 每轮 query-scoped send-time recall + 启发式/LLM consolidate（CLI `--memory-merge` + GUI Memory 面板）；keyed 搜索(Tavily/DDG)
-- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog；Tauri GUI Sessions 面板复用 `SessionIndex`，可打开 log/snapshot 并恢复当前 workspace snapshot；CLI `/usage` + GUI Usage 面板展示真实 last-turn/session usage 和 context-edit telemetry；CLI `/context` 展示 active context-edit policy、session size、last-turn telemetry 和 next-send preview；release 脚本会给 Tauri NSIS installer 注入 workspace version
+- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog；Tauri GUI Sessions 面板复用 `SessionIndex`，可打开 log/snapshot 并恢复当前 workspace snapshot；CLI `/usage` + GUI Usage 面板展示真实 last-turn/session usage 和 context-edit telemetry；CLI `/context` 展示 active context-edit policy、session size、last-turn telemetry 和 next-send preview；CLI `/tools` 展示 tool catalog、visible schema view 和 active tool_search hints；release 脚本会给 Tauri NSIS installer 注入 workspace version
 
 ## 并行拆分（多会话同时做）——接手按此认领
 **硬约束**：① 每会话**独立 git worktree**（别共用工作目录）：`git worktree add ../ncx-A -b feat/mcp rust-capability`；

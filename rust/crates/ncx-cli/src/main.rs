@@ -451,6 +451,7 @@ fn dispatch_slash(
             }
         }
         "/skills" => SlashOutcome::Printed(render_skills(&agent.tools.ctx.skills)),
+        "/tools" => SlashOutcome::Printed(render_tools_status(&agent.tools, arg)),
         "/mcp" => {
             let servers = load_mcp_servers();
             let catalog = agent.tools.ctx.tool_catalog.borrow();
@@ -496,6 +497,57 @@ fn render_skills(skills: &[ncx_core::Skill]) -> String {
     }
     out.push_str("\n\nThe agent loads a skill's full instructions on demand via the `skill` tool.");
     out
+}
+
+fn render_tools_status(tools: &ToolRegistry, query: &str) -> String {
+    let query = query.trim();
+    let catalog = tools.ctx.tool_catalog.borrow();
+    let read_only = catalog.iter().filter(|entry| entry.read_only).count();
+    let write_or_effect = catalog.len().saturating_sub(read_only);
+    let hints = tools.ctx.tool_hints.borrow().clone();
+    let visible = tools
+        .schemas_for_query(query)
+        .iter()
+        .filter_map(schema_tool_name)
+        .collect::<Vec<_>>();
+
+    let mut out = format!(
+        "Tool catalog\nregistered: {}\nread_only: {}\nwrite_or_effect: {}\nvisible_now: {}",
+        catalog.len(),
+        read_only,
+        write_or_effect,
+        visible.len()
+    );
+    if !query.is_empty() {
+        out.push_str(&format!("\nquery: {query}"));
+    }
+    out.push_str("\n\nVisible tools:");
+    out.push_str(&format_name_list(&visible));
+    out.push_str("\n\nTool search hints:");
+    out.push_str(&format_name_list(&hints));
+    out.push_str(
+        "\n\nUse /tools <query> to preview the schema view for a prompt, or call \
+         tool_search from the model loop to pin matching tools for the next turn.",
+    );
+    out
+}
+
+fn schema_tool_name(schema: &serde_json::Value) -> Option<String> {
+    schema
+        .get("function")
+        .and_then(|f| f.get("name"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+fn format_name_list(names: &[String]) -> String {
+    if names.is_empty() {
+        " (none)".into()
+    } else {
+        let mut sorted = names.to_vec();
+        sorted.sort();
+        format!(" {}", sorted.join(", "))
+    }
 }
 
 fn render_mcp_status(
@@ -1413,6 +1465,26 @@ mod tests {
         assert!(out.contains("sid"));
         assert!(out.contains("fix bug"));
         assert!(out.contains("tools=3"));
+    }
+
+    #[test]
+    fn tools_status_renders_catalog_visible_tools_and_hints() {
+        let ws = std::env::temp_dir().join(format!("ncx_tools_status_{}", new_session_id()));
+        let policy = SandboxPolicy::new("workspace-write", &ws);
+        let ctx = ToolContext::new(ws, policy);
+        let registry = ToolRegistry::new(ctx);
+        registry.ctx.tool_hints.borrow_mut().push("shell".into());
+
+        let out = render_tools_status(&registry, "search files");
+
+        assert!(out.contains("Tool catalog"));
+        assert!(out.contains("registered:"));
+        assert!(out.contains("read_only:"));
+        assert!(out.contains("write_or_effect:"));
+        assert!(out.contains("query: search files"));
+        assert!(out.contains("Visible tools:"));
+        assert!(out.contains("tool_search"));
+        assert!(out.contains("Tool search hints: shell"));
     }
 
     #[test]
