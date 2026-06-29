@@ -970,20 +970,24 @@ fn render_mcp_status(
             } else {
                 connector.allowed_tools.join(",")
             };
-            let endpoint = if connector.transport == "stdio" {
-                format!("{} {}", connector.command, connector.args.join(" "))
+            let endpoint = connector_endpoint_summary(connector);
+            let source = if connector.source.trim().is_empty() {
+                "-"
             } else {
-                connector.url.clone()
+                connector.source.trim()
             };
+            let auth = connector_auth_summary(connector);
             out.push_str(&format!(
-                "\n  {}: transport={} enabled={} trusted={} permission={} allowed_tools={} endpoint={}",
+                "\n  {}: transport={} enabled={} trusted={} permission={} allowed_tools={} source={} auth={} endpoint={}",
                 connector.name,
                 connector.transport,
                 connector.enabled,
                 connector.trusted,
                 connector.permission,
                 allowed,
-                endpoint.trim()
+                source,
+                auth,
+                endpoint
             ));
         }
     }
@@ -1014,6 +1018,79 @@ fn render_mcp_status(
         ));
     }
     out
+}
+
+fn connector_endpoint_summary(connector: &ncx_config::McpConnectorConfig) -> String {
+    if connector.transport == "stdio" {
+        return format!("{} {}", connector.command, connector.args.join(" "))
+            .trim()
+            .to_string();
+    }
+    redact_remote_endpoint(&connector.url)
+}
+
+fn redact_remote_endpoint(endpoint: &str) -> String {
+    let trimmed = endpoint.trim();
+    let (before_fragment, fragment) = match trimmed.split_once('#') {
+        Some((base, _)) => (base, true),
+        None => (trimmed, false),
+    };
+    let mut redacted = match before_fragment.split_once('?') {
+        Some((base, _)) => format!("{base}?<redacted>"),
+        None => before_fragment.to_string(),
+    };
+    if let Some(scheme_end) = redacted.find("://") {
+        let authority_start = scheme_end + 3;
+        let authority_end = redacted[authority_start..]
+            .find('/')
+            .map(|i| authority_start + i)
+            .unwrap_or(redacted.len());
+        if let Some(at_rel) = redacted[authority_start..authority_end].rfind('@') {
+            redacted.replace_range(authority_start..authority_start + at_rel, "<redacted>");
+        }
+    }
+    if fragment {
+        redacted.push_str("#<redacted>");
+    }
+    redacted
+}
+
+fn connector_auth_summary(connector: &ncx_config::McpConnectorConfig) -> String {
+    let mut parts = vec![connector.auth.clone()];
+    if !connector.headers.is_empty() {
+        parts.push(format!("headers={}", connector.headers.len()));
+    }
+    if !connector.headers_helper.trim().is_empty() {
+        parts.push("headers_helper=set".into());
+    }
+    if connector.oauth.has_metadata() {
+        parts.push(format!(
+            "oauth_client_id={}",
+            if connector.oauth.client_id.trim().is_empty() {
+                "missing"
+            } else {
+                "set"
+            }
+        ));
+        parts.push(format!(
+            "oauth_secret_env={}",
+            if connector.oauth.client_secret_env.trim().is_empty() {
+                "missing"
+            } else {
+                "set"
+            }
+        ));
+        if let Some(port) = connector.oauth.callback_port {
+            parts.push(format!("callback_port={port}"));
+        }
+        if !connector.oauth.scopes.is_empty() {
+            parts.push(format!("scopes={}", connector.oauth.scopes.len()));
+        }
+        if !connector.oauth.auth_server_metadata_url.trim().is_empty() {
+            parts.push("metadata_url=set".into());
+        }
+    }
+    parts.join(";")
 }
 
 fn mcp_tool_policy(server: &ncx_config::McpServerConfig) -> McpToolPolicy {
@@ -2269,22 +2346,53 @@ mod tests {
             permission: "ask".into(),
             allowed_tools: vec![],
         }];
-        let connectors = vec![ncx_config::McpConnectorConfig {
-            name: "fs".into(),
-            display_name: "Filesystem".into(),
-            description: "local files".into(),
-            transport: "stdio".into(),
-            command: "npx".into(),
-            args: vec!["-y".into(), "server-fs".into()],
-            url: String::new(),
-            env: HashMap::new(),
-            headers: HashMap::new(),
-            enabled: true,
-            trusted: false,
-            permission: "ask".into(),
-            allowed_tools: vec!["list".into()],
-            source: "npm:server-fs".into(),
-        }];
+        let connectors = vec![
+            ncx_config::McpConnectorConfig {
+                name: "fs".into(),
+                display_name: "Filesystem".into(),
+                description: "local files".into(),
+                transport: "stdio".into(),
+                command: "npx".into(),
+                args: vec!["-y".into(), "server-fs".into()],
+                url: String::new(),
+                env: HashMap::new(),
+                headers: HashMap::new(),
+                auth: "none".into(),
+                headers_helper: String::new(),
+                oauth: ncx_config::McpConnectorOAuthConfig::default(),
+                enabled: true,
+                trusted: false,
+                permission: "ask".into(),
+                allowed_tools: vec!["list".into()],
+                source: "npm:server-fs".into(),
+            },
+            ncx_config::McpConnectorConfig {
+                name: "remote_docs".into(),
+                display_name: "Remote Docs".into(),
+                description: "remote docs".into(),
+                transport: "sse".into(),
+                command: String::new(),
+                args: vec![],
+                url: "https://user:pass@example.test/mcp?token=secret#frag-secret".into(),
+                env: HashMap::new(),
+                headers: HashMap::from([("Authorization".into(), "Bearer secret".into())]),
+                auth: "oauth".into(),
+                headers_helper: String::new(),
+                oauth: ncx_config::McpConnectorOAuthConfig {
+                    client_id: "docs-client".into(),
+                    client_secret_env: "DOCS_CLIENT_SECRET".into(),
+                    callback_port: Some(8765),
+                    scopes: vec!["docs:read".into(), "search".into()],
+                    auth_server_metadata_url:
+                        "https://example.test/.well-known/oauth-authorization-server".into(),
+                },
+                enabled: false,
+                trusted: false,
+                permission: "ask".into(),
+                allowed_tools: vec![],
+                source: "remote:https://example.test".into(),
+            },
+        ];
         let catalog = vec![
             ncx_core::tools::ToolCatalogEntry {
                 name: "read_file".into(),
@@ -2309,6 +2417,21 @@ mod tests {
         assert!(out.contains("Connector install specs"));
         assert!(out.contains("permission=ask"));
         assert!(out.contains("allowed_tools=list"));
+        assert!(out.contains("source=npm:server-fs"));
+        assert!(out.contains("auth=none"));
+        assert!(out.contains("remote_docs: transport=sse"));
+        assert!(out.contains("source=remote:https://example.test"));
+        assert!(out.contains("auth=oauth;headers=1;oauth_client_id=set"));
+        assert!(out.contains("oauth_secret_env=set"));
+        assert!(out.contains("callback_port=8765"));
+        assert!(out.contains("scopes=2"));
+        assert!(out.contains("metadata_url=set"));
+        assert!(out.contains("endpoint=https://<redacted>@example.test/mcp?<redacted>#<redacted>"));
+        assert!(!out.contains("Bearer secret"));
+        assert!(!out.contains("DOCS_CLIENT_SECRET"));
+        assert!(!out.contains("user:pass"));
+        assert!(!out.contains("token=secret"));
+        assert!(!out.contains("frag-secret"));
         assert!(out.contains("Registered MCP tools: 2"));
         assert!(out.contains("fs (2): list, write"));
         assert!(!out.contains("read_file"));

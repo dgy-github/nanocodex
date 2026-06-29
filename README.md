@@ -219,7 +219,7 @@ are local-runtime implementations:
 | --- | ---: | --- |
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
 | Context editing | 72-80% | Send-time editing compresses tool results, derives 1M-friendly character and bucket caps from `context_token_budget`/`context_window`, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model quality, model-guided focus compaction, platform automatic compact, and broader context regression suites. |
-| Tool search / connectors | 70-80% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, 27-query cross-category gold-case ranking tests, deterministic MCP category/capability hints, visible-vs-called task-ledger traces, `/tools eval` / `--tools-eval-report` schema-recall reporting, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, broader trace corpus, richer category ontologies, and large-scale dynamic tool ranking. |
+| Tool search / connectors | 70-80% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, 27-query cross-category gold-case ranking tests, deterministic MCP category/capability hints, visible-vs-called task-ledger traces, `/tools eval` / `--tools-eval-report` schema-recall reporting, and an auditable `connectors.toml` install/auth spec reduce schema and connector ambiguity. Missing complete OAuth login UX, remote transport startup, a managed registry, broader trace corpus, richer category ontologies, and large-scale dynamic tool ranking. |
 | Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, and runtime correction/failure proposal harvesting exist. Remaining gaps are external embedding providers and platform-grade long-term memory. |
 
 The largest remaining gaps are not ordinary Rust code gaps. They are
@@ -570,19 +570,21 @@ Each server's tools surface to the model as `mcp__<server>__<tool>`. Set
 
 For a more auditable connector install layer, `~/.nanocodex/connectors.toml`
 also supports `[connectors.<name>]` specs with `transport`, `source`, `trusted`,
-`permission`, and `allowed_tools`. Stdio connectors are converted into MCP
-servers when `ncx --mcp` starts, and `allowed_tools` plus `permission`
-(`ask`, `trusted`, `read-only`, `deny`) are enforced while registering tools.
+`permission`, `allowed_tools`, `auth`, `headers`, `headers_helper`, and
+`[connectors.<name>.oauth]`. Stdio connectors are converted into MCP servers
+when `ncx --mcp` starts, and `allowed_tools` plus `permission` (`ask`,
+`trusted`, `read-only`, `deny`) are enforced while registering tools.
 `allowed_tools` accepts raw MCP tool names or fully qualified
 `mcp__<server>__<tool>` names. Remote `sse`/`http` specs are parsed and shown
-for audit, but are not launched until first-class auth/OAuth support lands. See
-`mcp.example.toml` and `connectors.example.toml`.
+for audit with redacted auth metadata, but are not launched until first-class
+OAuth login and remote transports land. See `mcp.example.toml` and
+`connectors.example.toml`.
 
 Inside the Rust REPL, `/mcp` shows enabled server entries, connector install
-specs, connector permission/trust metadata, and MCP tools registered in the
-active session. In the Tauri GUI, the Tools panel also shows each configured MCP
-server's connected/error state, registered tool count, startup elapsed time,
-command, and last error.
+specs, connector permission/trust/source/auth metadata, and MCP tools
+registered in the active session. In the Tauri GUI, the Tools panel also shows
+each configured MCP server's connected/error state, registered tool count,
+startup elapsed time, command, and last error.
 
 ## Skills
 

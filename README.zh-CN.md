@@ -166,7 +166,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.8、Sonnet 4.6 的 1M context
 | --- | ---: | --- |
 | Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
 | Context editing | 72-80% | 发送时编辑会压缩旧 tool result，按 `context_token_budget`/`context_window` 自动推导适配 1M context 的字符与分桶上限，并在丢弃旧前缀前物化带 focus anchors 的确定性摘要 checkpoint；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文质量、模型引导的 focus compaction、平台自动 compact 和更完整的 context regression suites。 |
-| Tool search / connectors | 70-80% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、27 条跨类别 gold-case 排名测试、确定性 MCP category/capability hints、visible-vs-called task-ledger trace、`/tools eval` / `--tools-eval-report` schema-recall 报告，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry、更大的真实 trace 样本、更丰富的类别体系和大规模动态工具排序。 |
+| Tool search / connectors | 70-80% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、27 条跨类别 gold-case 排名测试、确定性 MCP category/capability hints、visible-vs-called task-ledger trace、`/tools eval` / `--tools-eval-report` schema-recall 报告，以及可审计的 `connectors.toml` install/auth spec 已降低 schema 和 connector 歧义；还缺完整 OAuth login UX、远程 transport 启动、托管 registry、更大的真实 trace 样本、更丰富的类别体系和大规模动态工具排序。 |
 | Semantic memory | 74-82% | query-scoped lexical-semantic recall、本地 vector sidecar recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼，以及运行时纠正/失败 proposal 提炼已有；还缺外部 embedding provider 和平台级长期 memory。 |
 
 最大的剩余差距不是普通 Rust 代码量，而是平台能力：Anthropic 原生工具/connector
@@ -485,15 +485,17 @@ ncx --mcp
 `enabled = false`，保留配置但不连接。
 
 更可审计的 connector install 层放在 `~/.nanocodex/connectors.toml`。其中
-`[connectors.<name>]` 可以声明 `transport`、`source`、`trusted`、`permission` 和
-`allowed_tools`。stdio connector 会在 `ncx --mcp` 启动时转换成 MCP server；远程
-`sse`/`http` spec 目前只解析并在 `/mcp` 里展示，等后续补一方 auth/OAuth 后再真正启动。
+`[connectors.<name>]` 可以声明 `transport`、`source`、`trusted`、`permission`、
+`allowed_tools`、`auth`、`headers`、`headers_helper` 和 `[connectors.<name>.oauth]`。
+stdio connector 会在 `ncx --mcp` 启动时转换成 MCP server；远程 `sse`/`http`
+spec 目前只解析并在 `/mcp` 里展示脱敏 auth 元数据，等后续补完整 OAuth login
+和远程 transport 后再真正启动。
 stdio connector/server 注册时会执行 `allowed_tools` 和 `permission`
 （`ask`、`trusted`、`read-only`、`deny`）；`allowed_tools` 可写原始 MCP 工具名，
 也可写完整的 `mcp__<server>__<tool>` 名。
 更多见 `mcp.example.toml` 和 `connectors.example.toml`。
 
-Rust REPL 内可用 `/mcp` 查看 enabled server、connector install spec、connector 权限/信任
+Rust REPL 内可用 `/mcp` 查看 enabled server、connector install/auth spec、connector 权限/信任/source/auth
 元数据，以及当前会话已经注册的 MCP 工具。Tauri GUI 的 Tools 面板也会展示每个 MCP server
 的 connected/error 状态、注册工具数、启动耗时、启动命令和最近错误。
 

@@ -50,6 +50,27 @@ pub struct McpServerConfig {
     pub allowed_tools: Vec<String>,
 }
 
+/// Display-safe OAuth metadata for remote MCP connectors. Secret values should
+/// stay in env vars or auth helpers; this struct only records audit metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct McpConnectorOAuthConfig {
+    pub client_id: String,
+    pub client_secret_env: String,
+    pub callback_port: Option<i64>,
+    pub scopes: Vec<String>,
+    pub auth_server_metadata_url: String,
+}
+
+impl McpConnectorOAuthConfig {
+    pub fn has_metadata(&self) -> bool {
+        !self.client_id.trim().is_empty()
+            || !self.client_secret_env.trim().is_empty()
+            || self.callback_port.is_some()
+            || !self.scopes.is_empty()
+            || !self.auth_server_metadata_url.trim().is_empty()
+    }
+}
+
 /// Auditable MCP connector install spec, loaded from
 /// `~/.nanocodex/connectors.toml`.
 ///
@@ -67,6 +88,9 @@ pub struct McpConnectorConfig {
     pub url: String,
     pub env: HashMap<String, String>,
     pub headers: HashMap<String, String>,
+    pub auth: String,
+    pub headers_helper: String,
+    pub oauth: McpConnectorOAuthConfig,
     pub enabled: bool,
     pub trusted: bool,
     pub permission: String,

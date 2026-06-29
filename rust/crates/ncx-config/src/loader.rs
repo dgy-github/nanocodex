@@ -530,7 +530,7 @@ fn parse_mcp_server(name: &str, spec: &Value) -> Option<crate::config::McpServer
 }
 
 fn parse_mcp_connector(name: &str, spec: &Value) -> Option<crate::config::McpConnectorConfig> {
-    use crate::config::McpConnectorConfig;
+    use crate::config::{McpConnectorConfig, McpConnectorOAuthConfig};
     let name = name.trim();
     if name.is_empty() {
         return None;
@@ -556,6 +556,15 @@ fn parse_mcp_connector(name: &str, spec: &Value) -> Option<crate::config::McpCon
     if enabled && transport != "stdio" && url.trim().is_empty() {
         return None;
     }
+    let headers = string_table_field(spec, "headers");
+    let headers_helper = string_field_any(spec, &["headers_helper", "headersHelper"]);
+    let oauth = parse_mcp_connector_oauth(spec);
+    let auth = normalize_connector_auth(
+        string_field(spec, "auth"),
+        !headers.is_empty(),
+        !headers_helper.trim().is_empty(),
+        oauth.has_metadata(),
+    );
     Some(McpConnectorConfig {
         name: name.to_string(),
         display_name: string_field(spec, "display_name"),
@@ -565,7 +574,10 @@ fn parse_mcp_connector(name: &str, spec: &Value) -> Option<crate::config::McpCon
         args: string_array_field(spec, "args"),
         url,
         env: string_table_field(spec, "env"),
-        headers: string_table_field(spec, "headers"),
+        headers,
+        auth,
+        headers_helper,
+        oauth,
         enabled,
         trusted: spec
             .get("trusted")
@@ -582,6 +594,48 @@ fn parse_mcp_connector(name: &str, spec: &Value) -> Option<crate::config::McpCon
     })
 }
 
+fn normalize_connector_auth(
+    configured: String,
+    has_headers: bool,
+    has_headers_helper: bool,
+    has_oauth: bool,
+) -> String {
+    let raw = configured.trim().to_ascii_lowercase();
+    let inferred = if has_oauth {
+        "oauth"
+    } else if has_headers_helper {
+        "headers-helper"
+    } else if has_headers {
+        "header"
+    } else {
+        "none"
+    };
+    let auth = if raw.is_empty() { inferred } else { raw.as_str() };
+    match auth {
+        "none" | "no-auth" | "disabled" => "none".into(),
+        "bearer" | "api-key" | "header" | "headers" => "header".into(),
+        "headers-helper" | "headers_helper" | "helper" => "headers-helper".into(),
+        "oauth" | "oauth2" | "oauth-2" => "oauth".into(),
+        other => other.to_string(),
+    }
+}
+
+fn parse_mcp_connector_oauth(spec: &Value) -> McpConnectorOAuthConfig {
+    let Some(table) = spec.get("oauth").and_then(|v| v.as_table()) else {
+        return McpConnectorOAuthConfig::default();
+    };
+    McpConnectorOAuthConfig {
+        client_id: string_field_any_table(table, &["client_id", "clientId"]),
+        client_secret_env: string_field_any_table(table, &["client_secret_env", "clientSecretEnv"]),
+        callback_port: int_field_any_table(table, &["callback_port", "callbackPort"]),
+        scopes: string_array_field_table(table, "scopes"),
+        auth_server_metadata_url: string_field_any_table(
+            table,
+            &["auth_server_metadata_url", "authServerMetadataUrl"],
+        ),
+    }
+}
+
 fn string_field(value: &Value, key: &str) -> String {
     value
         .get(key)
@@ -590,8 +644,47 @@ fn string_field(value: &Value, key: &str) -> String {
         .to_string()
 }
 
+fn string_field_any(value: &Value, keys: &[&str]) -> String {
+    for key in keys {
+        if let Some(v) = value.get(*key).and_then(|v| v.as_str()) {
+            return v.to_string();
+        }
+    }
+    String::new()
+}
+
+fn string_field_any_table(table: &Table, keys: &[&str]) -> String {
+    for key in keys {
+        if let Some(v) = table.get(*key).and_then(|v| v.as_str()) {
+            return v.to_string();
+        }
+    }
+    String::new()
+}
+
+fn int_field_any_table(table: &Table, keys: &[&str]) -> Option<i64> {
+    for key in keys {
+        if let Some(v) = table.get(*key).and_then(|v| v.as_integer()) {
+            return Some(v);
+        }
+    }
+    None
+}
+
 fn string_array_field(value: &Value, key: &str) -> Vec<String> {
     value
+        .get(key)
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn string_array_field_table(table: &Table, key: &str) -> Vec<String> {
+    table
         .get(key)
         .and_then(|v| v.as_array())
         .map(|a| {
@@ -1304,8 +1397,16 @@ source = "npm:mcp-server-fetch"
 transport = "sse"
 url = "https://example.test/mcp"
 headers = { Authorization = "Bearer token" }
+auth = "oauth"
 trusted = true
 permission = "trusted"
+
+[connectors.remote.oauth]
+client_id = "remote-client"
+client_secret_env = "REMOTE_CLIENT_SECRET"
+callback_port = 8765
+scopes = ["docs:read", "search"]
+auth_server_metadata_url = "https://example.test/.well-known/oauth-authorization-server"
 
 [connectors.bad_remote]
 transport = "http"
@@ -1327,6 +1428,19 @@ transport = "http"
         );
         assert_eq!(connectors[1].transport, "sse");
         assert_eq!(connectors[1].url, "https://example.test/mcp");
+        assert_eq!(connectors[1].auth, "oauth");
+        assert_eq!(connectors[1].headers.len(), 1);
+        assert_eq!(connectors[1].oauth.client_id, "remote-client");
+        assert_eq!(
+            connectors[1].oauth.client_secret_env,
+            "REMOTE_CLIENT_SECRET"
+        );
+        assert_eq!(connectors[1].oauth.callback_port, Some(8765));
+        assert_eq!(connectors[1].oauth.scopes, vec!["docs:read", "search"]);
+        assert_eq!(
+            connectors[1].oauth.auth_server_metadata_url,
+            "https://example.test/.well-known/oauth-authorization-server"
+        );
         assert!(connectors[1].trusted);
     }
 
@@ -1342,6 +1456,9 @@ transport = "http"
             url: String::new(),
             env: HashMap::new(),
             headers: HashMap::new(),
+            auth: "none".into(),
+            headers_helper: String::new(),
+            oauth: crate::config::McpConnectorOAuthConfig::default(),
             enabled: true,
             trusted: false,
             permission: "ask".into(),

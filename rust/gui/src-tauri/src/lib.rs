@@ -305,6 +305,26 @@ fn open_connectors_file() -> Result<(), String> {
 # trusted = false
 # permission = "ask"        # ask | trusted | read-only | deny
 # allowed_tools = ["fetch"] # optional raw or mcp__server__tool names; empty = all
+
+# Remote connectors are audit-only until OAuth login and remote transports land.
+# [connectors.remote_docs]
+# display_name = "Remote Docs"
+# description = "Remote MCP docs connector."
+# transport = "sse"
+# url = "https://example.com/mcp"
+# auth = "oauth" # none | header | headers-helper | oauth
+# headers = { Authorization = "Bearer ${TOKEN}" }
+# headers_helper = "" # optional command that would mint headers; not executed yet
+# enabled = false
+# trusted = false
+# permission = "ask"
+#
+# [connectors.remote_docs.oauth]
+# client_id = "nanocodex-local"
+# client_secret_env = "REMOTE_DOCS_CLIENT_SECRET" # env var name, not the secret
+# callback_port = 8765
+# scopes = ["docs:read", "search"]
+# auth_server_metadata_url = "https://example.com/.well-known/oauth-authorization-server"
 "#,
     )?;
     open_file(&path)
