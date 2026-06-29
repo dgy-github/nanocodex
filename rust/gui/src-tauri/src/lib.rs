@@ -16,7 +16,7 @@ use ncx_config::{
     load_config, write_nanocodex_config, ConfigPaths, Overrides, VALID_APPROVAL_POLICIES,
     VALID_SANDBOX_MODES,
 };
-use ncx_core::{CheckpointMeta, CheckpointStore, RestoreReport};
+use ncx_core::{custom_command_prompt, list_custom_commands, CheckpointMeta, CheckpointStore, RestoreReport};
 use serde::Serialize;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
@@ -64,6 +64,14 @@ pub struct RestoreView {
     safety_checkpoint_id: Option<String>,
     restored_files: usize,
     deleted_files: usize,
+}
+
+#[derive(Serialize)]
+pub struct CustomCommandView {
+    scope: String,
+    name: String,
+    slash: String,
+    path: String,
 }
 
 /// Load the resolved config and return a display-safe snapshot.
@@ -324,6 +332,38 @@ fn restore_checkpoint(id: String) -> Result<RestoreView, String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_custom_commands() -> Result<Vec<CustomCommandView>, String> {
+    let cfg = load_config(Overrides {
+        workspace: std::env::current_dir().ok(),
+        ..Default::default()
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(list_custom_commands(&cfg.workspace)
+        .into_iter()
+        .map(|cmd| CustomCommandView {
+            scope: cmd.scope.to_string(),
+            name: cmd.name.clone(),
+            slash: format!("/{}:{}", cmd.scope, cmd.name),
+            path: cmd.path.display().to_string(),
+        })
+        .collect())
+}
+
+#[tauri::command]
+fn expand_custom_command(slash: String, arg: String) -> Result<String, String> {
+    let cfg = load_config(Overrides {
+        workspace: std::env::current_dir().ok(),
+        ..Default::default()
+    })
+    .map_err(|e| e.to_string())?;
+    match custom_command_prompt(&cfg.workspace, &slash, &arg) {
+        Ok(Some(prompt)) => Ok(prompt),
+        Ok(None) => Err(format!("unknown custom command: {slash}")),
+        Err(e) => Err(e),
+    }
+}
+
 fn checkpoint_view(meta: CheckpointMeta) -> CheckpointView {
     CheckpointView {
         id: meta.id,
@@ -368,7 +408,9 @@ pub fn run() {
             open_config_dir,
             get_checkpoints,
             create_checkpoint,
-            restore_checkpoint
+            restore_checkpoint,
+            get_custom_commands,
+            expand_custom_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running the nanocodex GUI");

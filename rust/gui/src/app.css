@@ -212,10 +212,30 @@ button:disabled { background: #b9c6e6; cursor: default; }
   max-height: 46vh;
   overflow: auto;
 }
+.command-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.35rem 0 0.65rem;
+}
+.command-list {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 52vh;
+  overflow: auto;
+}
 .checkpoint-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.45rem 0.75rem;
+  align-items: center;
+  border: 1px solid #e6e3df;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+}
+.command-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, 14rem) auto;
+  gap: 0.5rem;
   align-items: center;
   border: 1px solid #e6e3df;
   border-radius: 8px;
@@ -226,16 +246,31 @@ button:disabled { background: #b9c6e6; cursor: default; }
   display: grid;
   gap: 0.18rem;
 }
+.command-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
 .checkpoint-main strong,
-.checkpoint-main code {
+.checkpoint-main code,
+.command-main strong,
+.command-main code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.checkpoint-main code {
+.checkpoint-main code,
+.command-main code {
   color: #6b6660;
   font-family: ui-monospace, monospace;
   font-size: 0.78rem;
+}
+.command-row input {
+  min-width: 0;
+  border: 1px solid #d9d5cf;
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  font: inherit;
 }
 .checkpoint-meta {
   grid-column: 1 / -1;
@@ -280,6 +315,13 @@ button:disabled { background: #b9c6e6; cursor: default; }
   }
   .config-entry span,
   .config-entry code {
+    grid-column: 1 / -1;
+  }
+  .command-row {
+    grid-template-columns: 1fr auto;
+  }
+  .command-main,
+  .command-row input {
     grid-column: 1 / -1;
   }
 }

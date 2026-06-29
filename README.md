@@ -97,7 +97,7 @@ tool.
   one-shot commands as well as interactive REPL use.
 - Typed ownership makes parallel worker isolation and result promotion easier
   to reason about without shared mutable state leaks.
-- 221 offline Rust tests cover the current crate boundary, including memory
+- 223 offline Rust tests cover the current crate boundary, including memory
   consolidation, provider request/response parsing, sandbox policy, tools, and
   orchestration.
 
@@ -373,6 +373,11 @@ commands in `.nanocodex/commands/<name>.md`; for Claude Code compatibility,
 `.claude/commands/<name>.md` is also read. User commands live in
 `~/.nanocodex/commands/<name>.md`, with `~/.claude/commands/<name>.md` as a
 compatibility fallback.
+
+The Tauri GUI exposes the same project/user command catalog from the `/` header
+button. You can run a command from the panel with arguments, or type the custom
+slash command directly in the chat box; the GUI expands it with the same core
+template engine the CLI uses.
 
 ```markdown
 ---

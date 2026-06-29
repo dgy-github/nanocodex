@@ -75,7 +75,7 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - 启动路径避开 Python 解释器和 import 开销，适合短的一次性命令，也适合交互 REPL。
 - 显式所有权让并行 worker 隔离、结果选择和 promote 更容易推理，不容易出现共享可变状态
   泄漏。
-- 221 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
+- 223 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
   沙箱策略、工具和编排器。
 
 **平台控制面补齐**
@@ -317,6 +317,10 @@ Rust REPL 可以把 Markdown prompt 模板变成 slash command。项目级命令
 `.nanocodex/commands/<name>.md`；为了兼容 Claude Code，也会读取
 `.claude/commands/<name>.md`。用户级命令放在 `~/.nanocodex/commands/<name>.md`，
 并兼容 `~/.claude/commands/<name>.md`。
+
+Tauri GUI 也通过标题栏的 `/` 按钮暴露同一套 project/user command catalog。可以在面板里
+填写参数后直接运行，也可以在聊天输入框里直接输入 custom slash command；GUI 会用和 CLI
+相同的 core 模板引擎展开 prompt。
 
 ```markdown
 ---

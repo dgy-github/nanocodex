@@ -62,6 +62,17 @@
   let checkpointLabel = $state("");
   let checkpointBusy = $state(false);
 
+  type CustomCommand = {
+    scope: string;
+    name: string;
+    slash: string;
+    path: string;
+  };
+  let commandOpen = $state(false);
+  let customCommands = $state<CustomCommand[]>([]);
+  let commandArgs = $state<Record<string, string>>({});
+  let commandBusy = $state(false);
+
   type Msg =
     | { role: "user" | "assistant" | "note"; text: string }
     | { role: "tool"; name: string; args?: string; result?: string };
@@ -126,19 +137,39 @@
     });
   });
 
-  async function send() {
-    const text = input.trim();
-    if (!text || busy) return;
-    messages.push({ role: "user", text });
-    input = "";
+  async function queuePrompt(visibleText: string, promptText: string) {
+    if (!visibleText.trim() || busy) return;
+    messages.push({ role: "user", text: visibleText });
     busy = true;
     scrollDown();
     try {
-      await invoke("send_prompt", { text });
+      await invoke("send_prompt", { text: promptText });
     } catch (e) {
       messages.push({ role: "note", text: `Failed to send: ${e}` });
       busy = false;
     }
+  }
+
+  async function expandTypedCommand(text: string) {
+    if (!text.startsWith("/")) return text;
+    const match = text.match(/^(\S+)(?:\s+([\s\S]*))?$/);
+    if (!match) return text;
+    try {
+      return await invoke<string>("expand_custom_command", {
+        slash: match[1],
+        arg: match[2] ?? "",
+      });
+    } catch {
+      return text;
+    }
+  }
+
+  async function send() {
+    const text = input.trim();
+    if (!text || busy) return;
+    input = "";
+    const prompt = await expandTypedCommand(text);
+    await queuePrompt(text, prompt);
   }
 
   function onKey(e: KeyboardEvent) {
@@ -263,6 +294,36 @@
     }
     checkpointBusy = false;
   }
+
+  async function loadCommands() {
+    customCommands = await invoke<CustomCommand[]>("get_custom_commands");
+  }
+
+  async function openCommands() {
+    commandOpen = true;
+    commandBusy = true;
+    try {
+      await loadCommands();
+    } catch (e) {
+      messages.push({ role: "note", text: `Command load failed: ${e}` });
+    }
+    commandBusy = false;
+  }
+
+  async function runCustomCommand(cmd: CustomCommand) {
+    if (busy || commandBusy) return;
+    const arg = (commandArgs[cmd.slash] ?? "").trim();
+    const visible = arg ? `${cmd.slash} ${arg}` : cmd.slash;
+    commandBusy = true;
+    try {
+      const prompt = await invoke<string>("expand_custom_command", { slash: cmd.slash, arg });
+      commandOpen = false;
+      await queuePrompt(visible, prompt);
+    } catch (e) {
+      messages.push({ role: "note", text: `Command failed: ${e}` });
+    }
+    commandBusy = false;
+  }
 </script>
 
 <main>
@@ -271,6 +332,7 @@
     <span class="meta">{header}</span>
     {#if busy}<span class="spinner" title="working…">●</span>{/if}
     <button class="gear" title="Settings" onclick={openSettings} aria-label="Settings">⚙</button>
+    <button class="toolbtn" title="Custom commands" onclick={openCommands} aria-label="Custom commands">/</button>
     <button class="toolbtn" title="Checkpoints" onclick={openCheckpoints} aria-label="Checkpoints">CP</button>
   </header>
 
@@ -360,6 +422,37 @@
         </div>
         <div class="abtns">
           <button class="deny" onclick={() => (checkpointOpen = false)}>Close</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if commandOpen}
+    <div class="overlay">
+      <div class="modal">
+        <h3>Commands</h3>
+        <div class="command-actions">
+          <button class="plain" onclick={loadCommands} disabled={commandBusy}>Refresh</button>
+        </div>
+        <div class="command-list">
+          {#if customCommands.length === 0}
+            <p class="emptyline">No custom commands.</p>
+          {/if}
+          {#each customCommands as cmd}
+            <div class="command-row">
+              <div class="command-main">
+                <strong>{cmd.slash}</strong>
+                <code title={cmd.path}>{cmd.path}</code>
+              </div>
+              <input bind:value={commandArgs[cmd.slash]} placeholder="Arguments" disabled={busy || commandBusy} />
+              <button class="restore" onclick={() => runCustomCommand(cmd)} disabled={busy || commandBusy}>
+                Run
+              </button>
+            </div>
+          {/each}
+        </div>
+        <div class="abtns">
+          <button class="deny" onclick={() => (commandOpen = false)}>Close</button>
         </div>
       </div>
     </div>
