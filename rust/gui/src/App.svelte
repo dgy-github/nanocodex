@@ -113,6 +113,14 @@
     try {
       const s = await invoke<{ model: string; sandbox: string }>("get_status");
       header = `${s.model} · ${s.sandbox}`;
+      const initialSettings = await invoke<Settings>("get_settings");
+      if (!initialSettings.has_api_key) {
+        settings = initialSettings;
+        configLocation = await invoke<ConfigLocation>("get_config_location");
+        apiKeyInput = "";
+        header = "needs config";
+        messages.push({ role: "note", text: "API key required. Add it in Settings, then Save." });
+      }
     } catch (e) {
       header = "config error";
     }
@@ -151,6 +159,10 @@
           break;
         case "error":
           messages.push({ role: "note", text: `Error: ${p.message}` });
+          if (p.message.includes("API key")) {
+            header = "needs config";
+            if (!settings) void openSettings();
+          }
           busy = false;
           break;
       }
@@ -212,15 +224,19 @@
     }
   }
 
+  async function loadSettingsPanel() {
+    const [loadedSettings, loadedLocation] = await Promise.all([
+      invoke<Settings>("get_settings"),
+      invoke<ConfigLocation>("get_config_location"),
+    ]);
+    settings = loadedSettings;
+    configLocation = loadedLocation;
+    apiKeyInput = "";
+  }
+
   async function openSettings() {
     try {
-      const [loadedSettings, loadedLocation] = await Promise.all([
-        invoke<Settings>("get_settings"),
-        invoke<ConfigLocation>("get_config_location"),
-      ]);
-      settings = loadedSettings;
-      configLocation = loadedLocation;
-      apiKeyInput = "";
+      await loadSettingsPanel();
     } catch (e) {
       messages.push({ role: "note", text: `Settings load failed: ${e}` });
     }

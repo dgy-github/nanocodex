@@ -29,6 +29,24 @@ function Read-WorkspaceVersion {
     $match.Groups[1].Value
 }
 
+function Write-TauriVersionConfig {
+    param(
+        [string]$Version,
+        [string]$StageRoot
+    )
+    New-Item -ItemType Directory -Force -Path $StageRoot | Out-Null
+    $path = Join-Path $StageRoot "tauri-version.json"
+    $json = [ordered]@{
+        version = $Version
+    } | ConvertTo-Json -Depth 3
+    [System.IO.File]::WriteAllText(
+        $path,
+        "$json$([System.Environment]::NewLine)",
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $path
+}
+
 function Add-ArtifactRecord {
     param(
         [System.Collections.ArrayList]$Artifacts,
@@ -105,6 +123,7 @@ Invoke-Step "Stage CLI package" {
 
 if (-not $SkipTauri) {
     $guiRoot = Join-Path $rustRoot "gui"
+    $tauriVersionConfig = Write-TauriVersionConfig -Version $Version -StageRoot $stageRoot
     Invoke-Step "Tauri NSIS installer" {
         Push-Location $guiRoot
         try {
@@ -115,7 +134,7 @@ if (-not $SkipTauri) {
                     & npm.cmd install
                 }
             }
-            & npm.cmd run tauri:installer
+            & npm.cmd run tauri -- build --target $Target --bundles nsis --config $tauriVersionConfig --ci
         } finally {
             Pop-Location
         }

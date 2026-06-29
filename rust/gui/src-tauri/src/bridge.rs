@@ -24,9 +24,9 @@ use async_trait::async_trait;
 use ncx_config::{load_config, Config, Overrides};
 use ncx_core::{
     discover_skills, expand_file_mentions, load_project_instructions, new_session_id,
-    skills_index_block, AgentLoop, ApprovalHandler,
-    ApprovalRequest, CheckpointStore, ContextEditPolicy, LoopEvent, MemoryStore, Session,
-    SessionIndex, TaskBudget, ToolContext, ToolRegistry,
+    skills_index_block, AgentLoop, ApprovalHandler, ApprovalRequest, CheckpointStore,
+    ContextEditPolicy, LoopEvent, MemoryStore, Session, SessionIndex, TaskBudget, ToolContext,
+    ToolRegistry,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -202,6 +202,30 @@ fn build_agent(
     ))
 }
 
+struct RunningAgent {
+    agent: AgentLoop,
+    workspace: PathBuf,
+    session_id: String,
+    log_path: PathBuf,
+    session_index: SessionIndex,
+}
+
+fn activate_agent(
+    app: &AppHandle,
+    approver: Rc<dyn ApprovalHandler>,
+) -> Result<RunningAgent, String> {
+    let (mut agent, workspace, session_id, log_path, session_index) = build_agent(approver)?;
+    agent.set_event_sink(make_sink(app.clone()));
+    emit_ready(app, &workspace);
+    Ok(RunningAgent {
+        agent,
+        workspace,
+        session_id,
+        log_path,
+        session_index,
+    })
+}
+
 fn compose_system_prompt(base: &str, blocks: &[String]) -> String {
     let mut out = base.to_string();
     for block in blocks {
@@ -257,28 +281,37 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                     pending: pending.clone(),
                     counter: AtomicU64::new(1),
                 });
-                let (mut agent, mut workspace, mut session_id, mut log_path, mut session_index) =
-                    match build_agent(approver.clone()) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            emit(&app, UiEvent::Error { message: e });
-                            return;
-                        }
-                    };
-                agent.set_event_sink(make_sink(app.clone()));
-                emit_ready(&app, &workspace);
+                let mut running = match activate_agent(&app, approver.clone()) {
+                    Ok(agent) => Some(agent),
+                    Err(e) => {
+                        emit(&app, UiEvent::Error { message: e });
+                        None
+                    }
+                };
 
                 while let Some(cmd) = rx.recv().await {
                     match cmd {
                         Command::Prompt(text) => {
-                            let expanded = expand_file_mentions(&text, &workspace);
-                            save_auto_checkpoint(&workspace, &expanded);
-                            let result = agent.run_turn(json!(expanded), None).await;
-                            let _ = session_index.record_turn(
-                                &session_id,
-                                &workspace,
-                                &agent.session,
-                                &log_path,
+                            if running.is_none() {
+                                running = match activate_agent(&app, approver.clone()) {
+                                    Ok(agent) => Some(agent),
+                                    Err(e) => {
+                                        emit(&app, UiEvent::Error { message: e });
+                                        None
+                                    }
+                                };
+                            }
+                            let Some(state) = running.as_mut() else {
+                                continue;
+                            };
+                            let expanded = expand_file_mentions(&text, &state.workspace);
+                            save_auto_checkpoint(&state.workspace, &expanded);
+                            let result = state.agent.run_turn(json!(expanded), None).await;
+                            let _ = state.session_index.record_turn(
+                                &state.session_id,
+                                &state.workspace,
+                                &state.agent.session,
+                                &state.log_path,
                             );
                             emit(
                                 &app,
@@ -288,15 +321,9 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                                 },
                             );
                         }
-                        Command::Reload => match build_agent(approver.clone()) {
-                            Ok((a, ws, sid, lp, idx)) => {
-                                agent = a;
-                                workspace = ws;
-                                session_id = sid;
-                                log_path = lp;
-                                session_index = idx;
-                                agent.set_event_sink(make_sink(app.clone()));
-                                emit_ready(&app, &workspace);
+                        Command::Reload => match activate_agent(&app, approver.clone()) {
+                            Ok(agent) => {
+                                running = Some(agent);
                             }
                             Err(e) => emit(&app, UiEvent::Error { message: e }),
                         },

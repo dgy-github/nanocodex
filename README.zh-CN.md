@@ -535,7 +535,8 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 当前桌面线是 Tauri v2 + Svelte GUI（`rust/gui`）：
 
 - 流式对话、工具调用展示和审批弹窗。
-- Settings 面板可配置 model、sandbox、approval、预算、context editing、base URL 和 API key。
+- Settings 面板可配置 model、sandbox、approval、预算、context editing、base URL 和 API key；
+  新安装且未配置 API key 时，GUI 会直接打开这个面板，先完成配置再启动首轮 agent。
 - Checkpoint 面板提供手动保存 / 列表 / 恢复。
 - Custom command 面板复用 CLI 同一套 `.nanocodex/.claude` 模板展开器。
 - Memory 面板可查看项目笔记、新增 verified note、打开 `LEARNINGS.md`、启发式去重和 LLM 记忆合并。
@@ -571,8 +572,9 @@ python -m pytest -q
 脚本会先跑 Rust workspace 测试，再构建 Windows GNU release 二进制，生成
 `releases\nanocodex-<version>-x86_64-pc-windows-gnu.zip`，构建 Tauri NSIS
 installer，并写出 `releases\SHA256SUMS.txt` 和 `releases\release-manifest.json`。
-只需要 CLI 包时可加 `-SkipTauri`；只有同 target 已在 CI 或本地 release 验证通过时，
-才建议加 `-SkipTests`。
+installer 构建会通过临时 Tauri config overlay 注入同一个版本号，因此 NSIS 元数据会跟随
+Rust workspace release 版本。只需要 CLI 包时可加 `-SkipTauri`；只有同 target 已在 CI
+或本地 release 验证通过时，才建议加 `-SkipTests`。
 
 手动 Windows GNU CLI release：
 
@@ -592,7 +594,7 @@ npm.cmd run tauri:installer
 桌面构建现在明确产出 Windows NSIS installer，安装包位于
 `rust\gui\src-tauri\target\x86_64-pc-windows-gnu\release\bundle\nsis\`。
 GUI 的 Settings 弹窗也会展示解析后的 `~/.nanocodex/config.toml` 路径，并提供打开配置文件
-和配置目录的入口。
+和配置目录的入口；保存 Settings 后会原地重载 Rust agent。
 
 Tauri crate 特意保留 `crate-type = ["lib"]`；改成 `cdylib` 或 `staticlib` 会让
 Windows GNU 链接器的 export ordinal 表溢出。

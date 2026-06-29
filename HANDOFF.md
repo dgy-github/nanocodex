@@ -4,7 +4,7 @@
 > Python 时代历史在 git 历史 + SESSION_MEMORY.md。
 
 ## 元信息
-- 最后更新：2026-06-26
+- 最后更新：2026-06-29
 - 分支：**`rust-capability`**（基于 rust-rewrite，已推 `origin`）。Python 树 `nanocodex/*.py` 不动。
 - remote：`origin` → https://github.com/dgy-github/nanocodex.git（凭据已配）
 - 路径：crates `rust/crates/`，GUI `rust/gui/`，基准 `bench/`。
@@ -104,11 +104,11 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
   用 sentinel 注入。
 
 ## 当前状态（已完成，258 个 Rust 测试全绿）
-- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 custom command + memory 面板）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + mcp.toml loader + 启动注册）
+- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、custom command、memory 面板）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + mcp.toml loader + 启动注册）
 - 工具：read_file·apply_patch·shell·update_plan·grep·glob·web_search·web_fetch·tool_search·remember·skill
 - **Skills（已并入 rust-capability）**：SKILL.md 发现 + 渐进披露注入 + `skill` 工具 + builtin（`commit-message`，include_str! 编入二进制，FS 同名可覆盖）+ `/skills` 命令。stream C vision 基础（`7de2235`）也随 FF 一起进了 rust-capability。
 - 分层 flash/pro 编排器（`-o`，verifier 选 BEST worker + promote）；memory 自进化 + 启发式/LLM consolidate（CLI `--memory-merge` + GUI Memory 面板）；keyed 搜索(Tavily/DDG)
-- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog
+- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog；release 脚本会给 Tauri NSIS installer 注入 workspace version
 
 ## 并行拆分（多会话同时做）——接手按此认领
 **硬约束**：① 每会话**独立 git worktree**（别共用工作目录）：`git worktree add ../ncx-A -b feat/mcp rust-capability`；
@@ -138,7 +138,7 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
 - Live 验证：`everything` server 注册 13 个工具，模型成功 `tool_search` + `echo` 调用
 
 ## Do-Not（踩过的坑）
-- tauri lib 用 `crate-type=["lib"]`（cdylib → gnu ld `export ordinal too large`）；GUI crate 须自列 `async-trait`。
+- tauri lib 用 `crate-type=["lib"]`（cdylib → gnu ld `export ordinal too large`）；GUI crate 须自列 `async-trait`。首启缺 API key 时 agent 线程不能退出，必须保持 alive 等 Settings 保存后 Reload。
 - svelte-plugin `^5` 配 vite `^6`。工具描述**逐字照搬**（含示例），否则模型发 git-diff 死循环；调试 `NCX_TRACE=1`，别用 `| head`（SIGPIPE 打断进程，重定向到文件）。
 - opencode：`npm i -g opencode-ai` 后若 "postinstall not run"，手动 `cd node_modules/opencode-ai && node postinstall.mjs`；bin 在 `~/AppData/Roaming/npm/node_modules/opencode-ai/bin/opencode.exe`；DeepSeek 配 `~/.config/opencode/opencode.json`。
 - 预期校准：这些抬完成率/触达面，**不抬硬推理天花板**（封顶在 deepseek-v4-pro < Fable）。真正上限杠杆=main 换强模型（`DeepSeekProvider` 已 OpenAI 兼容，改 base_url/key/model 零代码）。

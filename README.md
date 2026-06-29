@@ -619,7 +619,8 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
 
 - Streaming chat, tool-call display, and approval modals.
 - Settings panel for model, sandbox, approval, budgets, context editing, base
-  URL, and API key.
+  URL, and API key. On a fresh install with no API key, the GUI opens this panel
+  directly so the agent can be configured before the first turn.
 - Checkpoint panel for manual save/list/restore.
 - Custom command panel backed by the same core `.nanocodex/.claude` template
   engine the CLI uses.
@@ -659,7 +660,9 @@ Recommended Windows release entry point:
 The script runs the Rust workspace tests, builds the Windows GNU release binary,
 creates `releases\nanocodex-<version>-x86_64-pc-windows-gnu.zip`, builds the
 Tauri NSIS installer, then writes `releases\SHA256SUMS.txt` and
-`releases\release-manifest.json`. Use `-SkipTauri` for a CLI-only package or
+`releases\release-manifest.json`. The installer build receives the same version
+through a temporary Tauri config overlay, so its NSIS metadata follows the Rust
+workspace release version. Use `-SkipTauri` for a CLI-only package or
 `-SkipTests` only after the same target has already passed in CI/local release
 validation.
 
@@ -682,7 +685,8 @@ The desktop build now targets the Windows NSIS installer explicitly. The
 installer is emitted under
 `rust\gui\src-tauri\target\x86_64-pc-windows-gnu\release\bundle\nsis\`.
 The GUI Settings dialog also exposes the resolved `~/.nanocodex/config.toml`
-path and buttons to open the config file or its directory.
+path and buttons to open the config file or its directory; saving Settings
+reloads the Rust agent in place.
 
 The Tauri crate deliberately keeps `crate-type = ["lib"]`; changing it to
 `cdylib` or `staticlib` overflows the Windows GNU linker's export table.
