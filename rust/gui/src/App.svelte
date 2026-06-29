@@ -970,14 +970,21 @@
 
   // ── Hermes: project-memory self-evolution ─────────────────────────────────
   type MemoryNote = { ts: number; tags: string[]; text: string };
+  type MemoryProposal = { id: string; ts: number; source: string; tags: string[]; text: string };
   let hermesOpen = $state(false);
   let notes = $state<MemoryNote[]>([]);
+  let proposals = $state<MemoryProposal[]>([]);
   let hermesBusy = $state(false);
   let newNote = $state("");
   let newNoteTags = $state("");
 
   async function loadNotes() {
-    notes = await invoke<MemoryNote[]>("memory_list");
+    const [loadedNotes, pending] = await Promise.all([
+      invoke<MemoryNote[]>("memory_list"),
+      invoke<MemoryProposal[]>("memory_proposals"),
+    ]);
+    notes = loadedNotes;
+    proposals = pending;
   }
   async function openHermes() {
     if (rightPanel === "memory") { rightPanel = ""; return; }
@@ -1013,6 +1020,43 @@
       await loadNotes();
     } catch (e) {
       messages.push({ role: "note", text: `记忆添加失败：${e}` });
+    }
+    hermesBusy = false;
+  }
+  async function proposeNote() {
+    if (!newNote.trim()) return;
+    hermesBusy = true;
+    try {
+      const tags = newNoteTags.split(",").map((t) => t.trim()).filter(Boolean);
+      const proposal = await invoke<MemoryProposal | null>("memory_propose", { note: newNote, tags });
+      messages.push({ role: "note", text: proposal ? `记忆：已加入待审（${proposal.id}）。` : "记忆：已存在或已待审。" });
+      newNote = "";
+      newNoteTags = "";
+      await loadNotes();
+    } catch (e) {
+      messages.push({ role: "note", text: `记忆提议失败：${e}` });
+    }
+    hermesBusy = false;
+  }
+  async function acceptProposal(id: string) {
+    hermesBusy = true;
+    try {
+      const accepted = await invoke<boolean>("memory_accept_proposal", { id });
+      messages.push({ role: "note", text: accepted ? "记忆：提议已接受。" : "记忆：未找到该提议。" });
+      await loadNotes();
+    } catch (e) {
+      messages.push({ role: "note", text: `接受记忆提议失败：${e}` });
+    }
+    hermesBusy = false;
+  }
+  async function rejectProposal(id: string) {
+    hermesBusy = true;
+    try {
+      const rejected = await invoke<boolean>("memory_reject_proposal", { id });
+      messages.push({ role: "note", text: rejected ? "记忆：提议已拒绝。" : "记忆：未找到该提议。" });
+      await loadNotes();
+    } catch (e) {
+      messages.push({ role: "note", text: `拒绝记忆提议失败：${e}` });
     }
     hermesBusy = false;
   }
@@ -1708,13 +1752,34 @@
           <input bind:value={newNote} placeholder="记录一条已验证的经验…" />
           <input bind:value={newNoteTags} placeholder="标签（逗号分隔）" style="max-width:140px" />
           <button onclick={addNote} disabled={hermesBusy}>添加</button>
+          <button class="plain" onclick={proposeNote} disabled={hermesBusy}>加入待审</button>
         </div>
         <div class="checkpoint-create">
           <button onclick={consolidateMemory} disabled={hermesBusy}>整理：合并重复</button>
           <button class="plain" onclick={loadNotes} disabled={hermesBusy}>刷新</button>
-          <span class="emptyline">{notes.length} 条</span>
+          <span class="emptyline">{notes.length} 条 / 待审 {proposals.length}</span>
         </div>
         <div class="checkpoint-list">
+          <p class="emptyline">待审提议</p>
+          {#if proposals.length === 0}
+            <p class="emptyline">暂无待审提议。</p>
+          {/if}
+          {#each proposals as p}
+            <div class="checkpoint-row proposal-row">
+              <div class="checkpoint-main">
+                <strong>{p.text}</strong>
+                <code>{p.id} · {p.source}{p.tags.length ? ` · ${p.tags.join(", ")}` : ""}</code>
+              </div>
+              <div class="checkpoint-meta proposal-actions">
+                <span>{fmtTs(p.ts)}</span>
+                <button class="plain" onclick={() => acceptProposal(p.id)} disabled={hermesBusy}>接受</button>
+                <button class="deny" onclick={() => rejectProposal(p.id)} disabled={hermesBusy}>拒绝</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+        <div class="checkpoint-list">
+          <p class="emptyline">已验证笔记</p>
           {#if notes.length === 0}
             <p class="emptyline">暂无经验。</p>
           {/if}

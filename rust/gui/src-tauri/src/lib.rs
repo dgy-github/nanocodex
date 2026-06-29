@@ -926,6 +926,15 @@ pub struct MemoryNote {
     text: String,
 }
 
+#[derive(Serialize)]
+pub struct MemoryProposal {
+    id: String,
+    ts: u64,
+    source: String,
+    tags: Vec<String>,
+    text: String,
+}
+
 /// The project memory store for the current workspace.
 fn memory_store() -> MemoryStore {
     let ws = std::env::current_dir().unwrap_or_default();
@@ -943,6 +952,23 @@ fn memory_list() -> Result<Vec<MemoryNote>, String> {
             ts: e.ts,
             tags: e.tags,
             text: e.text,
+        })
+        .collect())
+}
+
+/// List pending memory proposals (newest first).
+#[tauri::command]
+fn memory_proposals() -> Result<Vec<MemoryProposal>, String> {
+    let mut proposals = memory_store().proposals();
+    proposals.sort_by(|a, b| b.ts.cmp(&a.ts));
+    Ok(proposals
+        .into_iter()
+        .map(|p| MemoryProposal {
+            id: p.id,
+            ts: p.ts,
+            source: p.source,
+            tags: p.tags,
+            text: p.text,
         })
         .collect())
 }
@@ -967,6 +993,51 @@ fn memory_add(note: String, tags: Vec<String>) -> Result<bool, String> {
         .unwrap_or(0);
     memory_store()
         .remember(note, &tags, now)
+        .map_err(|e| e.to_string())
+}
+
+/// Queue a candidate learning for review before it becomes trusted recall.
+#[tauri::command]
+fn memory_propose(note: String, tags: Vec<String>) -> Result<Option<MemoryProposal>, String> {
+    let note = note.trim();
+    if note.is_empty() {
+        return Err("note is required".into());
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    memory_store()
+        .propose(note, &tags, "gui", now)
+        .map(|proposal| {
+            proposal.map(|p| MemoryProposal {
+                id: p.id,
+                ts: p.ts,
+                source: p.source,
+                tags: p.tags,
+                text: p.text,
+            })
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Accept a pending learning into verified project memory.
+#[tauri::command]
+fn memory_accept_proposal(id: String) -> Result<bool, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    memory_store()
+        .accept_proposal(&id, now)
+        .map_err(|e| e.to_string())
+}
+
+/// Reject a pending learning without adding it to recall.
+#[tauri::command]
+fn memory_reject_proposal(id: String) -> Result<bool, String> {
+    memory_store()
+        .reject_proposal(&id)
         .map_err(|e| e.to_string())
 }
 
@@ -1013,8 +1084,12 @@ pub fn run() {
             save_temp_image,
             list_sessions,
             memory_list,
+            memory_proposals,
             memory_consolidate,
             memory_add,
+            memory_propose,
+            memory_accept_proposal,
+            memory_reject_proposal,
             set_workspace,
             get_workspace,
             resume_session,

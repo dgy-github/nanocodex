@@ -2,19 +2,24 @@
 //! project-fit with use. NOT raised IQ: it's accumulated, verified experience
 //! (conventions, gotchas, solutions) recalled into the prompt as *leads*.
 //!
-//! Stored as one human-readable markdown file `.ncx/memory/LEARNINGS.md`, one
-//! entry per verified note with a parseable comment header:
+//! Verified notes are stored in one human-readable markdown file
+//! `.ncx/memory/LEARNINGS.md`, one entry per note with a parseable comment
+//! header:
 //!
 //! ```text
 //! <!-- ts:1719300000 tags:build,windows -->
 //! The GNU linker overflows on cdylib; use crate-type=["lib"].
 //! ```
 //!
+//! Memory proposals are kept separately in `.ncx/memory/PROPOSALS.md` so
+//! auto-detected learnings can be reviewed before they become trusted recall.
 //! On write: deduplicate (normalized text) and cap to the newest [`MAX_ENTRIES`].
 //! On recall: score by a lightweight semantic lexical ranker (keywords, tags,
 //! phrases, Jaccard, and a tiny domain synonym map), tie-break by recency, and
 //! return a capped block to prepend to the system prompt.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use async_trait::async_trait;
@@ -29,6 +34,7 @@ pub trait Summarizer {
 
 /// Hard cap so the store can't grow unbounded; oldest are dropped first.
 pub const MAX_ENTRIES: usize = 200;
+pub const MAX_PROPOSALS: usize = 100;
 const RECALL_HEADER: &str =
     "Project memory (verified notes from past work — treat as leads, verify before acting):";
 
@@ -40,23 +46,43 @@ pub struct MemoryEntry {
     pub text: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryProposal {
+    /// Stable id used by CLI/GUI review actions.
+    pub id: String,
+    /// UNIX epoch seconds when proposed.
+    pub ts: u64,
+    /// Where the proposal came from: remember_tool, gui, auto_fix, release, ...
+    pub source: String,
+    pub tags: Vec<String>,
+    pub text: String,
+}
+
 /// Append-only-ish markdown fact store under a project's `.ncx/memory/`.
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     path: PathBuf,
+    proposal_path: PathBuf,
 }
 
 impl MemoryStore {
     /// `dir` is the `.ncx/memory` directory (created on first write).
     pub fn new(dir: impl Into<PathBuf>) -> Self {
+        let dir = dir.into();
         MemoryStore {
-            path: dir.into().join("LEARNINGS.md"),
+            path: dir.join("LEARNINGS.md"),
+            proposal_path: dir.join("PROPOSALS.md"),
         }
     }
 
     /// Path to the backing markdown file.
     pub fn path(&self) -> &std::path::Path {
         &self.path
+    }
+
+    /// Path to the pending memory proposal queue.
+    pub fn proposal_path(&self) -> &std::path::Path {
+        &self.proposal_path
     }
 
     /// Record a verified note. Returns `Ok(false)` if it duplicates an existing
@@ -84,6 +110,80 @@ impl MemoryStore {
             entries.drain(0..drop);
         }
         self.write_all(&entries)?;
+        Ok(true)
+    }
+
+    /// Queue a candidate learning for human/model review. Returns `Ok(None)`
+    /// when the proposal is empty, already trusted, or already pending.
+    pub fn propose(
+        &self,
+        text: &str,
+        tags: &[String],
+        source: &str,
+        now: u64,
+    ) -> std::io::Result<Option<MemoryProposal>> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(None);
+        }
+        let norm = normalize(text);
+        if self.entries().iter().any(|e| normalize(&e.text) == norm) {
+            return Ok(None);
+        }
+        let mut proposals = self.proposals();
+        if proposals.iter().any(|p| normalize(&p.text) == norm) {
+            return Ok(None);
+        }
+        let tags = clean_tags(tags);
+        let source = clean_source(source);
+        let proposal = MemoryProposal {
+            id: proposal_id(now, &source, &tags, text),
+            ts: now,
+            source,
+            tags,
+            text: text.to_string(),
+        };
+        proposals.push(proposal.clone());
+        proposals.sort_by_key(|p| p.ts);
+        if proposals.len() > MAX_PROPOSALS {
+            let drop = proposals.len() - MAX_PROPOSALS;
+            proposals.drain(0..drop);
+        }
+        self.write_proposals(&proposals)?;
+        Ok(Some(proposal))
+    }
+
+    /// Parse pending memory proposals (empty if absent / unreadable).
+    pub fn proposals(&self) -> Vec<MemoryProposal> {
+        let Ok(text) = std::fs::read_to_string(&self.proposal_path) else {
+            return Vec::new();
+        };
+        parse_proposals(&text)
+    }
+
+    /// Accept a pending proposal into verified project memory and remove it from
+    /// the review queue. Returns `Ok(false)` when no proposal has that id.
+    pub fn accept_proposal(&self, id: &str, now: u64) -> std::io::Result<bool> {
+        let mut proposals = self.proposals();
+        let Some(pos) = proposals.iter().position(|p| p.id == id.trim()) else {
+            return Ok(false);
+        };
+        let proposal = proposals.remove(pos);
+        let _ = self.remember(&proposal.text, &proposal.tags, now)?;
+        self.write_proposals(&proposals)?;
+        Ok(true)
+    }
+
+    /// Reject a pending proposal and remove it from the review queue. Returns
+    /// `Ok(false)` when no proposal has that id.
+    pub fn reject_proposal(&self, id: &str) -> std::io::Result<bool> {
+        let mut proposals = self.proposals();
+        let before = proposals.len();
+        proposals.retain(|p| p.id != id.trim());
+        if proposals.len() == before {
+            return Ok(false);
+        }
+        self.write_proposals(&proposals)?;
         Ok(true)
     }
 
@@ -272,6 +372,53 @@ impl MemoryStore {
         }
         std::fs::write(&self.path, s)
     }
+
+    fn write_proposals(&self, proposals: &[MemoryProposal]) -> std::io::Result<()> {
+        if let Some(parent) = self.proposal_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut s = String::from("# Project memory proposals (nanocodex)\n\n");
+        for p in proposals {
+            s.push_str(&format!(
+                "<!-- id:{} ts:{} source:{} tags:{} -->\n{}\n\n",
+                p.id,
+                p.ts,
+                p.source,
+                p.tags.join(","),
+                p.text
+            ));
+        }
+        std::fs::write(&self.proposal_path, s)
+    }
+}
+
+fn proposal_id(now: u64, source: &str, tags: &[String], text: &str) -> String {
+    let mut h = DefaultHasher::new();
+    now.hash(&mut h);
+    source.hash(&mut h);
+    tags.hash(&mut h);
+    normalize(text).hash(&mut h);
+    format!("p{now:x}-{:x}", h.finish())
+}
+
+fn clean_source(source: &str) -> String {
+    let source = source.trim();
+    if source.is_empty() {
+        "manual".into()
+    } else {
+        source.split_whitespace().collect::<Vec<_>>().join("_")
+    }
+}
+
+fn clean_tags(tags: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for tag in tags {
+        let tag = tag.trim();
+        if !tag.is_empty() && !out.iter().any(|t: &String| t == tag) {
+            out.push(tag.to_string());
+        }
+    }
+    out
 }
 
 /// Words worth matching on: lowercased, length ≥ 3, deduped.
@@ -438,6 +585,64 @@ fn parse_entries(text: &str) -> Vec<MemoryEntry> {
     out
 }
 
+fn parse_proposals(text: &str) -> Vec<MemoryProposal> {
+    let mut out: Vec<MemoryProposal> = Vec::new();
+    let mut cur: Option<(String, u64, String, Vec<String>)> = None;
+    let mut body: Vec<String> = Vec::new();
+
+    let flush = |cur: &mut Option<(String, u64, String, Vec<String>)>,
+                 body: &mut Vec<String>,
+                 out: &mut Vec<MemoryProposal>| {
+        if let Some((id, ts, source, tags)) = cur.take() {
+            let txt = body.join("\n").trim().to_string();
+            if !id.is_empty() && !txt.is_empty() {
+                out.push(MemoryProposal {
+                    id,
+                    ts,
+                    source,
+                    tags,
+                    text: txt,
+                });
+            }
+        }
+        body.clear();
+    };
+
+    for line in text.lines() {
+        if let Some(header) = line
+            .trim()
+            .strip_prefix("<!-- ")
+            .and_then(|s| s.strip_suffix(" -->"))
+        {
+            flush(&mut cur, &mut body, &mut out);
+            let mut id = String::new();
+            let mut ts = 0u64;
+            let mut source = String::from("manual");
+            let mut tags: Vec<String> = Vec::new();
+            for tok in header.split_whitespace() {
+                if let Some(v) = tok.strip_prefix("id:") {
+                    id = v.to_string();
+                } else if let Some(v) = tok.strip_prefix("ts:") {
+                    ts = v.parse().unwrap_or(0);
+                } else if let Some(v) = tok.strip_prefix("source:") {
+                    source = clean_source(v);
+                } else if let Some(v) = tok.strip_prefix("tags:") {
+                    tags = v
+                        .split(',')
+                        .filter(|t| !t.is_empty())
+                        .map(|t| t.to_string())
+                        .collect();
+                }
+            }
+            cur = Some((id, ts, source, tags));
+        } else if cur.is_some() {
+            body.push(line.to_string());
+        }
+    }
+    flush(&mut cur, &mut body, &mut out);
+    out
+}
+
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -481,6 +686,73 @@ mod tests {
         let s = store("empty");
         assert!(!s.remember("   ", &[], 1).unwrap());
         assert!(s.entries().is_empty());
+    }
+
+    #[test]
+    fn proposal_queue_round_trips_and_is_not_recalled() {
+        let s = store("proposal_rt");
+        let p = s
+            .propose(
+                "Use the memory review queue before trusting auto-learned facts",
+                &["memory".into(), "governance".into()],
+                "auto_fix",
+                10,
+            )
+            .unwrap()
+            .expect("new proposal");
+        assert!(p.id.starts_with("pa-"));
+        assert_eq!(p.source, "auto_fix");
+        assert_eq!(s.entries().len(), 0);
+        assert!(s.recall("memory review", 5, 4000).is_empty());
+
+        let proposals = s.proposals();
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].id, p.id);
+        assert_eq!(
+            proposals[0].text,
+            "Use the memory review queue before trusting auto-learned facts"
+        );
+    }
+
+    #[test]
+    fn accepting_proposal_moves_it_to_verified_memory() {
+        let s = store("proposal_accept");
+        let p = s
+            .propose("Keep connector allow-lists tight", &["mcp".into()], "test", 10)
+            .unwrap()
+            .unwrap();
+        assert!(s.accept_proposal(&p.id, 20).unwrap());
+        assert!(s.proposals().is_empty());
+        let entries = s.entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].ts, 20);
+        assert_eq!(entries[0].text, "Keep connector allow-lists tight");
+        assert!(s
+            .recall("connector permissions", 5, 4000)
+            .contains("allow-lists"));
+    }
+
+    #[test]
+    fn rejecting_proposal_removes_without_trusting() {
+        let s = store("proposal_reject");
+        let p = s
+            .propose("Speculative memory should stay pending", &[], "test", 10)
+            .unwrap()
+            .unwrap();
+        assert!(s.reject_proposal(&p.id).unwrap());
+        assert!(s.proposals().is_empty());
+        assert!(s.entries().is_empty());
+    }
+
+    #[test]
+    fn proposals_dedup_against_pending_and_verified() {
+        let s = store("proposal_dedup");
+        assert!(s.propose("same fact", &[], "test", 1).unwrap().is_some());
+        assert!(s.propose("  SAME   fact ", &[], "test", 2).unwrap().is_none());
+        assert_eq!(s.proposals().len(), 1);
+
+        assert!(s.remember("trusted fact", &[], 3).unwrap());
+        assert!(s.propose("TRUSTED fact", &[], "test", 4).unwrap().is_none());
     }
 
     #[test]

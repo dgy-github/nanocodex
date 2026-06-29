@@ -561,7 +561,7 @@ fn dispatch_slash(
             }
         }
         "/skills" => SlashOutcome::Printed(render_skills(&agent.tools.ctx.skills)),
-        "/memory" => SlashOutcome::Printed(render_memory_status(
+        "/memory" => SlashOutcome::Printed(handle_memory_command(
             agent.tools.ctx.memory.as_deref(),
             arg,
         )),
@@ -614,6 +614,47 @@ fn render_skills(skills: &[ncx_core::Skill]) -> String {
     out
 }
 
+fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str) -> String {
+    let Some(memory) = memory else {
+        return "Project memory is not enabled in this runtime.".into();
+    };
+    let arg = arg.trim();
+    if let Some(id) = arg.strip_prefix("accept ") {
+        let id = id.trim();
+        if id.is_empty() {
+            return "Usage: /memory accept <proposal-id>".into();
+        }
+        return match memory.accept_proposal(id, ncx_core::task_ledger_now()) {
+            Ok(true) => format!("Accepted memory proposal {id}."),
+            Ok(false) => format!("No pending memory proposal found for {id}."),
+            Err(e) => format!("Error accepting memory proposal {id}: {e}"),
+        };
+    }
+    if let Some(id) = arg.strip_prefix("reject ") {
+        let id = id.trim();
+        if id.is_empty() {
+            return "Usage: /memory reject <proposal-id>".into();
+        }
+        return match memory.reject_proposal(id) {
+            Ok(true) => format!("Rejected memory proposal {id}."),
+            Ok(false) => format!("No pending memory proposal found for {id}."),
+            Err(e) => format!("Error rejecting memory proposal {id}: {e}"),
+        };
+    }
+    if let Some(note) = arg.strip_prefix("propose ") {
+        let note = note.trim();
+        if note.is_empty() {
+            return "Usage: /memory propose <candidate-note>".into();
+        }
+        return match memory.propose(note, &[], "cli", ncx_core::task_ledger_now()) {
+            Ok(Some(p)) => format!("Queued memory proposal {}.", p.id),
+            Ok(None) => "Already trusted/pending in project memory (or empty).".into(),
+            Err(e) => format!("Error queuing memory proposal: {e}"),
+        };
+    }
+    render_memory_status(Some(memory), arg)
+}
+
 fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
     let Some(memory) = memory else {
         return "Project memory is not enabled in this runtime.".into();
@@ -621,6 +662,8 @@ fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
     let query = query.trim();
     let mut entries = memory.entries();
     entries.sort_by(|a, b| b.ts.cmp(&a.ts));
+    let mut proposals = memory.proposals();
+    proposals.sort_by(|a, b| b.ts.cmp(&a.ts));
 
     let mut tag_counts: BTreeMap<String, usize> = BTreeMap::new();
     for entry in &entries {
@@ -641,10 +684,13 @@ fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
     };
 
     let mut out = format!(
-        "Project memory\npath: {}\nentries: {}\nmax_entries: {}\ntop_tags: {}",
+        "Project memory\npath: {}\nproposals_path: {}\nentries: {}\npending_proposals: {}\nmax_entries: {}\nmax_proposals: {}\ntop_tags: {}",
         memory.path().display(),
+        memory.proposal_path().display(),
         entries.len(),
+        proposals.len(),
         ncx_core::memory::MAX_ENTRIES,
+        ncx_core::memory::MAX_PROPOSALS,
         tag_line
     );
     out.push_str("\n\nRecent notes:");
@@ -659,9 +705,26 @@ fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
             ));
         }
     }
+    out.push_str("\n\nPending proposals:");
+    if proposals.is_empty() {
+        out.push_str(" (none)");
+    } else {
+        for proposal in proposals.iter().take(5) {
+            out.push_str(&format!(
+                "\n- [{} @ {} {}] {}",
+                proposal.id,
+                proposal.ts,
+                proposal.source,
+                truncate_one_line(&proposal.text, 120)
+            ));
+        }
+        out.push_str("\nUse /memory accept <id> or /memory reject <id> to review proposals.");
+    }
 
     if query.is_empty() {
-        out.push_str("\n\nUse /memory <query> to preview query-scoped recall.");
+        out.push_str(
+            "\n\nUse /memory <query> to preview query-scoped recall, or /memory propose <note> to queue a candidate.",
+        );
     } else {
         let recall = memory.recall(query, 5, 2_000);
         out.push_str(&format!("\n\nRecall preview for '{query}':"));
@@ -1885,16 +1948,52 @@ mod tests {
                 20,
             )
             .unwrap();
+        let proposal = memory
+            .propose(
+                "Review generated memory before trusting it",
+                &["memory".into()],
+                "test",
+                30,
+            )
+            .unwrap()
+            .unwrap();
 
         let out = render_memory_status(Some(&memory), "native installer release");
 
         assert!(out.contains("Project memory"));
         assert!(out.contains("LEARNINGS.md"));
+        assert!(out.contains("PROPOSALS.md"));
         assert!(out.contains("entries: 2"));
+        assert!(out.contains("pending_proposals: 1"));
         assert!(out.contains("release=1"));
         assert!(out.contains("Recent notes:"));
+        assert!(out.contains("Pending proposals:"));
+        assert!(out.contains(&proposal.id));
         assert!(out.contains("Recall preview"));
         assert!(out.contains("Tauri desktop shell"));
+    }
+
+    #[test]
+    fn memory_command_accepts_and_rejects_proposals() {
+        let dir = std::env::temp_dir().join(format!("ncx_memory_review_{}", new_session_id()));
+        let memory = MemoryStore::new(&dir);
+        let accept = handle_memory_command(Some(&memory), "propose Accept this memory");
+        assert!(accept.contains("Queued memory proposal"), "{accept}");
+        let first = memory.proposals().first().unwrap().id.clone();
+
+        let out = handle_memory_command(Some(&memory), &format!("accept {first}"));
+        assert!(out.contains("Accepted memory proposal"), "{out}");
+        assert!(memory.proposals().is_empty());
+        assert_eq!(memory.entries().len(), 1);
+
+        let p = memory
+            .propose("Reject this memory", &[], "test", 10)
+            .unwrap()
+            .unwrap();
+        let out = handle_memory_command(Some(&memory), &format!("reject {}", p.id));
+        assert!(out.contains("Rejected memory proposal"), "{out}");
+        assert!(memory.proposals().is_empty());
+        assert_eq!(memory.entries().len(), 1);
     }
 
     #[test]

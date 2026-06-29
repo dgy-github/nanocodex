@@ -1405,7 +1405,9 @@ impl Tool for RememberTool {
         "Save a short, VERIFIED, reusable note to project memory (a gotcha, a \
          project convention, or a confirmed solution) so future sessions recall \
          it. Only record things you have actually confirmed — not guesses. \
-         Optionally tag it for retrieval."
+         Optionally tag it for retrieval. If the note is useful but still needs \
+         review, set propose=true to queue it for approval instead of trusting \
+         it immediately."
     }
     fn parameters(&self) -> Value {
         json!({
@@ -1413,6 +1415,7 @@ impl Tool for RememberTool {
             "properties": {
                 "note": {"type": "string", "description": "The verified fact/gotcha/solution, one or two sentences."},
                 "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional keywords for retrieval."},
+                "propose": {"type": "boolean", "description": "Queue as a pending memory proposal instead of writing to verified project memory."},
             },
             "required": ["note"],
         })
@@ -1437,6 +1440,18 @@ impl Tool for RememberTool {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
+        let propose = args
+            .get("propose")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if propose {
+            return match store.propose(note, &tags, "remember_tool", now) {
+                Ok(Some(p)) => format!("Queued memory proposal {} for review.", p.id),
+                Ok(None) => "Already trusted/pending in project memory (or empty) — not duplicated."
+                    .into(),
+                Err(e) => format!("Error queuing memory proposal: {e}"),
+            };
+        }
         match store.remember(note, &tags, now) {
             Ok(true) => "Saved to project memory.".into(),
             Ok(false) => "Already in project memory (or empty) — not duplicated.".into(),
