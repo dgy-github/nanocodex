@@ -5,7 +5,9 @@
 
 ## 元信息
 - 最后更新：2026-06-29
-- 当前集成分支：**`codex/gui-mcp-integration`**（已推 `origin`）。基线能力分支仍可参考
+- 当前工作分支：**`codex/gui-mcp-runtime-conflict-merge`**（本轮新建，用来承接 GUI/MCP
+  runtime status + `origin/codex/integrate-gui-release` 冲突解决）。上一稳定集成分支为
+  `codex/gui-mcp-integration`（已推 `origin`）；基线能力分支仍可参考
   `codex/mcp-status-command` / `rust-capability`；Python 树 `nanocodex/*.py` 不动。
 - remote：`origin` → https://github.com/dgy-github/nanocodex.git（凭据已配）
 - 路径：crates `rust/crates/`，GUI `rust/gui/`，基准 `bench/`。
@@ -18,8 +20,9 @@
 - ✅ **GUI/Tauri release 线已收进 `codex/gui-mcp-integration`**：Tauri installer/config
   入口、permission mode、模型快切、workspace/session/fork/archive、右侧 Files/Diff/Branches/Memory
   面板已合并；GUI `Usage` 面板已补回 last-turn/session usage、费用估算和 context-edit
-  telemetry；GUI `Tools` 面板已能从 agent 线程读取真实 runtime tool catalog，展示 core/MCP
-  与 read-only/effectful 分类。详细差距路线图见 `docs/claude-fable-gap-roadmap.zh-CN.md`。
+  telemetry；GUI `Tools` 面板已能从 agent 线程读取真实 runtime tool catalog，展示 core/MCP、
+  read-only/effectful 分类，以及 MCP server connected/error、注册工具数、启动耗时和最近错误。
+  详细差距路线图见 `docs/claude-fable-gap-roadmap.zh-CN.md`。
 
 ## ncx-forge 训练框架（分支 `feat/train`，已推 origin）— 当前活跃工作线
 目标：让强模型当"教师"迭代优化 agent 骨架（system_prompt + 工具描述），用 bench 通过率当
@@ -114,11 +117,13 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
   用 sentinel 注入。
 
 ## 当前状态（已完成；上一轮 264 个 Rust 测试全绿，本轮新增 `/budget` + `/context` + `/tools` + `/memory` 测试后文档计 269，需在 cargo 可用环境用 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1` 复跑）
-- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、Sessions、Usage、custom command、memory 面板）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册 + REPL `/mcp` 状态面板）
+- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、Sessions、Usage、custom command、memory、Tools/MCP runtime 状态面板）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册 + REPL `/mcp` 状态面板；Tauri agent 启动时注册配置的 MCP server 并把连接状态随 Tools 面板回传）
 - 工具：read_file·apply_patch·shell·update_plan·grep·glob·web_search·web_fetch·tool_search·remember·skill
 - **Skills（已并入 rust-capability）**：SKILL.md 发现 + 渐进披露注入 + `skill` 工具 + builtin（`commit-message`，include_str! 编入二进制，FS 同名可覆盖）+ `/skills` 命令。stream C vision 基础（`7de2235`）也随 FF 一起进了 rust-capability。
 - 分层 flash/pro 编排器（`-o`，verifier 选 BEST worker + promote）；memory 自进化 + 每轮 query-scoped send-time recall + 启发式/LLM consolidate（CLI `--memory-merge` + GUI Memory 面板）；keyed 搜索(Tavily/DDG)
-- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog；Tauri GUI Sessions 面板复用 `SessionIndex`，可打开 log/snapshot 并恢复当前 workspace snapshot；CLI `/usage` + GUI Usage 面板展示真实 last-turn/session usage 和 context-edit telemetry；CLI `/budget` 展示 per-task limits、session use 和 last-turn remaining budget；CLI `/context` 展示 active context-edit policy、session size、last-turn telemetry 和 next-send preview；CLI `/tools` 展示 tool catalog、visible schema view 和 active tool_search hints；CLI `/memory` 展示 project memory path、entry count、recent notes、tags 和 recall preview；release 脚本会给 Tauri NSIS installer 注入 workspace version
+- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog；Tauri GUI Sessions 面板复用 `SessionIndex`，可打开 log/snapshot 并恢复当前 workspace snapshot；CLI `/usage` + GUI Usage 面板展示真实 last-turn/session usage 和 context-edit telemetry；CLI `/budget` 展示 per-task limits、session use 和 last-turn remaining budget；CLI `/context` 展示 active context-edit policy、session size、last-turn telemetry 和 next-send preview；CLI `/tools` 展示 tool catalog、visible schema view 和 active tool_search hints；CLI `/memory` 展示 project memory path、entry count、recent notes、tags 和 recall preview；GUI Tools 面板已显示 MCP server connected/error、tools、elapsed_ms 和 last error；release 脚本会给 Tauri NSIS installer 注入 workspace version
+
+本轮验证：`cmd /c npm run build`（`rust/gui`）通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1 -SkipTauri` 因本机 `cargo` 不在 PATH 或常见 Rust 安装目录而中止，需在装好 Rust 的环境/CI 复跑。
 
 ## 并行拆分（多会话同时做）——接手按此认领
 **硬约束**：① 每会话**独立 git worktree**（别共用工作目录）：`git worktree add ../ncx-A -b feat/mcp rust-capability`；

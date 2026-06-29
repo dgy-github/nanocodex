@@ -29,7 +29,7 @@
 | --- | --- | --- |
 | Task budget | Rust loop 强制 per-turn model/tool call budget；CLI `/budget` 可见；Tauri GUI 已恢复每轮模型/工具调用累计面板。 | 嵌套 subagent budget、wall-clock budget、预算超限后的续跑策略、CI 预算回归测试。 |
 | Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、按预算丢旧前缀；CLI `/context` 与 Tauri Usage 面板展示 telemetry。 | 策略化 context pack、按来源分配预算、长期任务的摘要检查点、对 1M context 模型的适配策略。 |
-| Tool search | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog。 | ranking 评测集、MCP tool metadata 权重、connector auth/permission 治理。 |
+| Tool search | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog；GUI 也显示 MCP server 连接状态、工具数、启动耗时和最近错误。 | ranking 评测集、MCP tool metadata 权重、connector registry、auth/permission 治理。 |
 | Semantic memory | `.ncx/memory/LEARNINGS.md`、query-scoped recall、`remember`、启发式/LLM merge、Tauri Memory 面板已有。 | 自动从纠错/复盘提炼 memory、embedding/vector 可选 provider、memory review queue、跨入口治理。 |
 
 ## 平台级差距
@@ -38,13 +38,16 @@
 
 当前差距：约 65-75% 仍未补齐。
 
-`nanocodex` 有 MCP stdio 客户端、工具注册表和审批，但还不是“平台 connector”。缺少 OAuth/remote auth UX、可安装 connector registry、工具权限审计、连接状态健康检查和大规模工具排序。
+`nanocodex` 有 MCP stdio 客户端、工具注册表、审批和 GUI 连接状态可见性，但还不是“平台 connector”。缺少 OAuth/remote auth UX、可安装 connector registry、工具权限审计和大规模工具排序。
+
+已完成：
+
+- Tauri GUI 已有 Tools 面板，可展示 runtime tool catalog、core/MCP 来源、read-only/effectful 分类，以及 MCP server connected/error、最近失败原因和启动耗时。
 
 下一步：
 
-- Tauri GUI 已有基础 Tools 面板，可展示 runtime tool catalog、core/MCP 来源、read-only/effectful 分类。
-- 给 MCP server 增加健康状态、最近失败原因、启动耗时。
 - 增加 connector install spec，而不是只读 `mcp.toml`。
+- 增加 connector auth/permission 治理和工具权限审计。
 
 2. Managed task budget / cloud execution
 
@@ -108,15 +111,15 @@
 
 ## 当前新进展
 
-- GUI/Tauri release 分支已集成到 `codex/gui-mcp-integration`。
+- GUI/Tauri release 分支已集成到 `codex/gui-mcp-runtime-conflict-merge`（上一稳定集成分支为 `codex/gui-mcp-integration`）。
 - Tauri GUI 已补回 Usage/Context 面板：每轮 `done` 事件携带 `iterations`、`tools_used`、token usage 和 context-edit telemetry；前端展示上一轮与当前 session 汇总。
-- Tauri GUI 已新增 Tools 面板：agent 线程按需发出真实 runtime tool catalog，前端展示 core/MCP 来源与 read-only/effectful 分类。
+- Tauri GUI 已新增 Tools 面板：agent 线程按需发出真实 runtime tool catalog，前端展示 core/MCP 来源、read-only/effectful 分类，以及 MCP server connected/error、注册工具数、启动耗时和最近错误。
 - `cmd /c npm run build` 已通过，证明 Svelte/Tauri 前端合并后可构建。
 
 ## 最近可执行 backlog
 
 1. 跑 Windows Rust 工具链验证：`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1`。
-2. CI 通过后，从 `codex/gui-mcp-integration` 开 PR，优先处理 Rust/Tauri 编译问题。
-3. 给 MCP/Tool catalog 增加健康状态、最近错误、连接耗时和 auth/permission 治理。
+2. CI 通过后，从 `codex/gui-mcp-runtime-conflict-merge` 开 PR，优先处理 Rust/Tauri 编译问题。
+3. 给 MCP/Tool catalog 增加 connector install spec、auth/permission 治理和权限审计。
 4. 增加 `TaskLedger`，让 task budget 从“当前轮限制”升级为“可审计的 session/task 账本”。
 5. 增加 context-pack 策略和 payload snapshot，进一步缩小 context editing 差距。

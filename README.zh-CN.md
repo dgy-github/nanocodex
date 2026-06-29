@@ -89,7 +89,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   `/context` 查看当前策略、session 大小、上一轮 telemetry 和下一次发送预览。
 - **Tool search：** 工具注册时会进入 catalog。小工具集仍全量暴露；工具变多时只暴露核心
   工具和 `tool_search`，搜索命中的工具会在下一轮 schema 里出现。Rust REPL 提供
-  `/tools` 检查工具 catalog、当前可见 schema 视图和 active search hints。
+  `/tools` 检查工具 catalog、当前可见 schema 视图和 active search hints；Tauri Tools
+  面板读取同一份 live catalog，并展示 MCP server 连接状态、注册工具数、启动耗时和最近错误。
 - **Semantic memory：** 每轮都会按当前 prompt 做 query-scoped 记忆召回，并以发送时
   system note 注入；排序使用关键词、标签、短语、Jaccard 相似度、时间新近度，以及一小组
   agent/runtime 领域同义词。Rust REPL 提供 `/memory` 查看记忆文件、条目数、最近记录、
@@ -145,7 +146,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 | --- | ---: | --- |
 | Task budget | 70-80% | 模型/工具预算已执行，并对模型可见；还缺更丰富的云端任务额度、嵌套 subagent 预算核算和预算分析面板。 |
 | Context editing | 50-60% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；还缺 Anthropic 级长上下文模型变体、更细的 `/context` 检查和策略化 context pack。 |
-| Tool search | 55-65% | 工具 catalog 和 `tool_search` 已降低 schema 过载；还缺托管 connector/plugin 生态、远程认证 UX 和大规模动态工具排序。 |
+| Tool search | 55-65% | 工具 catalog、`tool_search` 和 GUI MCP runtime 状态已降低 schema 过载，并让工具可用性可见；还缺托管 connector/plugin 生态、远程认证 UX 和大规模动态工具排序。 |
 | Semantic memory | 45-55% | query-scoped lexical-semantic recall、`remember` 和 LLM merge 已有；还缺从纠错自动提炼 memory、更强 embedding/vector 检索，以及跨入口 memory 治理。 |
 
 最大的剩余差距不是普通 Rust 代码量，而是平台能力：Anthropic 原生工具/connector
@@ -461,7 +462,9 @@ ncx --mcp
 `enabled = false`，保留配置但不连接。legacy Python GUI 另有一个**市场**支持从内置精选
 目录或远程目录（`NANOCODEX_MARKETPLACE_URL`）一键安装；远程目录被当作不可信数据处理。
 更多见 `mcp.example.toml`。
-Rust REPL 内可用 `/mcp` 查看 enabled server 条目和当前会话已经注册的 MCP 工具。
+Rust REPL 内可用 `/mcp` 查看 enabled server 条目和当前会话已经注册的 MCP 工具。Tauri
+GUI 的 Tools 面板也会展示每个 MCP server 的 connected/error 状态、注册工具数、启动耗时、
+启动命令和最近错误。
 
 ## Skills
 
@@ -602,7 +605,8 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 - Sessions 面板提供全局历史、日志 / snapshot 打开入口，以及同 workspace snapshot 恢复。
 - Checkpoint 面板提供手动保存 / 列表 / 恢复。
 - Custom command 面板复用 CLI 同一套 `.nanocodex/.claude` 模板展开器。
-- Tools 面板展示当前运行时真实注册的 core/MCP 工具目录，以及 read-only / effectful 分类。
+- Tools 面板展示当前运行时真实注册的 core/MCP 工具目录、read-only / effectful 分类，以及
+  MCP server runtime health、启动耗时和最近错误。
 - Usage 面板展示上一轮和当前 session 的模型调用数、工具调用数、输入/输出 token、
   缓存命中/未命中 token、费用估算，以及 context editing telemetry。
 - Memory 面板可查看项目笔记、新增 verified note、打开 `LEARNINGS.md`、启发式去重和 LLM 记忆合并。

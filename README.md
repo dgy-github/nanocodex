@@ -115,7 +115,9 @@ tool.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
   hits are made visible in the next schema view. The Rust REPL exposes `/tools`
-  to inspect the catalog, visible schema view, and active search hints.
+  to inspect the catalog, visible schema view, and active search hints. The
+  Tauri Tools panel reads the same live catalog and shows MCP server status,
+  registered tool counts, startup elapsed time, and the last connection error.
 - **Semantic memory:** every turn receives a query-scoped memory recall note at
   send time. Retrieval uses a hybrid lexical semantic ranker: keywords, tags,
   phrase matches, Jaccard similarity, recency, and a small domain synonym map
@@ -185,7 +187,7 @@ are local-runtime implementations:
 | --- | ---: | --- |
 | Task budget | 70-80% | Runtime model/tool budgets are enforced and visible to the model; missing richer cloud task quotas, nested subagent budget accounting, and budget analytics. |
 | Context editing | 50-60% | Send-time editing compresses tool results and drops old prefixes under budget; missing Anthropic-scale long-context model variants, richer `/context` inspection, and policy-driven context packs. |
-| Tool search | 55-65% | Tool catalogs and `tool_search` reduce schema overload; missing a managed connector/plugin ecosystem, remote auth UX, and large-scale dynamic tool ranking. |
+| Tool search | 55-65% | Tool catalogs, `tool_search`, and GUI MCP runtime status reduce schema overload and make tool availability visible; missing a managed connector/plugin ecosystem, remote auth UX, and large-scale dynamic tool ranking. |
 | Semantic memory | 45-55% | Query-scoped lexical-semantic recall, `remember`, and LLM merge exist; missing fully automatic correction-derived memory, stronger embedding/vector retrieval, and cross-surface memory governance. |
 
 The largest remaining gaps are not ordinary Rust code gaps. They are
@@ -531,7 +533,9 @@ legacy Python GUI also has a **marketplace** for one-click installs from a
 built-in curated catalog or a remote catalog (`NANOCODEX_MARKETPLACE_URL`);
 remote catalogs are treated as untrusted data. See `mcp.example.toml` for more.
 Inside the Rust REPL, `/mcp` shows the enabled server entries and the MCP tools
-registered in the active session.
+registered in the active session. In the Tauri GUI, the Tools panel also shows
+each configured MCP server's connected/error state, registered tool count,
+startup elapsed time, command, and last error.
 
 ## Skills
 
@@ -701,8 +705,9 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
 - Checkpoint panel for manual save/list/restore.
 - Custom command panel backed by the same core `.nanocodex/.claude` template
   engine the CLI uses.
-- Tools panel for the live runtime catalog, including core/MCP grouping and
-  read-only versus effectful tool classification.
+- Tools panel for the live runtime catalog, including core/MCP grouping,
+  read-only versus effectful tool classification, and MCP server runtime
+  health with startup timing and last-error visibility.
 - Usage panel for last-turn and session model calls, tool calls, prompt tokens,
   completion tokens, cache hit/miss tokens, estimated cost, and context-edit
   telemetry.
