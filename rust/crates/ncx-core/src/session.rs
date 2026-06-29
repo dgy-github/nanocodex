@@ -562,7 +562,7 @@ fn compact_old_prefix(body: &mut Vec<Value>, keep_recent_messages: usize) -> (us
     if start > 0 && start < body.len() {
         let prefix = body[..start].to_vec();
         let mut tail = body[start..].to_vec();
-        let summaries = context_summary_checkpoint(&prefix)
+        let summaries = context_summary_checkpoint(&prefix, &tail)
             .map(|summary| {
                 tail.insert(0, summary);
                 1
@@ -575,7 +575,7 @@ fn compact_old_prefix(body: &mut Vec<Value>, keep_recent_messages: usize) -> (us
     }
 }
 
-fn context_summary_checkpoint(prefix: &[Value]) -> Option<Value> {
+fn context_summary_checkpoint(prefix: &[Value], tail: &[Value]) -> Option<Value> {
     if prefix.is_empty() {
         return None;
     }
@@ -584,6 +584,7 @@ fn context_summary_checkpoint(prefix: &[Value]) -> Option<Value> {
     let mut recent_user = None;
     let mut recent_assistant = None;
     let mut tools = Vec::<String>::new();
+    let focus_anchors = focus_anchors(prefix, tail, 3);
     for msg in prefix {
         let role = role(msg).unwrap_or("unknown").to_string();
         *roles.entry(role.clone()).or_insert(0) += 1;
@@ -645,6 +646,12 @@ fn context_summary_checkpoint(prefix: &[Value]) -> Option<Value> {
             tools.into_iter().take(12).collect::<Vec<_>>().join(", ")
         ));
     }
+    if !focus_anchors.is_empty() {
+        lines.push("- focus_anchors:".into());
+        for anchor in focus_anchors {
+            lines.push(format!("  - {}: {}", anchor.role, anchor.text));
+        }
+    }
     lines.push("- note: older transcript was deterministically summarized before truncation.".into());
     let summary = json!({"role": "assistant", "content": lines.join("\n")});
     if json_chars(&summary) < prefix.iter().map(json_chars).sum() {
@@ -658,6 +665,88 @@ fn push_unique_tool(tools: &mut Vec<String>, name: &str) {
     if !tools.iter().any(|tool| tool == name) {
         tools.push(name.to_string());
     }
+}
+
+#[derive(Debug)]
+struct FocusAnchor {
+    index: usize,
+    role: String,
+    score: usize,
+    text: String,
+}
+
+fn focus_anchors(prefix: &[Value], tail: &[Value], limit: usize) -> Vec<FocusAnchor> {
+    let terms = focus_terms(tail);
+    if terms.is_empty() || limit == 0 {
+        return Vec::new();
+    }
+    let mut anchors = prefix
+        .iter()
+        .enumerate()
+        .filter_map(|(index, msg)| {
+            let text = truncate_one_line(&message_text(msg), 180);
+            if text.is_empty() {
+                return None;
+            }
+            let msg_terms = lexical_terms(&text);
+            let score = msg_terms.intersection(&terms).count();
+            if score == 0 {
+                return None;
+            }
+            Some(FocusAnchor {
+                index,
+                role: role(msg).unwrap_or("unknown").to_string(),
+                score,
+                text,
+            })
+        })
+        .collect::<Vec<_>>();
+    anchors.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| b.index.cmp(&a.index)));
+    anchors.truncate(limit);
+    anchors.sort_by_key(|a| a.index);
+    anchors
+}
+
+fn focus_terms(tail: &[Value]) -> HashSet<String> {
+    let query = tail
+        .iter()
+        .rev()
+        .find(|msg| role(msg) == Some("user"))
+        .map(message_text)
+        .unwrap_or_else(|| {
+            tail.iter()
+                .map(message_text)
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
+    lexical_terms(&query)
+}
+
+fn lexical_terms(text: &str) -> HashSet<String> {
+    const STOP_WORDS: &[&str] = &[
+        "about", "after", "again", "also", "and", "are", "can", "for", "from", "how", "into",
+        "more", "need", "now", "old", "please", "that", "the", "this", "with", "you",
+    ];
+    let mut terms = HashSet::new();
+    let mut token = String::new();
+    for ch in text.chars() {
+        if ch.is_alphanumeric() || ch == '_' || ch == '-' {
+            for lower in ch.to_lowercase() {
+                token.push(lower);
+            }
+        } else {
+            flush_term(&mut terms, &mut token, STOP_WORDS);
+        }
+    }
+    flush_term(&mut terms, &mut token, STOP_WORDS);
+    terms
+}
+
+fn flush_term(terms: &mut HashSet<String>, token: &mut String, stop_words: &[&str]) {
+    if token.chars().count() >= 3 && !stop_words.iter().any(|word| *word == token.as_str()) {
+        terms.insert(token.clone());
+    }
+    token.clear();
 }
 
 fn message_text(msg: &Value) -> String {
@@ -826,6 +915,50 @@ mod tests {
                     .unwrap_or("")
                     .contains("omitted_messages")
         }));
+    }
+
+    #[test]
+    fn context_summary_checkpoint_keeps_focus_anchors() {
+        let mut s = Session::new("sys");
+        s.add_user_text("investigate payment latency and dashboard polish");
+        s.add_assistant("payment latency is unrelated to the current auth budget work", None, "");
+        s.add_user_text("authentication budget regression root cause is in the shared worker pool");
+        s.add_assistant(
+            "remember that authentication budget regression needs parent budget accounting",
+            None,
+            "",
+        );
+        for i in 0..8 {
+            s.add_user_text(&format!("noise topic {i} {}", "x".repeat(50)));
+            s.add_assistant(&format!("noise answer {i} {}", "y".repeat(50)), None, "");
+        }
+        s.add_user_text("continue the authentication budget regression fix");
+
+        let out = s.for_model_edited(
+            &[],
+            &ContextEditPolicy {
+                enabled: true,
+                max_chars: 100_000,
+                keep_recent_messages: 1,
+                max_tool_result_chars: 20,
+                max_history_chars: 900,
+                max_tool_result_total_chars: 10_000,
+            },
+        );
+
+        let summary = out
+            .messages
+            .iter()
+            .find(|m| {
+                m["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("[context summary checkpoint]")
+            })
+            .and_then(|m| m["content"].as_str())
+            .unwrap_or("");
+        assert!(summary.contains("focus_anchors"), "{summary}");
+        assert!(summary.contains("authentication budget regression"), "{summary}");
     }
 
     #[test]

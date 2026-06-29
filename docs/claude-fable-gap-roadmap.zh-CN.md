@@ -30,7 +30,7 @@
 | 能力 | 当前 nanocodex 状态 | 下一步缺口 |
 | --- | --- | --- |
 | Task budget | Rust loop 强制 per-turn model/tool call budget；CLI `/budget` 可见；Tauri GUI 已恢复每轮模型/工具调用累计面板；`TaskLedger` 写入 `.nanocodex/task-ledger.jsonl` 并报告平均耗时、预算耗尽率和模型/工具预算利用率；orchestrator reason/worker 节点共享父任务预算，worker 会按并行度预留预算并退回未用额度。 | 云端/队列额度、预算超限后的续跑策略、更完整的 CI/端到端预算回归测试。 |
-| Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、执行可配置 history/tool-result 分桶上限、按预算丢旧前缀，并在截断前生成确定性 assistant 摘要 checkpoint；CLI `/context` 与 Tauri Usage 面板展示 telemetry；每次 provider 调用会写脱敏 payload snapshot 供 `/context payload [N]` 和 GUI Usage 面板审计；telemetry 已按 system/runtime notes/memory/history/tool result 拆出 context-pack 桶。 | focus compaction、对 1M context 模型的适配策略、更强 context regression suites。 |
+| Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、执行可配置 history/tool-result 分桶上限、按预算丢旧前缀，并在截断前生成带 focus anchors 的确定性 assistant 摘要 checkpoint；CLI `/context` 与 Tauri Usage 面板展示 telemetry；每次 provider 调用会写脱敏 payload snapshot 供 `/context payload [N]` 和 GUI Usage 面板审计；telemetry 已按 system/runtime notes/memory/history/tool result 拆出 context-pack 桶。 | 模型引导的 focus compaction、对 1M context 模型的适配策略、更强 context regression suites。 |
 | Tool search / connectors | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog；GUI 也显示 MCP server 连接状态、工具数、启动耗时和最近错误；新增 `connectors.toml` install spec 可审计 transport/source/trusted/permission/allowed_tools，并在 stdio MCP 注册时执行 allow-list 与 permission 策略；tool_search 已加入 MCP namespace-aware 评分和 tool-selection gold-case 回归测试。 | 扩大 ranking 评测集、远程 auth/OAuth、connector registry 治理、大规模动态工具排序。 |
 | Semantic memory | `.ncx/memory/LEARNINGS.md`、query-scoped recall、本地 `.ncx/memory/INDEX.json` vector sidecar、`remember`、启发式/LLM merge、`.ncx/memory/PROPOSALS.md` review queue、CLI `/memory edit/accept/reject/accept-all/reject-all/harvest/index`、Tauri Memory 面板编辑/批量 review/文档提炼/重建索引，以及运行时纠正/工具失败/修复说明提炼已有。 | 外部 embedding provider、平台级长期 memory。 |
 
@@ -70,9 +70,9 @@
 
 3. Context editing / context management
 
-当前差距：约 32-40% 仍未补齐。
+当前差距：约 30-38% 仍未补齐。
 
-本项目现在做的是发送时编辑视图，优点是本地完整 session 不丢；新增分桶预算和确定性摘要 checkpoint 后，旧工具输出和长历史不再能无边挤压 system notes/memory，被截断的旧前缀也会留下可审计摘要。剩余差距主要是模型侧长上下文、上下文缓存、平台自动 compact、focus compaction 和长任务 memory 的组合。
+本项目现在做的是发送时编辑视图，优点是本地完整 session 不丢；新增分桶预算、确定性摘要 checkpoint 和 focus anchors 后，旧工具输出和长历史不再能无边挤压 system notes/memory，被截断的旧前缀也会留下可审计摘要和少量任务相关线索。剩余差距主要是模型侧长上下文、上下文缓存、平台自动 compact、模型引导 focus compaction 和长任务 memory 的组合。
 
 已完成：
 
@@ -81,10 +81,11 @@
 - CLI `/context`、payload snapshot 和 Tauri Usage 面板已展示 context-pack 分桶 telemetry：system prompt、runtime notes、memory recall、history、tool result 字符数。
 - 新增 context bucket budget：`context_edit_max_history_chars` 和 `context_edit_max_tool_result_total_chars` 会在发送时主动压缩旧工具结果、丢弃旧历史前缀；CLI flag、config/env 和 Tauri Settings 均可调。
 - 新增长期任务摘要 checkpoint：旧前缀被截断前会物化为确定性的 assistant 摘要消息，`/compact`、`--resume`、payload snapshot、CLI `/usage` 和 Tauri Usage 面板都能审计 `summary_checkpoints`。
+- 新增基础 focus compaction anchors：摘要 checkpoint 会从被截断旧前缀中挑出与最新用户请求词面重合的旧消息片段，避免相关事实被完全埋掉；已有 session 回归测试覆盖。
 
 下一步：
 
-- 增加 focus compaction / context regression tests，覆盖大工具输出、长会话、memory recall 竞争预算和 1M context 模型适配。
+- 扩大 context regression tests，覆盖大工具输出、长会话、memory recall 竞争预算和 1M context 模型适配；再评估是否加入模型引导的 focus compaction。
 
 4. Tool search
 
@@ -142,6 +143,7 @@
 - 已新增 context-pack bucket telemetry：CLI、payload snapshot 和 Tauri Usage 面板能看到 system/runtime notes/memory/history/tool result 字符占比。
 - 已新增 context bucket budget：发送时策略会根据 history/tool-result 桶上限压缩旧工具输出或丢弃旧历史前缀；CLI/config/env/Tauri Settings 均可配置。
 - 已新增长期任务摘要 checkpoint：旧历史前缀在截断前会变成确定性 assistant 摘要，CLI/Tauri telemetry 会暴露 summary checkpoint 计数。
+- 已新增基础 focus anchors：摘要 checkpoint 会保留与最新用户请求相关的旧历史片段，并用回归测试覆盖。
 - 已新增 orchestrator/subagent shared budget：CLI live runner 中的 reason/worker 节点共用父任务预算，parallel worker 按剩余 worker 数公平预留预算，未用额度退回池中，并在 orchestrator 状态行输出剩余预算。
 - 已新增 memory proposal review queue 和本地 vector recall：候选经验写入 `.ncx/memory/PROPOSALS.md`，CLI `/memory` 可 propose/edit/accept/reject/accept-all/reject-all/harvest/index，Tauri Memory 面板可从文档提炼、编辑、重建索引并单条/批量接受拒绝；AgentLoop 也会从运行时纠正/失败/修复说明自动生成待审 proposals，只有接受后的内容才进入 `.ncx/memory/LEARNINGS.md` 并参与 recall。
 - `cmd /c npm run build` 已通过，证明 Svelte/Tauri 前端合并后可构建。
@@ -152,4 +154,4 @@
 2. CI 通过后，从 `codex/gui-mcp-runtime-conflict-merge` 开 PR，优先处理 Rust/Tauri 编译问题。
 3. 给 MCP/Tool catalog 增加 connector auth/OAuth、远程 transport 启动和权限审计。
 4. 增加云端/队列 budget 策略、预算超限续跑策略和更完整的端到端预算回归测试。
-5. 增加 focus compaction、1M context 适配策略和 context regression tests，进一步缩小 context editing 差距。
+5. 扩大 context regression tests、1M context 适配策略和模型引导 focus compaction，进一步缩小 context editing 差距。

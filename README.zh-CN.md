@@ -93,7 +93,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - **Context editing：** 本地完整 session 不会被删；发给 provider 的是发送时编辑视图，
   会压缩旧 tool result，并在超过上下文预算时丢弃更早的前缀。丢弃旧前缀前，
   Rust 会先生成确定性的 assistant 摘要 checkpoint，方便 `/compact`、`--resume`、
-  payload snapshot 和 Usage telemetry 审计被省略的历史。Rust REPL 提供
+  payload snapshot 和 Usage telemetry 审计被省略的历史。摘要里还会带确定性的
+  focus anchors：从旧历史中挑出与最新用户请求词面重合的消息片段。Rust REPL 提供
   `/context` 查看当前策略、session 大小、上一轮 telemetry、下一次发送预览，并可通过
   `/context payload [N]` 查看最近 provider payload 快照。telemetry 会把发送 payload
   拆成 context-pack 桶：system prompt、运行注记、memory recall、历史和 tool result 字符数；
@@ -132,7 +133,7 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 
 截至 2026-06-29，公开 Claude Code 文档描述的是比本地开源 harness 更大的 Anthropic
 平台面：终端、IDE、桌面和浏览器入口；MCP、hooks、skills、auto memory、agent teams、
-cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context 变体。
+cloud/scheduled sessions；以及 Fable 5、Opus 4.8、Sonnet 4.6 的 1M context 变体。
 所以 `nanocodex` 应该被理解成一个紧凑的 Rust agent runtime，而不是对 Anthropic
 完整平台的等价声明。
 参考面来自 Claude Code 官方
@@ -158,7 +159,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 | 能力 | 当前覆盖 | 剩余差距 |
 | --- | ---: | --- |
 | Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
-| Context editing | 68-76% | 发送时编辑会压缩旧 tool result、执行可配置的 history/tool-result 分桶上限，并在丢弃旧前缀前物化确定性摘要 checkpoint；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体、focus compaction、平台自动 compact 和更强的 context regression suites。 |
+| Context editing | 70-78% | 发送时编辑会压缩旧 tool result、执行可配置的 history/tool-result 分桶上限，并在丢弃旧前缀前物化带 focus anchors 的确定性摘要 checkpoint；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体、模型引导的 focus compaction、平台自动 compact 和更完整的 context regression suites。 |
 | Tool search / connectors | 62-72% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、gold-case 排名测试，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry 和大规模动态工具排序。 |
 | Semantic memory | 74-82% | query-scoped lexical-semantic recall、本地 vector sidecar recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼，以及运行时纠正/失败 proposal 提炼已有；还缺外部 embedding provider 和平台级长期 memory。 |
 
@@ -587,6 +588,7 @@ session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。
 telemetry：原始字符数、编辑后字符数、节省字符数、压缩工具结果数、丢弃消息数、摘要
 checkpoint 数和 context-pack 桶。摘要 checkpoint 会以 assistant 消息插入到截断点前，
 且只有在它小于被省略前缀时才物化，所以 `/compact` 与后续 `--resume` 能保留可审计桥梁。
+摘要还会包含与最新用户请求相关的旧消息 focus anchors，让长历史裁剪后仍保留少量任务相关事实。
 发送时策略还会执行 `context_edit_max_history_chars` 和
 `context_edit_max_tool_result_total_chars` 两个分桶上限，避免长历史或旧工具输出挤掉
 system notes 与 memory recall。每次 provider 调用还会把脱敏 JSON 快照写到 `.nanocodex/context-payloads/`，所以

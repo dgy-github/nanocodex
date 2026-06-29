@@ -121,12 +121,14 @@ tool.
   prefixes once the context budget is exceeded. Before an old prefix is
   dropped, Rust creates a deterministic assistant summary checkpoint so
   `/compact`, `--resume`, payload snapshots, and Usage telemetry can still audit
-  what was omitted. The Rust REPL exposes `/context` for active policy, session
-  size, last-turn telemetry, next-send preview, and recent provider payload
-  snapshots via `/context payload [N]`. Telemetry now breaks the edited payload
-  into context-pack buckets: system prompt, runtime notes, memory recall,
-  history, and tool-result characters; configurable history and total
-  tool-result bucket caps actively govern the send-time view.
+  what was omitted. The checkpoint also carries deterministic focus anchors:
+  older messages whose lexical terms overlap the latest user request. The Rust
+  REPL exposes `/context` for active policy, session size, last-turn telemetry,
+  next-send preview, and recent provider payload snapshots via
+  `/context payload [N]`. Telemetry now breaks the edited payload into
+  context-pack buckets: system prompt, runtime notes, memory recall, history,
+  and tool-result characters; configurable history and total tool-result bucket
+  caps actively govern the send-time view.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
   hits are made visible in the next schema view. Ranking is namespace-aware for
@@ -177,7 +179,7 @@ only adding more features:
 As of 2026-06-29, public Claude Code documentation describes a broader
 Anthropic platform surface than a local open harness: terminal, IDE, desktop,
 and browser entry points; MCP, hooks, skills, auto memory, agent teams, and
-cloud/scheduled sessions; plus 1M-context variants for Fable 5, Opus 4.6, and
+cloud/scheduled sessions; plus 1M-context variants for Fable 5, Opus 4.8, and
 Sonnet 4.6. `nanocodex` should therefore be read as a compact Rust agent
 runtime, not as a parity claim with the full Anthropic platform.
 Reference surface: Claude Code
@@ -204,7 +206,7 @@ are local-runtime implementations:
 | Capability | Current coverage | Remaining gap |
 | --- | ---: | --- |
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
-| Context editing | 68-76% | Send-time editing compresses tool results, enforces configurable history/tool-result bucket caps, and materializes deterministic summary checkpoints before old prefixes are dropped; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model variants, focus compaction, platform automatic compact, and richer context regression suites. |
+| Context editing | 70-78% | Send-time editing compresses tool results, enforces configurable history/tool-result bucket caps, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model variants, model-guided focus compaction, platform automatic compact, and broader context regression suites. |
 | Tool search / connectors | 62-72% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, gold-case ranking tests, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, and large-scale dynamic tool ranking. |
 | Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, and runtime correction/failure proposal harvesting exist. Remaining gaps are external embedding providers and platform-grade long-term memory. |
 
@@ -690,7 +692,10 @@ editing telemetry: original chars, edited chars, saved chars, compressed tool
 results, dropped messages, summary checkpoints, and context-pack buckets. The
 summary checkpoint is inserted as an assistant message before truncation when it
 is smaller than the omitted prefix, so `/compact` and later `--resume` keep an
-auditable bridge over older history. The send-time policy also enforces
+auditable bridge over older history. The summary also includes deterministic
+focus anchors from older messages that overlap the latest user request, which
+keeps a few task-relevant facts visible after long-history trimming. The
+send-time policy also enforces
 `context_edit_max_history_chars` and
 `context_edit_max_tool_result_total_chars` so long history and old tool output
 cannot crowd out system notes and memory recall. Each provider call also writes
