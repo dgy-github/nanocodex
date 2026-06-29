@@ -80,7 +80,7 @@ impl Tool for McpTool {
                 Decision::Ask => {
                     if let Some(approver) = &ctx.approver {
                         let details = serde_json::to_string_pretty(args).unwrap_or_default();
-                        let ok = approver
+                        let ans = approver
                             .request(ApprovalRequest {
                                 command: format!("mcp:{} {args}", self.def.name),
                                 reason: format!(
@@ -92,7 +92,7 @@ impl Tool for McpTool {
                                 details,
                             })
                             .await;
-                        if !ok {
+                        if !ans.approved() {
                             return format!(
                                 "Error: MCP tool '{}' not approved by the user.",
                                 self.def.name

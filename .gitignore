@@ -54,3 +54,7 @@ train/genomes/
 train/runs/
 train/splits.json
 train/data/
+
+# nanocodex agent runtime state (session log, checkpoints, project memory)
+.nanocodex/
+.ncx/
