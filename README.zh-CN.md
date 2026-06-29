@@ -494,7 +494,8 @@ session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。
 
 provider 每次调用返回真实 `usage`，包含 DeepSeek 的缓存命中/未命中拆分。Rust REPL
 里的 `/usage` 和 `/cost` 会显示上一轮和 session 累计的模型调用数、工具调用数、输入
-token、输出 token、缓存命中/未命中 token。Rust 命令刻意只展示原始用量；Python 线的
+token、输出 token、缓存命中/未命中 token。Tauri GUI 的 `U` 面板也展示同一套来自桌面
+事件流的上一轮和当前 session 原始用量。Rust 侧刻意只展示原始用量；Python 线的
 `pricing.py` 会把 usage 折算成美元成本：
 
 - **缓存感知** —— 一个缓存命中的输入 token 比未命中便宜约 120×；各按自己的费率
@@ -539,6 +540,8 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
   新安装且未配置 API key 时，GUI 会直接打开这个面板，先完成配置再启动首轮 agent。
 - Checkpoint 面板提供手动保存 / 列表 / 恢复。
 - Custom command 面板复用 CLI 同一套 `.nanocodex/.claude` 模板展开器。
+- Usage 面板展示上一轮和当前 session 的模型调用数、工具调用数、输入/输出 token、
+  缓存命中/未命中 token。
 - Memory 面板可查看项目笔记、新增 verified note、打开 `LEARNINGS.md`、启发式去重和 LLM 记忆合并。
 
 原 Tkinter GUI 仍作为 Python 树里的 legacy 原型保留。注意：桌面 GUI 不热加载——改代码需要关掉再重开。

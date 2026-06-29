@@ -10,7 +10,14 @@
     | { kind: "tool_start"; name: string; args: string }
     | { kind: "tool_result"; name: string; result: string }
     | { kind: "approval"; id: number; command: string; reason: string; cwd: string; details: string }
-    | { kind: "done"; final_text: string; stop_reason: string }
+    | {
+        kind: "done";
+        final_text: string;
+        iterations: number;
+        stop_reason: string;
+        tools_used: string[];
+        usage: UsageMap;
+      }
     | { kind: "error"; message: string };
 
   type Approval = { id: number; command: string; reason: string; cwd: string; details: string };
@@ -94,6 +101,20 @@
   let memoryTags = $state("");
   let memoryBusy = $state(false);
 
+  type UsageMap = Record<string, number>;
+  type TurnMetrics = {
+    usage: UsageMap;
+    iterations: number;
+    tool_calls: number;
+    tools_used: string[];
+    stop_reason: string;
+  };
+  let usageOpen = $state(false);
+  let lastMetrics = $state<TurnMetrics | null>(null);
+  let sessionUsage = $state<UsageMap>({});
+  let sessionModelCalls = $state(0);
+  let sessionToolCalls = $state(0);
+
   type Msg =
     | { role: "user" | "assistant" | "note"; text: string }
     | { role: "tool"; name: string; args?: string; result?: string };
@@ -150,6 +171,7 @@
           break;
         }
         case "done":
+          recordMetrics(p);
           // The completed reply already arrived as an `assistant` event; only a
           // non-normal stop adds a note.
           if (p.stop_reason !== "completed") {
@@ -425,6 +447,43 @@
     memoryBusy = false;
   }
 
+  function usageValue(usage: UsageMap | null | undefined, key: string) {
+    return usage?.[key] ?? 0;
+  }
+
+  function totalTokens(usage: UsageMap | null | undefined) {
+    return usageValue(usage, "prompt_tokens") + usageValue(usage, "completion_tokens");
+  }
+
+  function addUsage(left: UsageMap, right: UsageMap | null | undefined) {
+    const merged: UsageMap = { ...left };
+    for (const [key, value] of Object.entries(right ?? {})) {
+      merged[key] = (merged[key] ?? 0) + Number(value || 0);
+    }
+    return merged;
+  }
+
+  function recordMetrics(turn: Extract<UiEvent, { kind: "done" }>) {
+    const tools = turn.tools_used ?? [];
+    lastMetrics = {
+      usage: turn.usage ?? {},
+      iterations: turn.iterations ?? 0,
+      tool_calls: tools.length,
+      tools_used: tools,
+      stop_reason: turn.stop_reason,
+    };
+    sessionUsage = addUsage(sessionUsage, turn.usage);
+    sessionModelCalls += turn.iterations ?? 0;
+    sessionToolCalls += tools.length;
+  }
+
+  function resetUsage() {
+    lastMetrics = null;
+    sessionUsage = {};
+    sessionModelCalls = 0;
+    sessionToolCalls = 0;
+  }
+
   function formatMemoryTime(ts: number) {
     if (!ts) return "";
     return new Date(ts * 1000).toLocaleString();
@@ -437,6 +496,7 @@
     <span class="meta">{header}</span>
     {#if busy}<span class="spinner" title="working…">●</span>{/if}
     <button class="gear" title="Settings" onclick={openSettings} aria-label="Settings">⚙</button>
+    <button class="toolbtn" title="Usage" onclick={() => (usageOpen = true)} aria-label="Usage">U</button>
     <button class="toolbtn" title="Memory" onclick={openMemory} aria-label="Memory">M</button>
     <button class="toolbtn" title="Custom commands" onclick={openCommands} aria-label="Custom commands">/</button>
     <button class="toolbtn" title="Checkpoints" onclick={openCheckpoints} aria-label="Checkpoints">CP</button>
@@ -491,6 +551,50 @@
         <div class="abtns">
           <button class="deny" onclick={() => decide(false)}>Deny</button>
           <button class="ok" onclick={() => decide(true)}>Approve</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if usageOpen}
+    <div class="overlay">
+      <div class="modal wide">
+        <h3>Usage</h3>
+        <div class="usage-grid">
+          <div class="usage-card">
+            <strong>Last turn</strong>
+            {#if lastMetrics}
+              <div class="usage-row"><span>Model calls</span><b>{lastMetrics.iterations}</b></div>
+              <div class="usage-row"><span>Tool calls</span><b>{lastMetrics.tool_calls}</b></div>
+              <div class="usage-row"><span>Stop</span><b>{lastMetrics.stop_reason}</b></div>
+              <div class="usage-row"><span>Prompt tokens</span><b>{usageValue(lastMetrics.usage, "prompt_tokens")}</b></div>
+              <div class="usage-row"><span>Completion tokens</span><b>{usageValue(lastMetrics.usage, "completion_tokens")}</b></div>
+              <div class="usage-row"><span>Total tokens</span><b>{totalTokens(lastMetrics.usage)}</b></div>
+              <div class="usage-row"><span>Cache hit</span><b>{usageValue(lastMetrics.usage, "prompt_cache_hit_tokens")}</b></div>
+              <div class="usage-row"><span>Cache miss</span><b>{usageValue(lastMetrics.usage, "prompt_cache_miss_tokens")}</b></div>
+            {:else}
+              <p class="emptyline">No usage yet.</p>
+            {/if}
+          </div>
+          <div class="usage-card">
+            <strong>Session</strong>
+            <div class="usage-row"><span>Model calls</span><b>{sessionModelCalls}</b></div>
+            <div class="usage-row"><span>Tool calls</span><b>{sessionToolCalls}</b></div>
+            <div class="usage-row"><span>Prompt tokens</span><b>{usageValue(sessionUsage, "prompt_tokens")}</b></div>
+            <div class="usage-row"><span>Completion tokens</span><b>{usageValue(sessionUsage, "completion_tokens")}</b></div>
+            <div class="usage-row"><span>Total tokens</span><b>{totalTokens(sessionUsage)}</b></div>
+            <div class="usage-row"><span>Cache hit</span><b>{usageValue(sessionUsage, "prompt_cache_hit_tokens")}</b></div>
+            <div class="usage-row"><span>Cache miss</span><b>{usageValue(sessionUsage, "prompt_cache_miss_tokens")}</b></div>
+          </div>
+        </div>
+        {#if lastMetrics?.tools_used.length}
+          <div class="usage-tools">
+            {#each lastMetrics.tools_used as tool}<code>{tool}</code>{/each}
+          </div>
+        {/if}
+        <div class="abtns">
+          <button class="plain" onclick={resetUsage}>Reset</button>
+          <button class="deny" onclick={() => (usageOpen = false)}>Close</button>
         </div>
       </div>
     </div>

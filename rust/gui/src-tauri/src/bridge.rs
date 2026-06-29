@@ -14,7 +14,7 @@
 //!   thread) resolves that one-shot via the shared [`PendingMap`]. This is the
 //!   request/response round-trip that crosses the thread boundary mid-turn.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -83,7 +83,10 @@ pub enum UiEvent {
     /// The turn finished.
     Done {
         final_text: String,
+        iterations: usize,
         stop_reason: String,
+        tools_used: Vec<String>,
+        usage: BTreeMap<String, i64>,
     },
     /// Fatal setup/turn error.
     Error { message: String },
@@ -317,7 +320,10 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                                 &app,
                                 UiEvent::Done {
                                     final_text: result.final_text,
+                                    iterations: result.iterations,
                                     stop_reason: result.stop_reason,
+                                    tools_used: result.tools_used,
+                                    usage: result.usage,
                                 },
                             );
                         }

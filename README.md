@@ -571,8 +571,10 @@ live session and rewrites the workspace session log, so future turns and
 The provider returns real `usage` per call, including DeepSeek's
 cache-hit/miss split. In the Rust REPL, `/usage` and `/cost` show the last turn
 and session total model calls, tool calls, prompt tokens, completion tokens, and
-cache hit/miss tokens. The Rust command intentionally reports raw usage only;
-`pricing.py` turns usage into a USD cost for the Python line:
+cache hit/miss tokens. The Tauri GUI's `U` panel shows the same raw last-turn
+and session totals from the desktop event stream. The Rust surfaces
+intentionally report raw usage only; `pricing.py` turns usage into a USD cost
+for the Python line:
 
 - **Cache-aware** — a cache-hit input token is ~120× cheaper than a miss; each is
   billed at its own rate. When the split is absent, the whole prompt is billed at
@@ -624,6 +626,8 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
 - Checkpoint panel for manual save/list/restore.
 - Custom command panel backed by the same core `.nanocodex/.claude` template
   engine the CLI uses.
+- Usage panel for last-turn and session model calls, tool calls, prompt tokens,
+  completion tokens, and cache hit/miss tokens.
 - Memory panel for viewing project notes, adding verified notes, opening
   `LEARNINGS.md`, heuristic deduplication, and LLM-backed memory merge.
 
