@@ -430,6 +430,7 @@ fn dispatch_slash(
         "/help" => SlashOutcome::Printed(render_help_for_workspace(&cfg.workspace)),
         "/status" => SlashOutcome::Printed(render_status(cfg)),
         "/usage" | "/cost" => SlashOutcome::Printed(usage.render()),
+        "/budget" => SlashOutcome::Printed(render_budget_status(agent, cfg, usage)),
         "/context" => SlashOutcome::Printed(render_context_status(agent, cfg, usage)),
         "/config" => SlashOutcome::Printed(config_text(cfg, arg)),
         "/history" => SlashOutcome::Printed(render_history(&SessionIndex::default().entries(), 20)),
@@ -730,6 +731,44 @@ fn render_status(cfg: &ncx_config::Config) -> String {
         cfg.context_edit_keep_recent_messages,
         cfg.context_edit_max_tool_result_chars,
         cfg.hooks.len(),
+    )
+}
+
+fn render_budget_status(
+    agent: &AgentLoop,
+    cfg: &ncx_config::Config,
+    usage: &UsageTracker,
+) -> String {
+    let model_limit = agent.task_budget.max_model_calls;
+    let tool_limit = agent.task_budget.max_tool_calls;
+    let last_block = usage
+        .last
+        .as_ref()
+        .map(|last| {
+            let model_remaining = model_limit.saturating_sub(last.model_calls);
+            let tool_remaining = tool_limit.saturating_sub(last.tool_calls);
+            format!(
+                "model_calls: {}  remaining: {}\ntool_calls:  {}  remaining: {}\nstop_reason: {}",
+                last.model_calls,
+                model_remaining,
+                last.tool_calls,
+                tool_remaining,
+                last.stop_reason
+            )
+        })
+        .unwrap_or_else(|| "No model turn recorded yet.".into());
+
+    format!(
+        "Task budget\nper_task_model_calls: {}\nper_task_tool_calls: {}\ncontext_edit_max_chars: {}\ncontext_token_budget: {}\nconfig_max_iterations: {}\nconfig_max_tool_calls: {}\n\nSession use\nmodel_calls: {}\ntool_calls:  {}\n\nLast turn vs budget\n{}",
+        model_limit,
+        tool_limit,
+        agent.context_edit.max_chars,
+        cfg.context_token_budget,
+        cfg.max_iterations,
+        cfg.max_tool_calls,
+        usage.total_model_calls,
+        usage.total_tool_calls,
+        last_block
     )
 }
 
@@ -1442,6 +1481,56 @@ mod tests {
         assert!(rendered.contains("session_compressed:      3"));
         assert!(rendered.contains("session_dropped:         3"));
         assert!(rendered.contains("raw token usage only"));
+    }
+
+    #[test]
+    fn budget_status_renders_limits_last_turn_and_session_use() {
+        let ws = std::env::temp_dir().join(format!("ncx_budget_status_{}", new_session_id()));
+        let policy = SandboxPolicy::new("workspace-write", &ws);
+        let ctx = ToolContext::new(ws.clone(), policy);
+        let tools = ToolRegistry::new(ctx);
+        let agent = AgentLoop::new(
+            Box::new(DeepSeekProvider::new(
+                "sk-test",
+                "http://127.0.0.1:9/v1",
+                "test-model",
+            )),
+            tools,
+            Session::new("system prompt"),
+        )
+        .with_task_budget(TaskBudget {
+            max_model_calls: 5,
+            max_tool_calls: 8,
+        });
+        let cfg = ncx_config::Config {
+            workspace: ws,
+            max_iterations: 5,
+            max_tool_calls: 8,
+            context_token_budget: 2048,
+            ..Default::default()
+        };
+        let mut usage = UsageTracker::default();
+        usage.record(&TurnResult {
+            final_text: "ok".into(),
+            iterations: 2,
+            stop_reason: "completed".into(),
+            tools_used: vec!["read_file".into(), "shell".into(), "grep".into()],
+            usage: BTreeMap::new(),
+            context_edit: ContextEditStats::default(),
+        });
+
+        let out = render_budget_status(&agent, &cfg, &usage);
+
+        assert!(out.contains("Task budget"));
+        assert!(out.contains("per_task_model_calls: 5"));
+        assert!(out.contains("per_task_tool_calls: 8"));
+        assert!(out.contains("context_token_budget: 2048"));
+        assert!(out.contains("Session use"));
+        assert!(out.contains("model_calls: 2"));
+        assert!(out.contains("tool_calls:  3"));
+        assert!(out.contains("remaining: 3"));
+        assert!(out.contains("remaining: 5"));
+        assert!(out.contains("stop_reason: completed"));
     }
 
     #[test]

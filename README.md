@@ -97,7 +97,7 @@ tool.
   one-shot commands as well as interactive REPL use.
 - Typed ownership makes parallel worker isolation and result promotion easier
   to reason about without shared mutable state leaks.
-- 268 offline Rust tests cover the current crate boundary, including memory
+- 269 offline Rust tests cover the current crate boundary, including memory
   consolidation, provider request/response parsing, sandbox policy, tools, and
   orchestration.
 
@@ -106,7 +106,8 @@ tool.
 - **Task budget:** every model call receives a runtime budget note with current
   model-call, tool-call, and context limits; the loop stops cleanly when model
   or tool budgets are exhausted and backfills unanswered tool calls so the
-  message history stays valid.
+  message history stays valid. The Rust REPL exposes `/budget` for per-task
+  limits, session use, and last-turn remaining budget.
 - **Context editing:** the full local session remains intact, but the provider
   sees a send-time edited view that compresses old tool results and drops older
   prefixes once the context budget is exceeded. The Rust REPL exposes `/context`
@@ -325,9 +326,10 @@ Inside the Rust REPL, `/config` shows the resolved config file path, current
 model/sandbox/approval values, and writable keys. `/config key=value` persists a
 setting to `~/.nanocodex/config.toml`; restart the REPL for provider, model,
 sandbox, or budget changes to affect the active session. `/usage` (or `/cost`)
-shows raw token usage for the last turn and current REPL session. `/context`
-shows the active context-edit policy, session size, last-turn telemetry, and a
-preview of the next provider send.
+shows raw token usage for the last turn and current REPL session. `/budget`
+shows task-budget limits and last-turn/session use. `/context` shows the active
+context-edit policy, session size, last-turn telemetry, and a preview of the
+next provider send.
 
 Python CLI, original line:
 
@@ -421,11 +423,12 @@ commands in `.nanocodex/commands/<name>.md`; for Claude Code compatibility,
 compatibility fallback.
 
 Built-in REPL slash commands also expose platform status surfaces: `/usage`
-for raw token and context-edit telemetry, `/context` for the active context-edit
-policy and next-send preview, `/tools` for the tool catalog and visible schema
-view, `/memory` for project memory status and recall preview, `/skills` for the
-discovered skill catalog, `/history` for saved sessions, and `/mcp` for enabled
-MCP servers plus currently registered MCP tools.
+for raw token and context-edit telemetry, `/budget` for task-budget use,
+`/context` for the active context-edit policy and next-send preview, `/tools`
+for the tool catalog and visible schema view, `/memory` for project memory
+status and recall preview, `/skills` for the discovered skill catalog,
+`/history` for saved sessions, and `/mcp` for enabled MCP servers plus
+currently registered MCP tools.
 
 The Tauri GUI exposes the same project/user command catalog from the `/` header
 button. You can run a command from the panel with arguments, or type the custom
