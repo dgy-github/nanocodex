@@ -1038,6 +1038,17 @@
     }
     hermesBusy = false;
   }
+  async function harvestMemory() {
+    hermesBusy = true;
+    try {
+      const created = await invoke<MemoryProposal[]>("memory_harvest", { path: null });
+      messages.push({ role: "note", text: `记忆：从文档提炼了 ${created.length} 条待审提议。` });
+      await loadNotes();
+    } catch (e) {
+      messages.push({ role: "note", text: `记忆提炼失败：${e}` });
+    }
+    hermesBusy = false;
+  }
   async function acceptProposal(id: string) {
     hermesBusy = true;
     try {
@@ -1756,6 +1767,7 @@
         </div>
         <div class="checkpoint-create">
           <button onclick={consolidateMemory} disabled={hermesBusy}>整理：合并重复</button>
+          <button class="plain" onclick={harvestMemory} disabled={hermesBusy}>从文档提炼</button>
           <button class="plain" onclick={loadNotes} disabled={hermesBusy}>刷新</button>
           <span class="emptyline">{notes.length} 条 / 待审 {proposals.length}</span>
         </div>

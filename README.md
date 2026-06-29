@@ -201,7 +201,7 @@ are local-runtime implementations:
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
 | Context editing | 58-68% | Send-time editing compresses tool results and drops old prefixes under budget; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model variants and policy-driven context budget allocation. |
 | Tool search / connectors | 62-72% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, gold-case ranking tests, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, and large-scale dynamic tool ranking. |
-| Semantic memory | 58-68% | Query-scoped lexical-semantic recall, `remember`, LLM merge, and a CLI/Tauri memory proposal review queue exist. Remaining gaps are automatic correction-derived proposal generation, stronger embedding/vector retrieval, and edit flows for large review batches. |
+| Semantic memory | 62-72% | Query-scoped lexical-semantic recall, `remember`, LLM merge, a CLI/Tauri memory proposal review queue, and handoff/release-document proposal harvesting exist. Remaining gaps are live correction/failure-derived proposal generation, stronger embedding/vector retrieval, and edit flows for large review batches. |
 
 The largest remaining gaps are not ordinary Rust code gaps. They are
 platform-level gaps: Anthropic's native tool/connectors ecosystem, managed
@@ -609,8 +609,9 @@ Three complementary layers of persistent context:
 - **Memory proposals** (`.ncx/memory/PROPOSALS.md`) — candidate learnings that
   are useful but not trusted yet. `remember` can set `propose=true`, the CLI can
   run `/memory propose <note>`, `/memory accept <id>`, or `/memory reject <id>`,
-  and the Tauri Memory panel exposes accept/reject buttons. Proposals are not
-  recalled until accepted into `LEARNINGS.md`.
+  and `/memory harvest [path]` extracts candidates from handoff/release docs.
+  The Tauri Memory panel can harvest documents and exposes accept/reject
+  buttons. Proposals are not recalled until accepted into `LEARNINGS.md`.
 - **User memory** (`~/.nanocodex/memory.md`) — durable personal facts and
   preferences. Written by the `remember` tool, by typing `# something` in the
   legacy Python GUI composer (quick-capture), or by hand. Wrapped in a
@@ -745,9 +746,10 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
   completion tokens, cache hit/miss tokens, estimated cost, context-edit
   telemetry, provider payload snapshots, and task-ledger wall time / approval /
   budget report visibility.
-- Memory panel for viewing project notes, adding verified notes, reviewing
-  pending memory proposals with accept/reject, opening `LEARNINGS.md`,
-  heuristic deduplication, and LLM-backed memory merge.
+- Memory panel for viewing project notes, adding verified notes, harvesting
+  handoff/release docs into pending proposals, reviewing proposals with
+  accept/reject, opening `LEARNINGS.md`, heuristic deduplication, and
+  LLM-backed memory merge.
 
 The original Tkinter GUI remains in the Python tree as a legacy prototype.
 Note: the desktop GUI does not hot-reload — code changes require closing and

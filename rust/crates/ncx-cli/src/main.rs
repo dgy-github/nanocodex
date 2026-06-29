@@ -564,6 +564,7 @@ fn dispatch_slash(
         "/memory" => SlashOutcome::Printed(handle_memory_command(
             agent.tools.ctx.memory.as_deref(),
             arg,
+            &cfg.workspace,
         )),
         "/tools" => SlashOutcome::Printed(render_tools_status(&agent.tools, arg)),
         "/mcp" => {
@@ -614,11 +615,47 @@ fn render_skills(skills: &[ncx_core::Skill]) -> String {
     out
 }
 
-fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str) -> String {
+fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str, workspace: &Path) -> String {
     let Some(memory) = memory else {
         return "Project memory is not enabled in this runtime.".into();
     };
     let arg = arg.trim();
+    if arg == "harvest" || arg.starts_with("harvest ") {
+        let raw = arg.strip_prefix("harvest").unwrap_or("").trim();
+        let paths = if raw.is_empty() {
+            default_memory_harvest_paths(workspace)
+        } else {
+            vec![resolve_workspace_path(workspace, raw)]
+        };
+        if paths.is_empty() {
+            return "No handoff/release documents found to harvest.".into();
+        }
+        let mut out = String::from("Memory proposal harvest");
+        let mut total = 0usize;
+        let mut now = ncx_core::task_ledger_now();
+        for path in paths {
+            let source = path
+                .strip_prefix(workspace)
+                .ok()
+                .and_then(|p| p.to_str())
+                .unwrap_or_else(|| path.to_str().unwrap_or("document"))
+                .replace('\\', "/");
+            match std::fs::read_to_string(&path) {
+                Ok(text) => match memory.harvest_proposals_from_text(&source, &text, now) {
+                    Ok(created) => {
+                        total += created.len();
+                        now += created.len() as u64 + 1;
+                        out.push_str(&format!("\n- {source}: queued {}", created.len()));
+                    }
+                    Err(e) => out.push_str(&format!("\n- {source}: error {e}")),
+                },
+                Err(e) => out.push_str(&format!("\n- {source}: read failed {e}")),
+            }
+        }
+        out.push_str(&format!("\nqueued_total: {total}"));
+        out.push_str("\nReview with /memory accept <id> or /memory reject <id>.");
+        return out;
+    }
     if let Some(id) = arg.strip_prefix("accept ") {
         let id = id.trim();
         if id.is_empty() {
@@ -653,6 +690,28 @@ fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str) -> String {
         };
     }
     render_memory_status(Some(memory), arg)
+}
+
+fn default_memory_harvest_paths(workspace: &Path) -> Vec<PathBuf> {
+    [
+        "HANDOFF.md",
+        "RELEASE_TASK.md",
+        "docs/release-checklist.md",
+        "docs/claude-fable-gap-roadmap.zh-CN.md",
+    ]
+    .iter()
+    .map(|p| workspace.join(p))
+    .filter(|p| p.exists())
+    .collect()
+}
+
+fn resolve_workspace_path(workspace: &Path, raw: &str) -> PathBuf {
+    let path = Path::new(raw);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        workspace.join(path)
+    }
 }
 
 fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
@@ -723,7 +782,7 @@ fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
 
     if query.is_empty() {
         out.push_str(
-            "\n\nUse /memory <query> to preview query-scoped recall, or /memory propose <note> to queue a candidate.",
+            "\n\nUse /memory <query> to preview query-scoped recall, /memory propose <note> to queue a candidate, or /memory harvest [path] to extract proposals from handoff/release docs.",
         );
     } else {
         let recall = memory.recall(query, 5, 2_000);
@@ -1977,11 +2036,11 @@ mod tests {
     fn memory_command_accepts_and_rejects_proposals() {
         let dir = std::env::temp_dir().join(format!("ncx_memory_review_{}", new_session_id()));
         let memory = MemoryStore::new(&dir);
-        let accept = handle_memory_command(Some(&memory), "propose Accept this memory");
+        let accept = handle_memory_command(Some(&memory), "propose Accept this memory", &dir);
         assert!(accept.contains("Queued memory proposal"), "{accept}");
         let first = memory.proposals().first().unwrap().id.clone();
 
-        let out = handle_memory_command(Some(&memory), &format!("accept {first}"));
+        let out = handle_memory_command(Some(&memory), &format!("accept {first}"), &dir);
         assert!(out.contains("Accepted memory proposal"), "{out}");
         assert!(memory.proposals().is_empty());
         assert_eq!(memory.entries().len(), 1);
@@ -1990,10 +2049,31 @@ mod tests {
             .propose("Reject this memory", &[], "test", 10)
             .unwrap()
             .unwrap();
-        let out = handle_memory_command(Some(&memory), &format!("reject {}", p.id));
+        let out = handle_memory_command(Some(&memory), &format!("reject {}", p.id), &dir);
         assert!(out.contains("Rejected memory proposal"), "{out}");
         assert!(memory.proposals().is_empty());
         assert_eq!(memory.entries().len(), 1);
+    }
+
+    #[test]
+    fn memory_command_harvests_release_document() {
+        let ws = std::env::temp_dir().join(format!("ncx_memory_harvest_{}", new_session_id()));
+        let _ = std::fs::create_dir_all(&ws);
+        let doc = ws.join("RELEASE_TASK.md");
+        std::fs::write(
+            &doc,
+            "- [ ] Run `cmd /c npm run build` before packaging the Tauri installer.\n",
+        )
+        .unwrap();
+        let memory = MemoryStore::new(ws.join(".ncx").join("memory"));
+
+        let out = handle_memory_command(Some(&memory), "harvest RELEASE_TASK.md", &ws);
+
+        assert!(out.contains("Memory proposal harvest"), "{out}");
+        assert!(out.contains("queued_total: 1"), "{out}");
+        let proposals = memory.proposals();
+        assert_eq!(proposals.len(), 1);
+        assert!(proposals[0].text.contains("Tauri installer"));
     }
 
     #[test]

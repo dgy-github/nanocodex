@@ -156,7 +156,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 | Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
 | Context editing | 58-68% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体和策略化 context 预算分配。 |
 | Tool search / connectors | 62-72% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、gold-case 排名测试，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry 和大规模动态工具排序。 |
-| Semantic memory | 58-68% | query-scoped lexical-semantic recall、`remember`、LLM merge，以及 CLI/Tauri memory proposal review queue 已有；还缺从纠错自动生成 proposal、更强 embedding/vector 检索，以及大批量 review 的编辑流。 |
+| Semantic memory | 62-72% | query-scoped lexical-semantic recall、`remember`、LLM merge、CLI/Tauri memory proposal review queue，以及 handoff/release 文档提炼 proposal 已有；还缺从实时纠错/失败修复自动生成 proposal、更强 embedding/vector 检索，以及大批量 review 的编辑流。 |
 
 最大的剩余差距不是普通 Rust 代码量，而是平台能力：Anthropic 原生工具/connector
 生态、托管 task budget 与云端执行、模型集成的 context 管理、一方 memory 行为，以及
@@ -527,8 +527,9 @@ Look for behavior regressions first, then missing tests, then maintainability.
   会显示文件路径、条目数、最近记录、tags 和 recall 预览。
 - **记忆提议**（`.ncx/memory/PROPOSALS.md`）—— 有用但尚未可信的候选经验。`remember`
   可传 `propose=true`，CLI 可用 `/memory propose <note>`、`/memory accept <id>` 或
-  `/memory reject <id>`，Tauri Memory 面板也提供接受/拒绝按钮。提议被接受前不会进入
-  `LEARNINGS.md`，也不会被召回。
+  `/memory reject <id>`，`/memory harvest [path]` 可从 handoff/release 文档提炼候选；
+  Tauri Memory 面板也能从文档提炼并提供接受/拒绝按钮。提议被接受前不会进入 `LEARNINGS.md`，
+  也不会被召回。
 - **用户记忆**（`~/.nanocodex/memory.md`）—— 持久的个人事实和偏好。由 `remember`
   工具写入、在 legacy Python GUI 输入框里打 `# 内容` 快速捕获、或手工编辑。Python 线会包在
   `<user_memory>` 块里。
@@ -635,8 +636,8 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 - Usage 面板展示上一轮和当前 session 的模型调用数、工具调用数、输入/输出 token、
   缓存命中/未命中 token、费用估算、context editing telemetry、provider payload 快照，
   以及 task-ledger 耗时/审批/预算报告。
-- Memory 面板可查看项目笔记、新增 verified note、review 待审记忆提议并接受/拒绝、打开
-  `LEARNINGS.md`、启发式去重和 LLM 记忆合并。
+- Memory 面板可查看项目笔记、新增 verified note、从 handoff/release 文档提炼待审提议、
+  review 待审记忆提议并接受/拒绝、打开 `LEARNINGS.md`、启发式去重和 LLM 记忆合并。
 
 原 Tkinter GUI 仍作为 Python 树里的 legacy 原型保留。注意：桌面 GUI 不热加载——改代码需要关掉再重开。
 

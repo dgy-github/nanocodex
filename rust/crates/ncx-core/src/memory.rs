@@ -35,6 +35,7 @@ pub trait Summarizer {
 /// Hard cap so the store can't grow unbounded; oldest are dropped first.
 pub const MAX_ENTRIES: usize = 200;
 pub const MAX_PROPOSALS: usize = 100;
+pub const MAX_HARVEST_PROPOSALS: usize = 20;
 const RECALL_HEADER: &str =
     "Project memory (verified notes from past work — treat as leads, verify before acting):";
 
@@ -151,6 +152,25 @@ impl MemoryStore {
         }
         self.write_proposals(&proposals)?;
         Ok(Some(proposal))
+    }
+
+    /// Extract candidate learnings from a handoff/release/checklist document
+    /// into the pending proposal queue. This deliberately uses conservative
+    /// heuristics and keeps the review step mandatory.
+    pub fn harvest_proposals_from_text(
+        &self,
+        source: &str,
+        text: &str,
+        now: u64,
+    ) -> std::io::Result<Vec<MemoryProposal>> {
+        let candidates = extract_memory_candidates(source, text);
+        let mut created = Vec::new();
+        for (i, (note, tags)) in candidates.into_iter().enumerate() {
+            if let Some(p) = self.propose(&note, &tags, source, now + i as u64)? {
+                created.push(p);
+            }
+        }
+        Ok(created)
     }
 
     /// Parse pending memory proposals (empty if absent / unreadable).
@@ -419,6 +439,196 @@ fn clean_tags(tags: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+fn extract_memory_candidates(source: &str, text: &str) -> Vec<(String, Vec<String>)> {
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    let mut section_tags: Vec<String> = Vec::new();
+    let mut in_code = false;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with("```") {
+            in_code = !in_code;
+            continue;
+        }
+        if in_code || line.is_empty() {
+            continue;
+        }
+        if line.starts_with('#') {
+            section_tags = proposal_tags_for(source, line);
+            continue;
+        }
+        let is_checklist = is_markdown_checklist(line);
+        let Some(note) = clean_candidate_line(line) else {
+            continue;
+        };
+        let len = note.chars().count();
+        if !(18..=220).contains(&len) {
+            continue;
+        }
+        if !is_checklist && !line_worth_proposing(&note) {
+            continue;
+        }
+        if out.iter().any(|(existing, _)| normalize(existing) == normalize(&note)) {
+            continue;
+        }
+        let mut tags = proposal_tags_for(source, &note);
+        for tag in &section_tags {
+            if !tags.contains(tag) {
+                tags.push(tag.clone());
+            }
+        }
+        out.push((note, tags));
+        if out.len() >= MAX_HARVEST_PROPOSALS {
+            break;
+        }
+    }
+    out
+}
+
+fn clean_candidate_line(line: &str) -> Option<String> {
+    let mut s = line.trim();
+    if s.contains('|') && s.matches('|').count() > 1 {
+        return None;
+    }
+    while let Some(rest) = s.strip_prefix('>') {
+        s = rest.trim();
+    }
+    for prefix in [
+        "- [ ]", "- [x]", "- [X]", "* [ ]", "* [x]", "* [X]", "+ [ ]", "+ [x]", "+ [X]",
+    ] {
+        if let Some(rest) = s.strip_prefix(prefix) {
+            s = rest.trim();
+            break;
+        }
+    }
+    for prefix in ["- ", "* ", "+ "] {
+        if let Some(rest) = s.strip_prefix(prefix) {
+            s = rest.trim();
+            break;
+        }
+    }
+    if let Some((idx, ch)) = s
+        .char_indices()
+        .find(|(_, ch)| !ch.is_ascii_digit())
+    {
+        if idx > 0 && (ch == '.' || ch == ')') {
+            s = s[idx + ch.len_utf8()..].trim();
+        }
+    }
+    let s = s
+        .trim_matches('`')
+        .trim_matches('*')
+        .trim_matches('_')
+        .trim()
+        .to_string();
+    if s.starts_with("http://") || s.starts_with("https://") || s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+fn is_markdown_checklist(line: &str) -> bool {
+    let s = line.trim_start();
+    ["- [ ]", "- [x]", "- [X]", "* [ ]", "* [x]", "* [X]", "+ [ ]", "+ [x]", "+ [X]"]
+        .iter()
+        .any(|prefix| s.starts_with(prefix))
+}
+
+fn line_worth_proposing(note: &str) -> bool {
+    let lower = note.to_lowercase();
+    let markers = [
+        "must",
+        "should",
+        "need to",
+        "remember",
+        "avoid",
+        "prefer",
+        "requires",
+        "run ",
+        "use ",
+        "fix",
+        "fails",
+        "failure",
+        "error",
+        "gotcha",
+        "release",
+        "installer",
+        "test",
+        "cargo",
+        "npm",
+        "tauri",
+        "mcp",
+        "context",
+        "memory",
+        "budget",
+        "sandbox",
+        "approval",
+        "connector",
+        "windows",
+        "gnu",
+        "必须",
+        "需要",
+        "记得",
+        "避免",
+        "不要",
+        "使用",
+        "失败",
+        "修复",
+        "报错",
+        "缺少",
+        "运行",
+        "测试",
+        "发布",
+        "打包",
+        "安装",
+        "配置",
+        "审批",
+        "沙箱",
+        "上下文",
+        "记忆",
+    ];
+    markers.iter().any(|m| lower.contains(m))
+}
+
+fn proposal_tags_for(source: &str, note: &str) -> Vec<String> {
+    let hay = format!("{} {}", source.to_lowercase(), note.to_lowercase());
+    let mut tags = vec!["harvested".to_string()];
+    let mut add = |tag: &str| {
+        let tag = tag.to_string();
+        if !tags.contains(&tag) {
+            tags.push(tag);
+        }
+    };
+    if hay.contains("release") || hay.contains("installer") || hay.contains("nsis") || hay.contains("发布") || hay.contains("打包") {
+        add("release");
+    }
+    if hay.contains("build") || hay.contains("cargo") || hay.contains("npm") || hay.contains("test") || hay.contains("构建") || hay.contains("测试") {
+        add("build");
+    }
+    if hay.contains("tauri") || hay.contains("gui") || hay.contains("desktop") || hay.contains("面板") {
+        add("gui");
+    }
+    if hay.contains("mcp") || hay.contains("connector") || hay.contains("oauth") {
+        add("mcp");
+    }
+    if hay.contains("context") || hay.contains("上下文") {
+        add("context");
+    }
+    if hay.contains("memory") || hay.contains("记忆") {
+        add("memory");
+    }
+    if hay.contains("budget") || hay.contains("预算") {
+        add("budget");
+    }
+    if hay.contains("windows") || hay.contains("gnu") || hay.contains("mingw") {
+        add("windows");
+    }
+    if hay.contains("failure") || hay.contains("fails") || hay.contains("error") || hay.contains("失败") || hay.contains("报错") {
+        add("failure");
+    }
+    tags
 }
 
 /// Words worth matching on: lowercased, length ≥ 3, deduped.
@@ -753,6 +963,58 @@ mod tests {
 
         assert!(s.remember("trusted fact", &[], 3).unwrap());
         assert!(s.propose("TRUSTED fact", &[], "test", 4).unwrap().is_none());
+    }
+
+    #[test]
+    fn harvests_release_checklist_into_pending_proposals() {
+        let s = store("harvest_release");
+        let created = s
+            .harvest_proposals_from_text(
+                "RELEASE_TASK.md",
+                r#"
+# Release checklist
+
+- [ ] Run `cmd /c npm run build` before packaging the Tauri installer.
+- [ ] Verify the NSIS installer starts without a black console window.
+- Ordinary project prose without an action marker.
+                "#,
+                100,
+            )
+            .unwrap();
+        assert_eq!(created.len(), 2);
+        assert!(s.entries().is_empty(), "harvested notes stay pending");
+        let proposals = s.proposals();
+        assert_eq!(proposals.len(), 2);
+        assert!(proposals[0].tags.contains(&"release".to_string()));
+        assert!(proposals[0].tags.contains(&"build".to_string()));
+        assert!(proposals.iter().any(|p| p.text.contains("NSIS installer")));
+    }
+
+    #[test]
+    fn harvest_skips_code_tables_and_duplicate_lines() {
+        let s = store("harvest_skip");
+        let created = s
+            .harvest_proposals_from_text(
+                "HANDOFF.md",
+                r#"
+| thing | value |
+| --- | --- |
+```
+- [ ] Do not learn this code block item.
+```
+- [ ] Keep MCP connector allow-lists tight during release.
+- [ ]   KEEP   MCP connector allow-lists tight during release.
+- Useful note but no marker here.
+                "#,
+                10,
+            )
+            .unwrap();
+        assert_eq!(created.len(), 1);
+        let proposals = s.proposals();
+        assert_eq!(proposals.len(), 1);
+        assert!(proposals[0].text.contains("MCP connector"));
+        assert!(!proposals[0].text.contains("code block"));
+        assert!(proposals[0].tags.contains(&"mcp".to_string()));
     }
 
     #[test]

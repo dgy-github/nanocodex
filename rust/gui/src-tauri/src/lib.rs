@@ -961,16 +961,17 @@ fn memory_list() -> Result<Vec<MemoryNote>, String> {
 fn memory_proposals() -> Result<Vec<MemoryProposal>, String> {
     let mut proposals = memory_store().proposals();
     proposals.sort_by(|a, b| b.ts.cmp(&a.ts));
-    Ok(proposals
-        .into_iter()
-        .map(|p| MemoryProposal {
-            id: p.id,
-            ts: p.ts,
-            source: p.source,
-            tags: p.tags,
-            text: p.text,
-        })
-        .collect())
+    Ok(proposals.into_iter().map(memory_proposal_row).collect())
+}
+
+fn memory_proposal_row(p: ncx_core::memory::MemoryProposal) -> MemoryProposal {
+    MemoryProposal {
+        id: p.id,
+        ts: p.ts,
+        source: p.source,
+        tags: p.tags,
+        text: p.text,
+    }
 }
 
 /// Trigger self-evolution maintenance: fold near-duplicate notes (heuristic,
@@ -1009,16 +1010,54 @@ fn memory_propose(note: String, tags: Vec<String>) -> Result<Option<MemoryPropos
         .unwrap_or(0);
     memory_store()
         .propose(note, &tags, "gui", now)
-        .map(|proposal| {
-            proposal.map(|p| MemoryProposal {
-                id: p.id,
-                ts: p.ts,
-                source: p.source,
-                tags: p.tags,
-                text: p.text,
-            })
-        })
+        .map(|proposal| proposal.map(memory_proposal_row))
         .map_err(|e| e.to_string())
+}
+
+/// Extract pending memory proposals from handoff/release documents.
+#[tauri::command]
+fn memory_harvest(path: Option<String>) -> Result<Vec<MemoryProposal>, String> {
+    let ws = std::env::current_dir().unwrap_or_default();
+    let paths = if let Some(path) = path.filter(|p| !p.trim().is_empty()) {
+        let p = Path::new(path.trim());
+        vec![if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            ws.join(p)
+        }]
+    } else {
+        [
+            "HANDOFF.md",
+            "RELEASE_TASK.md",
+            "docs/release-checklist.md",
+            "docs/claude-fable-gap-roadmap.zh-CN.md",
+        ]
+        .iter()
+        .map(|p| ws.join(p))
+        .filter(|p| p.exists())
+        .collect()
+    };
+    let store = memory_store();
+    let mut now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut out = Vec::new();
+    for path in paths {
+        let source = path
+            .strip_prefix(&ws)
+            .ok()
+            .and_then(|p| p.to_str())
+            .unwrap_or_else(|| path.to_str().unwrap_or("document"))
+            .replace('\\', "/");
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("{source}: {e}"))?;
+        let created = store
+            .harvest_proposals_from_text(&source, &text, now)
+            .map_err(|e| e.to_string())?;
+        now += created.len() as u64 + 1;
+        out.extend(created.into_iter().map(memory_proposal_row));
+    }
+    Ok(out)
 }
 
 /// Accept a pending learning into verified project memory.
@@ -1088,6 +1127,7 @@ pub fn run() {
             memory_consolidate,
             memory_add,
             memory_propose,
+            memory_harvest,
             memory_accept_proposal,
             memory_reject_proposal,
             set_workspace,
