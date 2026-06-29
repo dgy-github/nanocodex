@@ -784,6 +784,7 @@ fn add_context_edit_stats(acc: &mut ContextEditStats, stats: &ContextEditStats) 
     acc.tool_result_chars = stats.tool_result_chars;
     acc.compressed_tool_results += stats.compressed_tool_results;
     acc.dropped_messages += stats.dropped_messages;
+    acc.summary_checkpoints += stats.summary_checkpoints;
 }
 
 fn memory_recall_notes(
@@ -1232,6 +1233,7 @@ mod tests {
         assert!(result.context_edit.original_chars > result.context_edit.edited_chars);
         assert_eq!(result.context_edit.compressed_tool_results, 1);
         assert!(result.context_edit.dropped_messages > 0);
+        assert!(result.context_edit.summary_checkpoints > 0);
     }
 
     #[tokio::test]

@@ -52,6 +52,7 @@ impl ContextPayloadSnapshot {
                 "tool_result_chars": self.stats.tool_result_chars,
                 "compressed_tool_results": self.stats.compressed_tool_results,
                 "dropped_messages": self.stats.dropped_messages,
+                "summary_checkpoints": self.stats.summary_checkpoints,
             },
             "messages": redacted_messages,
         })
@@ -131,6 +132,7 @@ impl ContextPayloadSnapshotStore {
             let tool_chars = usize_field(stats, "tool_result_chars");
             let compressed = usize_field(stats, "compressed_tool_results");
             let dropped = usize_field(stats, "dropped_messages");
+            let summaries = usize_field(stats, "summary_checkpoints");
             let roles = row
                 .get("role_counts")
                 .and_then(|v| v.as_object())
@@ -142,7 +144,7 @@ impl ContextPayloadSnapshotStore {
                 })
                 .unwrap_or_else(|| "(none)".into());
             out.push_str(&format!(
-                "\n- {id} model={model} messages={message_count} tools={tool_schema_count} chars={edited}/{original} pack=system:{system_chars},notes:{note_chars},memory:{memory_chars},history:{history_chars},tool:{tool_chars} compressed={compressed} dropped={dropped} roles={roles}"
+                "\n- {id} model={model} messages={message_count} tools={tool_schema_count} chars={edited}/{original} pack=system:{system_chars},notes:{note_chars},memory:{memory_chars},history:{history_chars},tool:{tool_chars} compressed={compressed} dropped={dropped} summaries={summaries} roles={roles}"
             ));
         }
         out
@@ -247,6 +249,7 @@ mod tests {
                 tool_result_chars: 20,
                 compressed_tool_results: 1,
                 dropped_messages: 2,
+                summary_checkpoints: 1,
             },
         };
         let path = store.write(&snapshot).unwrap();
@@ -262,5 +265,6 @@ mod tests {
         assert!(report.contains("pack=system:3,notes:10,memory:4,history:67,tool:20"));
         assert!(report.contains("compressed=1"));
         assert!(report.contains("dropped=2"));
+        assert!(report.contains("summaries=1"));
     }
 }

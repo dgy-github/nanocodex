@@ -71,6 +71,7 @@ pub struct ContextEditView {
     tool_result_chars: usize,
     compressed_tool_results: usize,
     dropped_messages: usize,
+    summary_checkpoints: usize,
 }
 
 #[derive(Clone, Serialize)]
@@ -583,6 +584,9 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                                             .context_edit
                                             .compressed_tool_results,
                                         dropped_messages: result.context_edit.dropped_messages,
+                                        summary_checkpoints: result
+                                            .context_edit
+                                            .summary_checkpoints,
                                     },
                                     task_ledger: TaskLedgerTurnView {
                                         duration_ms,

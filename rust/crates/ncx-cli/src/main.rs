@@ -1289,6 +1289,7 @@ struct UsageTracker {
     total_tool_calls: usize,
     total_compressed_tool_results: usize,
     total_dropped_messages: usize,
+    total_summary_checkpoints: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -1306,6 +1307,7 @@ impl UsageTracker {
         self.total_tool_calls += result.tools_used.len();
         self.total_compressed_tool_results += result.context_edit.compressed_tool_results;
         self.total_dropped_messages += result.context_edit.dropped_messages;
+        self.total_summary_checkpoints += result.context_edit.summary_checkpoints;
         add_usage(&mut self.total, &result.usage);
         self.last = Some(TurnUsage {
             usage: result.usage.clone(),
@@ -1331,7 +1333,8 @@ impl UsageTracker {
             format_context_edit_block(
                 &last.context_edit,
                 self.total_compressed_tool_results,
-                self.total_dropped_messages
+                self.total_dropped_messages,
+                self.total_summary_checkpoints
             ),
             format_usage_block(
                 self.total_model_calls,
@@ -1385,9 +1388,10 @@ fn format_context_edit_block(
     last: &ContextEditStats,
     session_compressed_tool_results: usize,
     session_dropped_messages: usize,
+    session_summary_checkpoints: usize,
 ) -> String {
     format!(
-        "{}\nsession_compressed:      {session_compressed_tool_results}\nsession_dropped:         {session_dropped_messages}",
+        "{}\nsession_compressed:      {session_compressed_tool_results}\nsession_dropped:         {session_dropped_messages}\nsession_summaries:       {session_summary_checkpoints}",
         format_context_edit_stats_block(last)
     )
 }
@@ -1408,6 +1412,7 @@ fn format_context_edit_stats_block(stats: &ContextEditStats) -> String {
             stats.compressed_tool_results
         ),
         format!("dropped_messages:        {}", stats.dropped_messages),
+        format!("summary_checkpoints:     {}", stats.summary_checkpoints),
     ]
     .join("\n")
 }
@@ -1480,11 +1485,12 @@ fn compact_session_text(agent: &mut AgentLoop, recorder: &mut SessionRecorder) -
     let stats = agent.session.compact(&agent.context_edit);
     recorder.record(&agent.session);
     format!(
-        "Compacted session: chars {} -> {}; compressed_tool_results={} dropped_messages={}",
+        "Compacted session: chars {} -> {}; compressed_tool_results={} dropped_messages={} summary_checkpoints={}",
         stats.original_chars,
         stats.edited_chars,
         stats.compressed_tool_results,
-        stats.dropped_messages
+        stats.dropped_messages,
+        stats.summary_checkpoints
     )
 }
 
@@ -1858,6 +1864,7 @@ mod tests {
                 edited_chars: 700,
                 compressed_tool_results: 2,
                 dropped_messages: 3,
+                summary_checkpoints: 1,
                 ..Default::default()
             },
         });
@@ -1876,6 +1883,7 @@ mod tests {
                 edited_chars: 650,
                 compressed_tool_results: 1,
                 dropped_messages: 0,
+                summary_checkpoints: 2,
                 ..Default::default()
             },
         });
@@ -1891,8 +1899,10 @@ mod tests {
         assert!(rendered.contains("Context edit"));
         assert!(rendered.contains("original_chars:          700"));
         assert!(rendered.contains("saved_chars:             50"));
+        assert!(rendered.contains("summary_checkpoints:     2"));
         assert!(rendered.contains("session_compressed:      3"));
         assert!(rendered.contains("session_dropped:         3"));
+        assert!(rendered.contains("session_summaries:       3"));
         assert!(rendered.contains("raw token usage only"));
     }
 
@@ -1995,6 +2005,7 @@ mod tests {
         assert!(out.contains("pack_tool_chars:"), "{out}");
         assert!(out.contains("compressed_tool_results: 1"), "{out}");
         assert!(out.contains("dropped_messages:        2"), "{out}");
+        assert!(out.contains("summary_checkpoints:"), "{out}");
         assert!(out.contains("No model turn recorded yet."));
     }
 

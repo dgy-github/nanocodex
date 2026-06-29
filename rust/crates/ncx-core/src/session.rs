@@ -5,7 +5,7 @@
 //! they go straight onto the wire. The system prompt is held separately and
 //! prepended by [`Session::for_model`].
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -47,6 +47,7 @@ pub struct ContextEditStats {
     pub tool_result_chars: usize,
     pub compressed_tool_results: usize,
     pub dropped_messages: usize,
+    pub summary_checkpoints: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -240,15 +241,19 @@ impl Session {
             );
 
             if body.iter().map(json_chars).sum::<usize>() > policy.max_history_chars {
-                stats.dropped_messages +=
-                    drop_old_prefix(&mut body, policy.keep_recent_messages);
+                let (dropped, summaries) =
+                    compact_old_prefix(&mut body, policy.keep_recent_messages);
+                stats.dropped_messages += dropped;
+                stats.summary_checkpoints += summaries;
             }
 
             if total_chars(&self.system, system_notes, &body) > policy.max_chars
                 && body.len() > policy.keep_recent_messages
             {
-                stats.dropped_messages +=
-                    drop_old_prefix(&mut body, policy.keep_recent_messages);
+                let (dropped, summaries) =
+                    compact_old_prefix(&mut body, policy.keep_recent_messages);
+                stats.dropped_messages += dropped;
+                stats.summary_checkpoints += summaries;
             }
         }
 
@@ -543,9 +548,9 @@ fn summarize_tool_result(msg: &mut Value) -> bool {
     true
 }
 
-fn drop_old_prefix(body: &mut Vec<Value>, keep_recent_messages: usize) -> usize {
+fn compact_old_prefix(body: &mut Vec<Value>, keep_recent_messages: usize) -> (usize, usize) {
     if body.len() <= keep_recent_messages {
-        return 0;
+        return (0, 0);
     }
     let mut start = body.len().saturating_sub(keep_recent_messages);
     if let Some(rel) = body[start..].iter().position(|m| role(m) == Some("user")) {
@@ -555,11 +560,134 @@ fn drop_old_prefix(body: &mut Vec<Value>, keep_recent_messages: usize) -> usize 
         start += 1;
     }
     if start > 0 && start < body.len() {
-        *body = body[start..].to_vec();
-        start
+        let prefix = body[..start].to_vec();
+        let mut tail = body[start..].to_vec();
+        let summaries = context_summary_checkpoint(&prefix)
+            .map(|summary| {
+                tail.insert(0, summary);
+                1
+            })
+            .unwrap_or(0);
+        *body = tail;
+        (start, summaries)
     } else {
-        0
+        (0, 0)
     }
+}
+
+fn context_summary_checkpoint(prefix: &[Value]) -> Option<Value> {
+    if prefix.is_empty() {
+        return None;
+    }
+    let mut roles: BTreeMap<String, usize> = BTreeMap::new();
+    let mut first_user = None;
+    let mut recent_user = None;
+    let mut recent_assistant = None;
+    let mut tools = Vec::<String>::new();
+    for msg in prefix {
+        let role = role(msg).unwrap_or("unknown").to_string();
+        *roles.entry(role.clone()).or_insert(0) += 1;
+        match role.as_str() {
+            "user" => {
+                let text = truncate_one_line(&message_text(msg), 160);
+                if first_user.is_none() {
+                    first_user = Some(text.clone());
+                }
+                recent_user = Some(text);
+            }
+            "assistant" => {
+                let text = truncate_one_line(&message_text(msg), 180);
+                if !text.is_empty() {
+                    recent_assistant = Some(text);
+                }
+                if let Some(calls) = msg.get("tool_calls").and_then(|v| v.as_array()) {
+                    for call in calls {
+                        if let Some(name) = call
+                            .get("function")
+                            .and_then(|f| f.get("name"))
+                            .and_then(|v| v.as_str())
+                        {
+                            push_unique_tool(&mut tools, name);
+                        }
+                    }
+                }
+            }
+            "tool" => {
+                if let Some(name) = msg.get("name").and_then(|v| v.as_str()) {
+                    push_unique_tool(&mut tools, name);
+                }
+            }
+            _ => {}
+        }
+    }
+    let role_line = roles
+        .into_iter()
+        .map(|(role, count)| format!("{role}={count}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut lines = vec![
+        "[context summary checkpoint]".to_string(),
+        format!("- omitted_messages: {}", prefix.len()),
+        format!("- role_counts: {role_line}"),
+    ];
+    if let Some(text) = first_user.filter(|s| !s.is_empty()) {
+        lines.push(format!("- first_user: {text}"));
+    }
+    if let Some(text) = recent_user.filter(|s| !s.is_empty()) {
+        lines.push(format!("- recent_user: {text}"));
+    }
+    if let Some(text) = recent_assistant.filter(|s| !s.is_empty()) {
+        lines.push(format!("- recent_assistant: {text}"));
+    }
+    if !tools.is_empty() {
+        lines.push(format!(
+            "- tools_seen: {}",
+            tools.into_iter().take(12).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    lines.push("- note: older transcript was deterministically summarized before truncation.".into());
+    let summary = json!({"role": "assistant", "content": lines.join("\n")});
+    if json_chars(&summary) < prefix.iter().map(json_chars).sum() {
+        Some(summary)
+    } else {
+        None
+    }
+}
+
+fn push_unique_tool(tools: &mut Vec<String>, name: &str) {
+    if !tools.iter().any(|tool| tool == name) {
+        tools.push(name.to_string());
+    }
+}
+
+fn message_text(msg: &Value) -> String {
+    let Some(content) = msg.get("content") else {
+        return String::new();
+    };
+    if let Some(text) = content.as_str() {
+        return text.to_string();
+    }
+    if let Some(blocks) = content.as_array() {
+        return blocks
+            .iter()
+            .filter_map(|block| block.get("text").and_then(|v| v.as_str()))
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+    String::new()
+}
+
+fn truncate_one_line(text: &str, max_chars: usize) -> String {
+    let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = String::new();
+    for (i, ch) in one_line.chars().enumerate() {
+        if i >= max_chars {
+            out.push_str("...");
+            return out;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -684,8 +812,20 @@ mod tests {
             },
         );
         assert!(out.stats.dropped_messages > 0);
+        assert!(out.stats.summary_checkpoints > 0);
         assert!(out.stats.edited_chars < out.stats.original_chars);
         assert_eq!(out.messages[0]["role"], "system");
+        assert!(out.messages.iter().any(|m| {
+            m["role"] == "assistant"
+                && m["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("[context summary checkpoint]")
+                && m["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("omitted_messages")
+        }));
     }
 
     #[test]
@@ -751,8 +891,16 @@ mod tests {
         );
 
         assert!(out.stats.dropped_messages > 0);
+        assert!(out.stats.summary_checkpoints > 0);
         assert!(out.stats.edited_chars < out.stats.original_chars);
         assert_eq!(out.messages[0]["role"], "system");
+        assert!(out.messages.iter().any(|m| {
+            m["role"] == "assistant"
+                && m["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("[context summary checkpoint]")
+        }));
     }
 
     #[test]
@@ -775,10 +923,20 @@ mod tests {
         });
 
         assert!(stats.dropped_messages > 0);
+        assert!(stats.summary_checkpoints > 0);
         assert!(s.messages.len() < before);
+        assert_eq!(s.messages[0]["role"], "assistant");
+        assert!(s.messages[0]["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("[context summary checkpoint]"));
         let resumed = Session::resume("fresh", Some(path));
         assert_eq!(resumed.messages.len(), s.messages.len());
-        assert_eq!(resumed.messages[0]["role"], "user");
+        assert_eq!(resumed.messages[0]["role"], "assistant");
+        assert!(resumed.messages[0]["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("[context summary checkpoint]"));
     }
 
     #[test]
@@ -797,6 +955,7 @@ mod tests {
 
         assert_eq!(stats.dropped_messages, 0);
         assert_eq!(stats.compressed_tool_results, 0);
+        assert_eq!(stats.summary_checkpoints, 0);
         assert_eq!(s.messages.len(), 2);
     }
 

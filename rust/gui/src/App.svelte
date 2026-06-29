@@ -130,6 +130,7 @@
     tool_result_chars: number;
     compressed_tool_results: number;
     dropped_messages: number;
+    summary_checkpoints: number;
   };
   type TaskLedgerStats = {
     duration_ms: number;
@@ -150,6 +151,7 @@
   let sessionToolCalls = $state(0);
   let sessionCompressedToolResults = $state(0);
   let sessionDroppedMessages = $state(0);
+  let sessionSummaryCheckpoints = $state(0);
   let budgetReport = $state("");
   let budgetReportBusy = $state(false);
   let contextPayloadReport = $state("");
@@ -175,6 +177,7 @@
       tool_result_chars: 0,
       compressed_tool_results: 0,
       dropped_messages: 0,
+      summary_checkpoints: 0,
     };
   }
   function emptyTaskLedger(): TaskLedgerStats {
@@ -199,6 +202,7 @@
     sessionToolCalls = 0;
     sessionCompressedToolResults = 0;
     sessionDroppedMessages = 0;
+    sessionSummaryCheckpoints = 0;
   }
   function recordMetrics(turn: Extract<UiEvent, { kind: "done" }>) {
     const contextEdit = turn.context_edit ?? emptyContextEdit();
@@ -215,6 +219,7 @@
     sessionToolCalls += turn.tools_used?.length ?? 0;
     sessionCompressedToolResults += contextEdit.compressed_tool_results ?? 0;
     sessionDroppedMessages += contextEdit.dropped_messages ?? 0;
+    sessionSummaryCheckpoints += contextEdit.summary_checkpoints ?? 0;
     tokIn = usageValue(sessionUsage, "prompt_tokens");
     tokOut = usageValue(sessionUsage, "completion_tokens");
   }
@@ -1700,11 +1705,13 @@
               <div class="usage-row"><span>工具结果</span><b>{lastMetrics.context_edit.tool_result_chars}</b></div>
               <div class="usage-row"><span>压缩工具结果</span><b>{lastMetrics.context_edit.compressed_tool_results}</b></div>
               <div class="usage-row"><span>丢弃消息</span><b>{lastMetrics.context_edit.dropped_messages}</b></div>
+              <div class="usage-row"><span>摘要 checkpoint</span><b>{lastMetrics.context_edit.summary_checkpoints}</b></div>
             {:else}
               <p class="emptyline">还没有 context telemetry。</p>
             {/if}
             <div class="usage-row"><span>累计压缩</span><b>{sessionCompressedToolResults}</b></div>
             <div class="usage-row"><span>累计丢弃</span><b>{sessionDroppedMessages}</b></div>
+            <div class="usage-row"><span>累计摘要</span><b>{sessionSummaryCheckpoints}</b></div>
           </div>
           <div class="usage-card">
             <strong>Context payload</strong>
