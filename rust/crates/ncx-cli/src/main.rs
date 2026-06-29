@@ -568,7 +568,16 @@ fn dispatch_slash(
             arg,
             &cfg.workspace,
         )),
-        "/tools" => SlashOutcome::Printed(render_tools_status(&agent.tools, arg)),
+        "/tools" => {
+            if arg.trim().starts_with("eval") || arg.trim().starts_with("trace") {
+                SlashOutcome::Printed(render_tool_trace_eval(
+                    &TaskLedger::new(&cfg.workspace),
+                    tool_trace_eval_limit(arg),
+                ))
+            } else {
+                SlashOutcome::Printed(render_tools_status(&agent.tools, arg))
+            }
+        }
         "/mcp" => {
             let servers = load_mcp_servers();
             let connectors = load_mcp_connectors();
@@ -1065,6 +1074,18 @@ fn budget_report_limit(arg: &str) -> usize {
 
 fn render_budget_report(ledger: &TaskLedger, limit: usize) -> String {
     ledger.render_report(limit)
+}
+
+fn tool_trace_eval_limit(arg: &str) -> usize {
+    arg.split_whitespace()
+        .filter_map(|part| part.parse::<usize>().ok())
+        .next()
+        .unwrap_or(50)
+        .clamp(1, 200)
+}
+
+fn render_tool_trace_eval(ledger: &TaskLedger, limit: usize) -> String {
+    ledger.render_tool_trace_eval(limit)
 }
 
 fn render_help() -> String {

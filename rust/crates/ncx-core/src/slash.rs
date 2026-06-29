@@ -54,7 +54,7 @@ pub const SLASH_HELP: &[(&str, &str)] = &[
     ),
     (
         "/tools",
-        "Show registered tools, currently visible schemas, and tool_search hints.",
+        "Show registered tools; /tools eval [N] evaluates visible-vs-called traces.",
     ),
     ("/mcp", "Show enabled MCP servers and registered MCP tools."),
     ("/history", "Show recent saved sessions."),

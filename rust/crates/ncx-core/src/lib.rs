@@ -53,7 +53,7 @@ pub use skills::{discover_skills, skills_index_block, Skill};
 pub use slash::{parse_slash, split_loop_arg, SLASH_HELP};
 pub use task_ledger::{
     now_stamp as task_ledger_now, TaskLedger, TaskLedgerRecord, TaskLedgerTotals,
-    TaskLedgerTrend,
+    TaskLedgerTrend, ToolTraceEval,
 };
 pub use tools::{
     ApprovalDecision, ApprovalHandler, ApprovalRequest, SessionGrants, Tool, ToolContext,
