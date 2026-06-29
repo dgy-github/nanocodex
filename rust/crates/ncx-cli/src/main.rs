@@ -25,9 +25,9 @@ use std::rc::Rc;
 use ncx_core::{
     custom_command_prompt, discover_skills, expand_file_mentions, list_custom_commands,
     load_project_instructions, new_session_id, parse_custom_command_query, register_mcp_server,
-    skills_index_block, AgentLoop, CheckpointMeta, CheckpointStore, ContextEditPolicy, Genome,
-    MemoryStore, Orchestrator, OrchestratorConfig, Provider, Session, SessionIndex, SessionSummary,
-    TaskBudget, ToolContext, ToolRegistry, TurnResult,
+    skills_index_block, AgentLoop, CheckpointMeta, CheckpointStore, ContextEditPolicy,
+    ContextEditStats, Genome, MemoryStore, Orchestrator, OrchestratorConfig, Provider, Session,
+    SessionIndex, SessionSummary, TaskBudget, ToolContext, ToolRegistry, TurnResult,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -611,6 +611,8 @@ struct UsageTracker {
     total: BTreeMap<String, i64>,
     total_model_calls: usize,
     total_tool_calls: usize,
+    total_compressed_tool_results: usize,
+    total_dropped_messages: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -619,18 +621,22 @@ struct TurnUsage {
     model_calls: usize,
     tool_calls: usize,
     stop_reason: String,
+    context_edit: ContextEditStats,
 }
 
 impl UsageTracker {
     fn record(&mut self, result: &TurnResult) {
         self.total_model_calls += result.iterations;
         self.total_tool_calls += result.tools_used.len();
+        self.total_compressed_tool_results += result.context_edit.compressed_tool_results;
+        self.total_dropped_messages += result.context_edit.dropped_messages;
         add_usage(&mut self.total, &result.usage);
         self.last = Some(TurnUsage {
             usage: result.usage.clone(),
             model_calls: result.iterations,
             tool_calls: result.tools_used.len(),
             stop_reason: result.stop_reason.clone(),
+            context_edit: result.context_edit.clone(),
         });
     }
 
@@ -639,12 +645,17 @@ impl UsageTracker {
             return "No token usage recorded yet.".into();
         };
         format!(
-            "Last turn:\n{}\n\nSession total:\n{}\n\nCost: raw token usage only; no Rust price table is configured.",
+            "Last turn:\n{}\n\nContext edit:\n{}\n\nSession total:\n{}\n\nCost: raw token usage only; no Rust price table is configured.",
             format_usage_block(
                 last.model_calls,
                 last.tool_calls,
                 Some(&last.stop_reason),
                 &last.usage
+            ),
+            format_context_edit_block(
+                &last.context_edit,
+                self.total_compressed_tool_results,
+                self.total_dropped_messages
             ),
             format_usage_block(
                 self.total_model_calls,
@@ -692,6 +703,24 @@ fn format_usage_block(
 
 fn usage_value(usage: &BTreeMap<String, i64>, key: &str) -> i64 {
     usage.get(key).copied().unwrap_or(0)
+}
+
+fn format_context_edit_block(
+    last: &ContextEditStats,
+    session_compressed_tool_results: usize,
+    session_dropped_messages: usize,
+) -> String {
+    let saved_chars = last.original_chars.saturating_sub(last.edited_chars);
+    [
+        format!("original_chars:          {}", last.original_chars),
+        format!("edited_chars:            {}", last.edited_chars),
+        format!("saved_chars:             {saved_chars}"),
+        format!("compressed_tool_results: {}", last.compressed_tool_results),
+        format!("dropped_messages:        {}", last.dropped_messages),
+        format!("session_compressed:      {session_compressed_tool_results}"),
+        format!("session_dropped:         {session_dropped_messages}"),
+    ]
+    .join("\n")
 }
 
 struct SessionRecorder {
@@ -1130,6 +1159,12 @@ mod tests {
             stop_reason: "completed".into(),
             tools_used: vec!["read_file".into()],
             usage: first_usage,
+            context_edit: ContextEditStats {
+                original_chars: 1000,
+                edited_chars: 700,
+                compressed_tool_results: 2,
+                dropped_messages: 3,
+            },
         });
 
         let mut second_usage = BTreeMap::new();
@@ -1141,6 +1176,12 @@ mod tests {
             stop_reason: "completed".into(),
             tools_used: vec![],
             usage: second_usage,
+            context_edit: ContextEditStats {
+                original_chars: 700,
+                edited_chars: 650,
+                compressed_tool_results: 1,
+                dropped_messages: 0,
+            },
         });
 
         let rendered = tracker.render();
@@ -1151,6 +1192,11 @@ mod tests {
         assert!(rendered.contains("prompt_tokens:     110"));
         assert!(rendered.contains("completion_tokens: 25"));
         assert!(rendered.contains("prompt_cache_hit_tokens:  80"));
+        assert!(rendered.contains("Context edit"));
+        assert!(rendered.contains("original_chars:          700"));
+        assert!(rendered.contains("saved_chars:             50"));
+        assert!(rendered.contains("session_compressed:      3"));
+        assert!(rendered.contains("session_dropped:         3"));
         assert!(rendered.contains("raw token usage only"));
     }
 

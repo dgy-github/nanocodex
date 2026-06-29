@@ -488,7 +488,9 @@ Look for behavior regressions first, then missing tests, then maintainability.
 触发估算用偏中文的 chars/token 比例，所以中文为主的对话不会压缩得太晚。
 
 Rust CLI 里的 `/compact` 会把当前 context-edit 策略物化到 live session，并重写工作区
-session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。
+session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。Rust `/usage` 和 Tauri
+GUI 的 `U` 面板也会展示 send-time context editing telemetry：原始字符数、编辑后字符数、
+节省字符数、压缩工具结果数和丢弃消息数。
 
 ## Token 用量与成本
 
@@ -541,7 +543,7 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 - Checkpoint 面板提供手动保存 / 列表 / 恢复。
 - Custom command 面板复用 CLI 同一套 `.nanocodex/.claude` 模板展开器。
 - Usage 面板展示上一轮和当前 session 的模型调用数、工具调用数、输入/输出 token、
-  缓存命中/未命中 token。
+  缓存命中/未命中 token，以及 context editing telemetry。
 - Memory 面板可查看项目笔记、新增 verified note、打开 `LEARNINGS.md`、启发式去重和 LLM 记忆合并。
 
 原 Tkinter GUI 仍作为 Python 树里的 legacy 原型保留。注意：桌面 GUI 不热加载——改代码需要关掉再重开。

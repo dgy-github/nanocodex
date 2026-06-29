@@ -108,7 +108,7 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
 - 工具：read_file·apply_patch·shell·update_plan·grep·glob·web_search·web_fetch·tool_search·remember·skill
 - **Skills（已并入 rust-capability）**：SKILL.md 发现 + 渐进披露注入 + `skill` 工具 + builtin（`commit-message`，include_str! 编入二进制，FS 同名可覆盖）+ `/skills` 命令。stream C vision 基础（`7de2235`）也随 FF 一起进了 rust-capability。
 - 分层 flash/pro 编排器（`-o`，verifier 选 BEST worker + promote）；memory 自进化 + 启发式/LLM consolidate（CLI `--memory-merge` + GUI Memory 面板）；keyed 搜索(Tavily/DDG)
-- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog；GUI Usage 面板展示真实 last-turn/session usage；release 脚本会给 Tauri NSIS installer 注入 workspace version
+- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog；CLI `/usage` + GUI Usage 面板展示真实 last-turn/session usage 和 context-edit telemetry；release 脚本会给 Tauri NSIS installer 注入 workspace version
 
 ## 并行拆分（多会话同时做）——接手按此认领
 **硬约束**：① 每会话**独立 git worktree**（别共用工作目录）：`git worktree add ../ncx-A -b feat/mcp rust-capability`；

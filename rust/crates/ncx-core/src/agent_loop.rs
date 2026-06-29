@@ -66,6 +66,7 @@ pub struct TurnResult {
     pub stop_reason: String,
     pub tools_used: Vec<String>,
     pub usage: std::collections::BTreeMap<String, i64>,
+    pub context_edit: ContextEditStats,
 }
 
 #[derive(Debug, Clone)]
@@ -267,6 +268,7 @@ impl AgentLoop {
                 stop_reason: "blocked".into(),
                 tools_used: Vec::new(),
                 usage: Default::default(),
+                context_edit: ContextEditStats::default(),
             };
         }
         let prompt_hook_notes = if prompt_hook.notes.trim().is_empty() {
@@ -278,6 +280,7 @@ impl AgentLoop {
 
         let mut tools_used: Vec<String> = Vec::new();
         let mut turn_usage: std::collections::BTreeMap<String, i64> = Default::default();
+        let mut turn_context_edit = ContextEditStats::default();
 
         let cancelled = || cancel_check.map(|c| c()).unwrap_or(false);
 
@@ -294,6 +297,7 @@ impl AgentLoop {
                     stop_reason: "cancelled".into(),
                     tools_used,
                     usage: turn_usage,
+                    context_edit: turn_context_edit,
                 };
             }
 
@@ -301,6 +305,7 @@ impl AgentLoop {
             let mut notes = vec![self.budget_note(iteration + 1, tools_used.len())];
             notes.extend(prompt_hook_notes.clone());
             let (response, edit_stats) = self.call_model(&schemas, &notes).await;
+            add_context_edit_stats(&mut turn_context_edit, &edit_stats);
             add_usage(&mut turn_usage, &response.usage);
             if trace_on() {
                 eprintln!(
@@ -336,6 +341,7 @@ impl AgentLoop {
                     stop_reason: "error".into(),
                     tools_used,
                     usage: turn_usage,
+                    context_edit: turn_context_edit,
                 };
             }
 
@@ -351,6 +357,7 @@ impl AgentLoop {
                     stop_reason: "completed".into(),
                     tools_used,
                     usage: turn_usage,
+                    context_edit: turn_context_edit,
                 };
             }
 
@@ -379,14 +386,25 @@ impl AgentLoop {
             while idx < n_calls {
                 // Stop check BEFORE starting the next tool / batch.
                 if cancelled() {
-                    return self.cancel_result(true, iteration, tools_used, turn_usage);
+                    return self.cancel_result(
+                        true,
+                        iteration,
+                        tools_used,
+                        turn_usage,
+                        turn_context_edit,
+                    );
                 }
                 let remaining_tools = self
                     .task_budget
                     .max_tool_calls
                     .saturating_sub(tools_used.len());
                 if remaining_tools == 0 {
-                    return self.budget_result(iteration, tools_used, turn_usage);
+                    return self.budget_result(
+                        iteration,
+                        tools_used,
+                        turn_usage,
+                        turn_context_edit,
+                    );
                 }
 
                 let parallel_run = self.tools.is_read_only(&calls[idx].name)
@@ -458,7 +476,13 @@ impl AgentLoop {
 
                 // A tool can hang; honor a Stop pressed while it ran.
                 if cancelled() {
-                    return self.cancel_result(false, iteration, tools_used, turn_usage);
+                    return self.cancel_result(
+                        false,
+                        iteration,
+                        tools_used,
+                        turn_usage,
+                        turn_context_edit,
+                    );
                 }
             }
         }
@@ -474,6 +498,7 @@ impl AgentLoop {
             stop_reason: "task_budget".into(),
             tools_used,
             usage: turn_usage,
+            context_edit: turn_context_edit,
         }
     }
 
@@ -524,6 +549,7 @@ impl AgentLoop {
         iteration: usize,
         tools_used: Vec<String>,
         turn_usage: std::collections::BTreeMap<String, i64>,
+        context_edit: ContextEditStats,
     ) -> TurnResult {
         let placeholder = if before {
             "[interrupted: stopped by user before this tool ran]"
@@ -539,6 +565,7 @@ impl AgentLoop {
             stop_reason: "cancelled".into(),
             tools_used,
             usage: turn_usage,
+            context_edit,
         }
     }
 
@@ -547,6 +574,7 @@ impl AgentLoop {
         iteration: usize,
         tools_used: Vec<String>,
         turn_usage: std::collections::BTreeMap<String, i64>,
+        context_edit: ContextEditStats,
     ) -> TurnResult {
         self.session.backfill_unanswered_tool_calls(
             "[interrupted: task budget exhausted before this tool ran]",
@@ -565,6 +593,7 @@ impl AgentLoop {
             stop_reason: "task_budget".into(),
             tools_used,
             usage: turn_usage,
+            context_edit,
         }
     }
 }
@@ -628,6 +657,13 @@ fn add_usage(
     for (k, v) in usage {
         *acc.entry(k.clone()).or_insert(0) += v;
     }
+}
+
+fn add_context_edit_stats(acc: &mut ContextEditStats, stats: &ContextEditStats) {
+    acc.original_chars = stats.original_chars;
+    acc.edited_chars = stats.edited_chars;
+    acc.compressed_tool_results += stats.compressed_tool_results;
+    acc.dropped_messages += stats.dropped_messages;
 }
 
 // ── tests (mirror tests/test_loop.py) ─────────────────────────────────────────
@@ -916,6 +952,40 @@ mod tests {
                     .unwrap_or("")
                     .contains("tool_calls 0/4")
         }));
+    }
+
+    #[tokio::test]
+    async fn context_edit_stats_are_returned_for_turn() {
+        let ws = tmpdir("turn_context_edit_stats");
+        let mut loop_ = build(
+            &ws,
+            Box::new(ScriptedProvider::new(vec![ModelResponse {
+                content: "done".into(),
+                ..Default::default()
+            }])),
+        )
+        .with_context_edit(crate::session::ContextEditPolicy {
+            enabled: true,
+            max_chars: 260,
+            keep_recent_messages: 1,
+            max_tool_result_chars: 16,
+        });
+        loop_.session.add_user_text("inspect historical logs");
+        loop_.session.add_assistant(
+            "",
+            Some(vec![json!({"id": "old-call", "type": "function", "function": {"name": "shell", "arguments": "{}"}})]),
+            "",
+        );
+        loop_
+            .session
+            .add_tool_result("old-call", "shell", &"x".repeat(500));
+
+        let result = loop_.run_turn(json!("continue"), None).await;
+
+        assert_eq!(result.stop_reason, "completed");
+        assert!(result.context_edit.original_chars > result.context_edit.edited_chars);
+        assert_eq!(result.context_edit.compressed_tool_results, 1);
+        assert!(result.context_edit.dropped_messages > 0);
     }
 
     #[tokio::test]

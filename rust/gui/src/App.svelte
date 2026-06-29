@@ -17,6 +17,7 @@
         stop_reason: string;
         tools_used: string[];
         usage: UsageMap;
+        context_edit: ContextEditStats;
       }
     | { kind: "error"; message: string };
 
@@ -102,18 +103,27 @@
   let memoryBusy = $state(false);
 
   type UsageMap = Record<string, number>;
+  type ContextEditStats = {
+    original_chars: number;
+    edited_chars: number;
+    compressed_tool_results: number;
+    dropped_messages: number;
+  };
   type TurnMetrics = {
     usage: UsageMap;
     iterations: number;
     tool_calls: number;
     tools_used: string[];
     stop_reason: string;
+    context_edit: ContextEditStats;
   };
   let usageOpen = $state(false);
   let lastMetrics = $state<TurnMetrics | null>(null);
   let sessionUsage = $state<UsageMap>({});
   let sessionModelCalls = $state(0);
   let sessionToolCalls = $state(0);
+  let sessionCompressedToolResults = $state(0);
+  let sessionDroppedMessages = $state(0);
 
   type Msg =
     | { role: "user" | "assistant" | "note"; text: string }
@@ -463,18 +473,36 @@
     return merged;
   }
 
+  function emptyContextEdit(): ContextEditStats {
+    return {
+      original_chars: 0,
+      edited_chars: 0,
+      compressed_tool_results: 0,
+      dropped_messages: 0,
+    };
+  }
+
+  function savedContextChars(stats: ContextEditStats | null | undefined) {
+    if (!stats) return 0;
+    return Math.max(0, stats.original_chars - stats.edited_chars);
+  }
+
   function recordMetrics(turn: Extract<UiEvent, { kind: "done" }>) {
     const tools = turn.tools_used ?? [];
+    const contextEdit = turn.context_edit ?? emptyContextEdit();
     lastMetrics = {
       usage: turn.usage ?? {},
       iterations: turn.iterations ?? 0,
       tool_calls: tools.length,
       tools_used: tools,
       stop_reason: turn.stop_reason,
+      context_edit: contextEdit,
     };
     sessionUsage = addUsage(sessionUsage, turn.usage);
     sessionModelCalls += turn.iterations ?? 0;
     sessionToolCalls += tools.length;
+    sessionCompressedToolResults += contextEdit.compressed_tool_results ?? 0;
+    sessionDroppedMessages += contextEdit.dropped_messages ?? 0;
   }
 
   function resetUsage() {
@@ -482,6 +510,8 @@
     sessionUsage = {};
     sessionModelCalls = 0;
     sessionToolCalls = 0;
+    sessionCompressedToolResults = 0;
+    sessionDroppedMessages = 0;
   }
 
   function formatMemoryTime(ts: number) {
@@ -585,6 +615,20 @@
             <div class="usage-row"><span>Total tokens</span><b>{totalTokens(sessionUsage)}</b></div>
             <div class="usage-row"><span>Cache hit</span><b>{usageValue(sessionUsage, "prompt_cache_hit_tokens")}</b></div>
             <div class="usage-row"><span>Cache miss</span><b>{usageValue(sessionUsage, "prompt_cache_miss_tokens")}</b></div>
+          </div>
+          <div class="usage-card">
+            <strong>Context edit</strong>
+            {#if lastMetrics}
+              <div class="usage-row"><span>Original chars</span><b>{lastMetrics.context_edit.original_chars}</b></div>
+              <div class="usage-row"><span>Edited chars</span><b>{lastMetrics.context_edit.edited_chars}</b></div>
+              <div class="usage-row"><span>Saved chars</span><b>{savedContextChars(lastMetrics.context_edit)}</b></div>
+              <div class="usage-row"><span>Compressed tools</span><b>{lastMetrics.context_edit.compressed_tool_results}</b></div>
+              <div class="usage-row"><span>Dropped messages</span><b>{lastMetrics.context_edit.dropped_messages}</b></div>
+            {:else}
+              <p class="emptyline">No context edit yet.</p>
+            {/if}
+            <div class="usage-row"><span>Session compressed</span><b>{sessionCompressedToolResults}</b></div>
+            <div class="usage-row"><span>Session dropped</span><b>{sessionDroppedMessages}</b></div>
           </div>
         </div>
         {#if lastMetrics?.tools_used.length}

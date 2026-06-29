@@ -564,7 +564,9 @@ don't compact too late.
 
 In the Rust CLI, `/compact` materializes the active context-edit policy into the
 live session and rewrites the workspace session log, so future turns and
-`--resume` continue from the compacted history.
+`--resume` continue from the compacted history. Rust `/usage` and the Tauri
+GUI's `U` panel also surface send-time context editing telemetry: original
+chars, edited chars, saved chars, compressed tool results, and dropped messages.
 
 ## Token Usage & Cost
 
@@ -627,7 +629,7 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
 - Custom command panel backed by the same core `.nanocodex/.claude` template
   engine the CLI uses.
 - Usage panel for last-turn and session model calls, tool calls, prompt tokens,
-  completion tokens, and cache hit/miss tokens.
+  completion tokens, cache hit/miss tokens, and context-edit telemetry.
 - Memory panel for viewing project notes, adding verified notes, opening
   `LEARNINGS.md`, heuristic deduplication, and LLM-backed memory merge.
 

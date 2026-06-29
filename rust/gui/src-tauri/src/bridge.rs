@@ -47,6 +47,14 @@ pub const EVENT: &str = "ncx://event";
 /// to answer). `Send + Sync` so it can live in Tauri state.
 pub type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>>;
 
+#[derive(Clone, Serialize)]
+pub struct ContextEditView {
+    original_chars: usize,
+    edited_chars: usize,
+    compressed_tool_results: usize,
+    dropped_messages: usize,
+}
+
 /// A request from the UI to the agent thread.
 pub enum Command {
     Prompt(String),
@@ -87,6 +95,7 @@ pub enum UiEvent {
         stop_reason: String,
         tools_used: Vec<String>,
         usage: BTreeMap<String, i64>,
+        context_edit: ContextEditView,
     },
     /// Fatal setup/turn error.
     Error { message: String },
@@ -324,6 +333,14 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                                     stop_reason: result.stop_reason,
                                     tools_used: result.tools_used,
                                     usage: result.usage,
+                                    context_edit: ContextEditView {
+                                        original_chars: result.context_edit.original_chars,
+                                        edited_chars: result.context_edit.edited_chars,
+                                        compressed_tool_results: result
+                                            .context_edit
+                                            .compressed_tool_results,
+                                        dropped_messages: result.context_edit.dropped_messages,
+                                    },
                                 },
                             );
                         }
