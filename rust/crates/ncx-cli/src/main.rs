@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use ncx_config::{
     load_config, load_mcp_connectors, load_mcp_servers, permission_mode_to_knobs,
@@ -632,7 +632,7 @@ fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str, workspace: &Pa
         }
         let mut out = String::from("Memory proposal harvest");
         let mut total = 0usize;
-        let mut now = ncx_core::task_ledger_now();
+        let mut now = epoch_seconds();
         for path in paths {
             let source = path
                 .strip_prefix(workspace)
@@ -657,7 +657,7 @@ fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str, workspace: &Pa
         return out;
     }
     if arg == "accept-all" {
-        return match memory.accept_all_proposals(ncx_core::task_ledger_now()) {
+        return match memory.accept_all_proposals(epoch_seconds()) {
             Ok(count) => format!("Accepted {count} memory proposals."),
             Err(e) => format!("Error accepting memory proposals: {e}"),
         };
@@ -693,7 +693,7 @@ fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str, workspace: &Pa
         if id.is_empty() {
             return "Usage: /memory accept <proposal-id>".into();
         }
-        return match memory.accept_proposal(id, ncx_core::task_ledger_now()) {
+        return match memory.accept_proposal(id, epoch_seconds()) {
             Ok(true) => format!("Accepted memory proposal {id}."),
             Ok(false) => format!("No pending memory proposal found for {id}."),
             Err(e) => format!("Error accepting memory proposal {id}: {e}"),
@@ -715,7 +715,7 @@ fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str, workspace: &Pa
         if note.is_empty() {
             return "Usage: /memory propose <candidate-note>".into();
         }
-        return match memory.propose(note, &[], "cli", ncx_core::task_ledger_now()) {
+        return match memory.propose(note, &[], "cli", epoch_seconds()) {
             Ok(Some(p)) => format!("Queued memory proposal {}.", p.id),
             Ok(None) => "Already trusted/pending in project memory (or empty).".into(),
             Err(e) => format!("Error queuing memory proposal: {e}"),
@@ -744,6 +744,13 @@ fn resolve_workspace_path(workspace: &Path, raw: &str) -> PathBuf {
     } else {
         workspace.join(path)
     }
+}
+
+fn epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {

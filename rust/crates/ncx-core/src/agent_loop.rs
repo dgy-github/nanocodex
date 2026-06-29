@@ -6,7 +6,7 @@
 //! tool stays serial and in order. Image-bearing turns route to the optional
 //! vision provider.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use futures_util::future::join_all;
@@ -311,10 +311,12 @@ impl AgentLoop {
         // Take the sink out so the inner loop can emit through a local without
         // borrow-conflicting with `&mut self`; restore it after (one return path).
         let mut sink = self.event_sink.take();
+        let turn_start = self.session.messages.len();
         let result = self
             .run_turn_inner(user_input, cancel_check, &mut sink)
             .await;
         let result = self.apply_stop_hook(result, &mut sink).await;
+        self.harvest_runtime_memory_proposals(turn_start, &result);
         self.event_sink = sink;
         result
     }
@@ -683,6 +685,25 @@ impl AgentLoop {
             context_edit,
         }
     }
+
+    fn harvest_runtime_memory_proposals(&self, turn_start: usize, result: &TurnResult) {
+        let Some(memory) = &self.tools.ctx.memory else {
+            return;
+        };
+        if turn_start > self.session.messages.len() {
+            return;
+        }
+        let messages = &self.session.messages[turn_start..];
+        if messages.is_empty() {
+            return;
+        }
+        let _ = memory.harvest_proposals_from_turn(
+            "runtime_turn",
+            messages,
+            &result.stop_reason,
+            epoch_seconds(),
+        );
+    }
 }
 
 /// True when the user content carries at least one `image_url` block.
@@ -734,6 +755,13 @@ fn truncate(s: &str, max: usize) -> String {
         let head: String = s.chars().take(max).collect();
         format!("{head}…")
     }
+}
+
+fn epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Sum token usage across model calls (mirrors `pricing.add_usage`).
@@ -1038,6 +1066,23 @@ mod tests {
         }
     }
 
+    struct FailingTool;
+    #[async_trait(?Send)]
+    impl Tool for FailingTool {
+        fn name(&self) -> &str {
+            "fail_tool"
+        }
+        fn description(&self) -> &str {
+            "returns a deterministic failure"
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object", "properties": {}})
+        }
+        async fn execute(&self, _ctx: &ToolContext, _args: &Value) -> String {
+            "Error: cargo was not found on PATH".into()
+        }
+    }
+
     #[tokio::test]
     async fn task_budget_is_visible_to_model() {
         let ws = tmpdir("budget_note");
@@ -1110,6 +1155,48 @@ mod tests {
             .messages
             .iter()
             .any(|m| { m["content"].as_str().unwrap_or("").contains("GNU target") }));
+    }
+
+    #[tokio::test]
+    async fn runtime_failures_and_corrections_queue_memory_proposals() {
+        let ws = tmpdir("runtime_memory_harvest");
+        let memory = Rc::new(crate::memory::MemoryStore::new(
+            ws.join(".ncx").join("memory"),
+        ));
+        let policy = SandboxPolicy::new(WORKSPACE_WRITE, &ws);
+        let ctx = ToolContext::new(ws.clone(), policy).with_memory(memory.clone());
+        let mut tools = ToolRegistry::new(ctx);
+        tools.register(Box::new(FailingTool));
+        let session = Session::new("system prompt");
+        let provider = ScriptedProvider::new(vec![
+            assistant_toolcall(vec![tc("f1", "fail_tool", json!({}))]),
+            ModelResponse {
+                content: "Verified that the workaround is to install Rust before release.".into(),
+                ..Default::default()
+            },
+        ]);
+        let mut loop_ = AgentLoop::new(Box::new(provider), tools, session).with_max_iterations(5);
+
+        let result = loop_
+            .run_turn(
+                json!("下次必须先运行 cargo --version 确认 Rust 工具链存在。"),
+                None,
+            )
+            .await;
+
+        assert_eq!(result.stop_reason, "completed");
+        assert!(memory.entries().is_empty());
+        let proposals = memory.proposals();
+        assert!(
+            proposals.len() >= 2,
+            "expected correction/failure proposals, got {proposals:?}"
+        );
+        assert!(proposals
+            .iter()
+            .any(|p| p.tags.contains(&"failure".to_string())));
+        assert!(proposals
+            .iter()
+            .any(|p| p.tags.contains(&"correction".to_string())));
     }
 
     #[tokio::test]

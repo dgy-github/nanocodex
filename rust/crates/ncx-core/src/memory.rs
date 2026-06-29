@@ -23,6 +23,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use serde_json::Value;
 
 /// Merges several same-topic facts into one concise note (the LLM-backed
 /// consolidation). `None` = couldn't summarize → caller keeps the newest.
@@ -164,6 +165,26 @@ impl MemoryStore {
         now: u64,
     ) -> std::io::Result<Vec<MemoryProposal>> {
         let candidates = extract_memory_candidates(source, text);
+        let mut created = Vec::new();
+        for (i, (note, tags)) in candidates.into_iter().enumerate() {
+            if let Some(p) = self.propose(&note, &tags, source, now + i as u64)? {
+                created.push(p);
+            }
+        }
+        Ok(created)
+    }
+
+    /// Extract candidate learnings from one completed runtime turn. This looks
+    /// for explicit user corrections, tool failure output, and assistant
+    /// resolution notes, then queues proposals for review.
+    pub fn harvest_proposals_from_turn(
+        &self,
+        source: &str,
+        messages: &[Value],
+        stop_reason: &str,
+        now: u64,
+    ) -> std::io::Result<Vec<MemoryProposal>> {
+        let candidates = extract_runtime_candidates(source, messages, stop_reason);
         let mut created = Vec::new();
         for (i, (note, tags)) in candidates.into_iter().enumerate() {
             if let Some(p) = self.propose(&note, &tags, source, now + i as u64)? {
@@ -544,6 +565,212 @@ fn extract_memory_candidates(source: &str, text: &str) -> Vec<(String, Vec<Strin
         }
     }
     out
+}
+
+fn extract_runtime_candidates(
+    source: &str,
+    messages: &[Value],
+    stop_reason: &str,
+) -> Vec<(String, Vec<String>)> {
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    for msg in messages {
+        let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("");
+        let text = message_content_text(msg);
+        if text.trim().is_empty() {
+            continue;
+        }
+        match role {
+            "user" => {
+                for note in correction_candidates(&text) {
+                    push_runtime_candidate(&mut out, source, note, &["runtime", "correction"]);
+                }
+            }
+            "tool" => {
+                if failure_like(&text) {
+                    let name = msg
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("tool");
+                    let snippet = failure_snippet(&text);
+                    let note = format!("Tool `{name}` failed with: {snippet}");
+                    push_runtime_candidate(&mut out, source, note, &["runtime", "failure"]);
+                }
+            }
+            "assistant" => {
+                if resolution_like(&text)
+                    || stop_reason == "task_budget"
+                    || stop_reason == "error"
+                {
+                    for (note, mut tags) in extract_memory_candidates(source, &text) {
+                        tags.push("runtime".into());
+                        tags.push("resolution".into());
+                        push_runtime_candidate_with_tags(&mut out, note, tags);
+                    }
+                }
+            }
+            _ => {}
+        }
+        if out.len() >= MAX_HARVEST_PROPOSALS {
+            break;
+        }
+    }
+    out
+}
+
+fn push_runtime_candidate(
+    out: &mut Vec<(String, Vec<String>)>,
+    source: &str,
+    note: String,
+    extra_tags: &[&str],
+) {
+    let mut tags = proposal_tags_for(source, &note);
+    for tag in extra_tags {
+        let tag = tag.to_string();
+        if !tags.contains(&tag) {
+            tags.push(tag);
+        }
+    }
+    push_runtime_candidate_with_tags(out, note, tags);
+}
+
+fn push_runtime_candidate_with_tags(
+    out: &mut Vec<(String, Vec<String>)>,
+    note: String,
+    tags: Vec<String>,
+) {
+    let note = note.split_whitespace().collect::<Vec<_>>().join(" ");
+    let len = note.chars().count();
+    if !(18..=220).contains(&len) {
+        return;
+    }
+    if out.iter().any(|(existing, _)| normalize(existing) == normalize(&note)) {
+        return;
+    }
+    out.push((note, clean_tags(&tags)));
+}
+
+fn correction_candidates(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(clean_candidate_line)
+        .filter(|line| correction_like(line) && line_worth_proposing(line))
+        .take(MAX_HARVEST_PROPOSALS)
+        .collect()
+}
+
+fn message_content_text(msg: &Value) -> String {
+    let Some(content) = msg.get("content") else {
+        return String::new();
+    };
+    value_text(content)
+}
+
+fn value_text(value: &Value) -> String {
+    if let Some(s) = value.as_str() {
+        return s.to_string();
+    }
+    if let Some(blocks) = value.as_array() {
+        return blocks
+            .iter()
+            .filter_map(|b| {
+                if b.get("type").and_then(|v| v.as_str()) == Some("text") {
+                    b.get("text").and_then(|v| v.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    value.to_string()
+}
+
+fn correction_like(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "actually",
+        "instead",
+        "correction",
+        "should",
+        "must",
+        "do not",
+        "don't",
+        "remember",
+        "不是",
+        "错了",
+        "改成",
+        "应该",
+        "必须",
+        "不要",
+        "别",
+        "记得",
+        "以后",
+        "下次",
+    ]
+    .iter()
+    .any(|m| lower.contains(m))
+}
+
+fn failure_like(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "error:",
+        "failed",
+        "failure",
+        "not found",
+        "exit code",
+        "panic",
+        "timeout",
+        "timed out",
+        "denied",
+        "permission",
+        "missing",
+        "失败",
+        "报错",
+        "找不到",
+        "未找到",
+        "缺少",
+        "拒绝",
+        "超时",
+    ]
+    .iter()
+    .any(|m| lower.contains(m))
+}
+
+fn resolution_like(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "fixed",
+        "resolved",
+        "verified",
+        "workaround",
+        "root cause",
+        "原因",
+        "修复",
+        "解决",
+        "通过",
+        "验证",
+    ]
+    .iter()
+    .any(|m| lower.contains(m))
+}
+
+fn failure_snippet(text: &str) -> String {
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && failure_like(line))
+        .or_else(|| text.lines().map(str::trim).find(|line| !line.is_empty()))
+        .unwrap_or(text);
+    truncate_chars(&line.split_whitespace().collect::<Vec<_>>().join(" "), 180)
+}
+
+fn truncate_chars(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_string()
+    } else {
+        let head = text.chars().take(max).collect::<String>();
+        format!("{head}...")
+    }
 }
 
 fn clean_candidate_line(line: &str) -> Option<String> {
@@ -1070,6 +1297,44 @@ mod tests {
         assert_eq!(s.reject_all_proposals().unwrap(), 2);
         assert!(s.proposals().is_empty());
         assert_eq!(s.entries().len(), 2);
+    }
+
+    #[test]
+    fn harvests_runtime_corrections_and_failures_as_pending() {
+        let s = store("runtime_harvest");
+        let messages = vec![
+            serde_json::json!({
+                "role": "user",
+                "content": "下次必须先运行 cmd /c npm run build 验证 Tauri 面板。"
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "name": "shell",
+                "content": "error: cargo was not found on PATH"
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": "- Verified that the frontend build passes after the fix."
+            }),
+        ];
+
+        let created = s
+            .harvest_proposals_from_turn("runtime_turn", &messages, "completed", 100)
+            .unwrap();
+
+        assert_eq!(created.len(), 3);
+        assert!(s.entries().is_empty());
+        assert!(s.recall("cargo frontend", 5, 4000).is_empty());
+        let proposals = s.proposals();
+        assert!(proposals
+            .iter()
+            .any(|p| p.tags.contains(&"correction".to_string())));
+        assert!(proposals
+            .iter()
+            .any(|p| p.tags.contains(&"failure".to_string())));
+        assert!(proposals
+            .iter()
+            .any(|p| p.text.contains("cargo was not found")));
     }
 
     #[test]

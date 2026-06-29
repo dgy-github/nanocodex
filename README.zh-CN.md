@@ -156,7 +156,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 | Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
 | Context editing | 58-68% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体和策略化 context 预算分配。 |
 | Tool search / connectors | 62-72% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、gold-case 排名测试，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry 和大规模动态工具排序。 |
-| Semantic memory | 65-75% | query-scoped lexical-semantic recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝，以及 handoff/release 文档提炼 proposal 已有；还缺从实时纠错/失败修复自动生成 proposal 和更强 embedding/vector 检索。 |
+| Semantic memory | 70-80% | query-scoped lexical-semantic recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼，以及运行时纠正/失败 proposal 提炼已有；还缺更强 embedding/vector 检索和平台级长期 memory。 |
 
 最大的剩余差距不是普通 Rust 代码量，而是平台能力：Anthropic 原生工具/connector
 生态、托管 task budget 与云端执行、模型集成的 context 管理、一方 memory 行为，以及
@@ -529,7 +529,8 @@ Look for behavior regressions first, then missing tests, then maintainability.
   可传 `propose=true`，CLI 可用 `/memory propose <note>`、`/memory edit <id> <note>`、
   `/memory accept <id>`、`/memory reject <id>`、`/memory accept-all`、`/memory reject-all`，
   或 `/memory harvest [path]` 从 handoff/release 文档提炼候选；Tauri Memory 面板也能从文档
-  提炼、编辑文本/tags，并提供单条/批量接受拒绝。提议被接受前不会进入 `LEARNINGS.md`，也不会被召回。
+  提炼、编辑文本/tags，并提供单条/批量接受拒绝。正常 turn 结束后，明确的用户纠正、工具失败、
+  assistant 修复/验证说明也会被启发式提炼成待审提议。提议被接受前不会进入 `LEARNINGS.md`，也不会被召回。
 - **用户记忆**（`~/.nanocodex/memory.md`）—— 持久的个人事实和偏好。由 `remember`
   工具写入、在 legacy Python GUI 输入框里打 `# 内容` 快速捕获、或手工编辑。Python 线会包在
   `<user_memory>` 块里。
