@@ -28,6 +28,7 @@ const ALWAYS_VISIBLE_TOOLS: &[&str] = &[
     "apply_patch",
     "update_plan",
     "shell",
+    "code_exec",
     "tool_search",
     "skill",
 ];
@@ -259,7 +260,8 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
-    /// Build the default registry: read_file, apply_patch, update_plan, shell.
+    /// Build the default registry: read_file, apply_patch, update_plan, shell,
+    /// code_exec, search, tool_search, memory (optional), and skills (optional).
     pub fn new(ctx: ToolContext) -> Self {
         let mut reg = ToolRegistry {
             ctx,
@@ -270,6 +272,7 @@ impl ToolRegistry {
         reg.register(Box::new(ApplyPatchTool));
         reg.register(Box::new(UpdatePlanTool));
         reg.register(Box::new(ShellTool));
+        reg.register(Box::new(CodeExecTool));
         reg.register(Box::new(crate::search::GrepTool));
         reg.register(Box::new(crate::search::GlobTool));
         reg.register(Box::new(crate::search::WebSearchTool));
@@ -561,6 +564,9 @@ fn query_aliases(word: &str) -> &'static [&'static str] {
         "release" => &["installer", "package", "build"],
         "build" | "test" | "tests" => &["shell", "command", "cargo", "pytest"],
         "shell" | "terminal" => &["command", "powershell", "cmd"],
+        "code" | "execute" | "execution" | "python" | "node" | "javascript" | "snippet" => {
+            &["code_exec", "eval", "script", "analysis"]
+        }
         "edit" | "patch" => &["apply", "update", "file"],
         "read" | "file" => &["read", "contents", "path"],
         "plan" | "todo" => &["steps", "status", "update"],
@@ -966,6 +972,59 @@ mod tests {
         assert!(ws.join("ncxsub").is_dir());
     }
 
+    #[test]
+    fn base64_encode_matches_known_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn code_exec_command_wraps_snippet_as_base64() {
+        let raw = "print(\"hi\")";
+        let command = CodeExecTool::command_for("python", raw).unwrap();
+        assert!(command.starts_with("python -c "), "{command}");
+        assert!(command.contains(&base64_encode(raw.as_bytes())), "{command}");
+        assert!(!command.contains(raw), "{command}");
+    }
+
+    #[tokio::test]
+    async fn code_exec_rejects_unknown_language() {
+        let ws = tmp_ws("code_exec_unknown");
+        let ctx = ToolContext::new(ws.clone(), SandboxPolicy::new(WORKSPACE_WRITE, &ws));
+        let out = CodeExecTool
+            .execute(&ctx, &json!({"language": "ruby", "code": "puts 1"}))
+            .await;
+        assert!(out.contains("unsupported language"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn code_exec_uses_shell_approval_path() {
+        let ws = tmp_ws("code_exec_approval");
+        let ctx = ToolContext::new(ws.clone(), SandboxPolicy::new(ncx_sandbox::READ_ONLY, &ws));
+        let out = CodeExecTool
+            .execute(&ctx, &json!({"language": "python", "code": "print(1)"}))
+            .await;
+        assert!(out.contains("requires approval"), "{out}");
+        assert_eq!(ctx.approval_request_count(), 0);
+    }
+
+    #[test]
+    fn default_registry_exposes_code_exec() {
+        let ws = tmp_ws("code_exec_registry");
+        let ctx = ToolContext::new(ws.clone(), SandboxPolicy::new(WORKSPACE_WRITE, &ws));
+        let reg = ToolRegistry::new(ctx);
+        assert!(reg.get("code_exec").is_some());
+        let names: Vec<String> = reg
+            .schemas_limited_for_query("run python snippet", DEFAULT_VISIBLE_TOOL_LIMIT)
+            .iter()
+            .filter_map(|s| s["function"]["name"].as_str().map(String::from))
+            .collect();
+        assert!(names.contains(&"code_exec".to_string()), "{names:?}");
+    }
+
     struct NamedTool(&'static str, &'static str);
     #[async_trait(?Send)]
     impl Tool for NamedTool {
@@ -1034,6 +1093,13 @@ mod tests {
                 name: "shell".into(),
                 description:
                     "Run shell commands in the workspace to build, test, run git, or inspect output."
+                        .into(),
+                read_only: false,
+            },
+            ToolCatalogEntry {
+                name: "code_exec".into(),
+                description:
+                    "Run a small local Python or Node snippet under sandbox approval for calculations, parsing, and data analysis."
                         .into(),
                 read_only: false,
             },
@@ -1175,6 +1241,8 @@ mod tests {
             ("write todo plan", "update_plan"),
             ("run terminal command", "shell"),
             ("run unit tests", "shell"),
+            ("run python snippet", "code_exec"),
+            ("execute javascript code", "code_exec"),
             ("save project memory note", "remember"),
             ("load skill playbook", "skill"),
             ("search tools capability", "tool_search"),
@@ -1674,4 +1742,111 @@ impl Tool for SkillTool {
             Err(e) => format!("Error loading skill '{}': {e}", skill.name),
         }
     }
+}
+
+/// `code_exec` runs a small Python/Node snippet through the same sandbox and
+/// approval path as `shell`. This is a local convenience tool, not model-native
+/// hosted code execution.
+pub struct CodeExecTool;
+
+const CODE_EXEC_MAX_BYTES: usize = 4096;
+
+impl CodeExecTool {
+    fn command_for(language: &str, code: &str) -> Result<String, String> {
+        let encoded = base64_encode(code.as_bytes());
+        match language.trim().to_ascii_lowercase().as_str() {
+            "python" | "py" => Ok(format!(
+                "python -c \"import base64;exec(base64.b64decode('{encoded}').decode('utf-8'))\""
+            )),
+            "node" | "javascript" | "js" => Ok(format!(
+                "node -e \"eval(Buffer.from('{encoded}','base64').toString('utf8'))\""
+            )),
+            other => Err(format!(
+                "Error: unsupported language '{other}'. Use 'python' or 'node'."
+            )),
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl Tool for CodeExecTool {
+    fn name(&self) -> &str {
+        "code_exec"
+    }
+    fn description(&self) -> &str {
+        "Run a small local Python or Node snippet under the same sandbox, \
+         approval, timeout, and working-directory policy as shell. Use this for \
+         quick calculations, parsing, or data analysis. It is not model-native \
+         hosted code execution; use files plus shell for larger programs."
+    }
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "language": {"type": "string", "enum": ["python", "node", "javascript", "js", "py"], "description": "Snippet runtime."},
+                "code": {"type": "string", "description": "Small code snippet to execute. Keep it under 4 KiB; use files plus shell for larger programs."},
+                "workdir": {"type": "string", "description": "Working directory (defaults to the workspace root)."},
+                "timeout": {"type": "integer", "minimum": 1, "maximum": 600, "description": "Timeout in seconds."},
+                "justification": {"type": "string", "description": "Why this is needed; shown if approval is required."},
+            },
+            "required": ["language", "code"],
+        })
+    }
+    async fn execute(&self, ctx: &ToolContext, args: &Value) -> String {
+        let Some(language) = args.get("language").and_then(|v| v.as_str()) else {
+            return "Error: 'language' is required and must be a string.".into();
+        };
+        let Some(code) = args.get("code").and_then(|v| v.as_str()) else {
+            return "Error: 'code' is required and must be a string.".into();
+        };
+        if code.trim().is_empty() {
+            return "Error: 'code' must not be empty.".into();
+        }
+        if code.len() > CODE_EXEC_MAX_BYTES {
+            return format!(
+                "Error: 'code' is too large ({} bytes); keep snippets under {CODE_EXEC_MAX_BYTES} bytes or use files plus shell.",
+                code.len()
+            );
+        }
+        let command = match Self::command_for(language, code) {
+            Ok(command) => command,
+            Err(e) => return e,
+        };
+        let mut shell_args = json!({ "command": command });
+        for key in ["workdir", "timeout", "justification"] {
+            if let Some(value) = args.get(key) {
+                shell_args[key] = value.clone();
+            }
+        }
+        if shell_args.get("justification").is_none() {
+            shell_args["justification"] =
+                json!("Run local code snippet under sandbox policy.");
+        }
+        ShellTool.execute(ctx, &shell_args).await
+    }
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    let mut i = 0;
+    while i < data.len() {
+        let b0 = data[i];
+        let b1 = *data.get(i + 1).unwrap_or(&0);
+        let b2 = *data.get(i + 2).unwrap_or(&0);
+        out.push(TABLE[(b0 >> 2) as usize] as char);
+        out.push(TABLE[(((b0 & 0b0000_0011) << 4) | (b1 >> 4)) as usize] as char);
+        if i + 1 < data.len() {
+            out.push(TABLE[(((b1 & 0b0000_1111) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if i + 2 < data.len() {
+            out.push(TABLE[(b2 & 0b0011_1111) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        i += 3;
+    }
+    out
 }

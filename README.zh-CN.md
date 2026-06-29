@@ -104,7 +104,7 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   runtime note / memory 竞争预算，以及压缩后的 tool_call/tool_result 配对合法性。
 - **Tool search：** 工具注册时会进入 catalog。小工具集仍全量暴露；工具变多时只暴露核心
   工具和 `tool_search`，搜索命中的工具会在下一轮 schema 里出现。排序会识别 MCP
-  工具命名空间（`mcp__server__tool`），并用 27 条覆盖 core tools、MCP connectors
+  工具命名空间（`mcp__server__tool`），并用 29 条覆盖 core tools、MCP connectors
   和 release packaging 的 tool-selection gold cases 做回归覆盖；MCP tool description
   也会补上确定性的 category/capability hints，弥补稀疏 connector metadata。Rust REPL 提供
   `/tools` 检查工具 catalog、当前可见 schema 视图和 active search hints；
@@ -122,12 +122,12 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 
 - **架构硬化：** 沙箱、审批引擎、provider adapter、工具注册表、记忆存储和编排器都有
   显式类型契约，不再主要依赖 Python 的动态对象边界。
-- **动作边界更清楚：** 文件、shell、搜索、记忆操作都经过同一个 tool context，审批和
+- **动作边界更清楚：** 文件、shell/`code_exec`、搜索、记忆操作都经过同一个 tool context，审批和
   沙箱检查贴近真实执行点。
 - **并行编排更稳：** 隔离 worker 副本、verifier 选择、结果 promote 回真实工作区这些
   流程，在显式所有权和类型系统下更容易证明不会互相踩写。
-- **运行时控制面：** task budget、context editing、tool search、semantic memory 放在
-  Rust runtime 边界里；memory 召回按每轮 prompt 发送时注入，而不是只靠启动 prompt 约定。
+- **运行时控制面：** task budget、context editing、tool search、semantic memory 和沙箱化
+  `code_exec` 放在 Rust runtime 边界里；memory 召回按每轮 prompt 发送时注入，而不是只靠启动 prompt 约定。
 - **Checkpoint / restore：** Rust CLI 和 Tauri GUI 都会在模型轮次前创建文件
   checkpoint。CLI 提供 `/checkpoint`、`/checkpoints`、`/restore <id>`；GUI 提供
   checkpoint 面板用于手动保存、列表查看和恢复。
@@ -157,7 +157,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.8、Sonnet 4.6 的 1M context
 
 | 范围 | nanocodex Rust 估算 | 主要原因 |
 | --- | ---: | --- |
-| 本地 CLI harness 与工具循环，假设接入同等级前沿模型 | 55-65% | Rust typed loop、sandbox、审批、工具注册表、memory recall、context editing、checkpoints、MCP、skills 和 Tauri GUI 已覆盖较多本地 coding-agent harness。 |
+| 本地 CLI harness 与工具循环，假设接入同等级前沿模型 | 55-65% | Rust typed loop、sandbox、审批、工具注册表、memory recall、context editing、沙箱化 `code_exec`、checkpoints、MCP、skills 和 Tauri GUI 已覆盖较多本地 coding-agent harness。 |
 | 默认 DeepSeek 兼容模型线，对比 Claude Code + Fable 级模型的端到端表现 | 35-45% | harness 已能支撑不少工作流，但硬任务主要受模型推理、延迟、工具纪律和 Anthropic 原生集成影响。 |
 | Windows 本地发布和分发体验 | 60-70% | 原生 CLI zip 和 Tauri NSIS installer 已具备，但生态规模、跨入口体验和产品抛光还不是 Anthropic 平台级。 |
 
@@ -167,12 +167,14 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.8、Sonnet 4.6 的 1M context
 | --- | ---: | --- |
 | Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
 | Context editing | 72-80% | 发送时编辑会压缩旧 tool result，按 `context_token_budget`/`context_window` 自动推导适配 1M context 的字符与分桶上限，并在丢弃旧前缀前物化带 focus anchors 的确定性摘要 checkpoint；provider payload snapshot、context-pack 分桶 telemetry，以及大工具输出/长历史回归覆盖已让真实模型输入更可审计。还缺 Anthropic 级长上下文质量、模型引导的 focus compaction、平台自动 compact 和更完整的质量评估套件。 |
-| Tool search / connectors | 70-80% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、27 条跨类别 gold-case 排名测试、确定性 MCP category/capability hints、visible-vs-called task-ledger trace、`/tools eval` / `--tools-eval-report` schema-recall 报告，以及可审计的 `connectors.toml` install/auth spec 已降低 schema 和 connector 歧义；还缺完整 OAuth login UX、远程 transport 启动、托管 registry、更大的真实 trace 样本、更丰富的类别体系和大规模动态工具排序。 |
+| Tool search / connectors | 70-80% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、29 条跨类别 gold-case 排名测试、确定性 MCP category/capability hints、visible-vs-called task-ledger trace、`/tools eval` / `--tools-eval-report` schema-recall 报告，以及可审计的 `connectors.toml` install/auth spec 已降低 schema 和 connector 歧义；还缺完整 OAuth login UX、远程 transport 启动、托管 registry、更大的真实 trace 样本、更丰富的类别体系和大规模动态工具排序。 |
 | Semantic memory | 74-82% | query-scoped lexical-semantic recall、本地 vector sidecar recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼，以及运行时纠正/失败 proposal 提炼已有；还缺外部 embedding provider 和平台级长期 memory。 |
 
 最大的剩余差距不是普通 Rust 代码量，而是平台能力：Anthropic 原生工具/connector
 生态、托管 task budget 与云端执行、模型集成的 context 管理、一方 memory 行为，以及
 模型侧代码执行/分析能力。
+新增的本地 `code_exec` 能覆盖快速计算、解析和小片段分析，但它仍通过本地 shell 沙箱执行，
+不是模型/平台内建的托管代码执行环境。
 
 ## 目录
 
@@ -250,7 +252,7 @@ nanocodex/
 ├── provider/
 │   ├── base.py            # Provider / ToolCall / ModelResponse 契约
 │   └── deepseek.py        # OpenAI 兼容的 chat-completions + 流式
-├── tools/                 # shell、apply_patch、update_plan、read_file、
+├── tools/                 # shell、code_exec、apply_patch、update_plan、read_file、
 │                          # web_search、schedule、skills、remember、
 │                          # mcp、mcp_store、marketplace、patch
 ├── sandbox/
@@ -270,6 +272,7 @@ nanocodex/
 | 工具 | 用途 |
 | --- | --- |
 | `shell` | 执行 shell 命令，受沙箱/审批策略约束。 |
+| `code_exec` | 通过同一套沙箱/审批策略执行小段 Python/Node 代码；不等价于模型内建代码执行。 |
 | `apply_patch` | 应用 Codex 风格补丁，创建/编辑/删除文件。 |
 | `update_plan` | 为多步任务维护一个可见的步骤计划。 |
 | `read_file` | 读取工作区里的文件（或某个行区间）。 |

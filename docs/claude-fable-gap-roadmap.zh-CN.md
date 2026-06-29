@@ -17,11 +17,11 @@
 
 ## 当前结论
 
-`nanocodex` 已经从 Python 原型进入 Rust 本地 agent runtime 阶段：typed loop、sandbox、approval、tool registry、MCP、skills、project memory、context editing、checkpoints、session snapshots、Tauri GUI 和 release scripts 都在。但与 Claude Code + Fable 级模型相比，差距主要不在“有没有一个工具循环”，而在平台级闭环：
+`nanocodex` 已经从 Python 原型进入 Rust 本地 agent runtime 阶段：typed loop、sandbox、approval、tool registry、`code_exec`、MCP、skills、project memory、context editing、checkpoints、session snapshots、Tauri GUI 和 release scripts 都在。但与 Claude Code + Fable 级模型相比，差距主要不在“有没有一个工具循环”，而在平台级闭环：
 
 | 对比范围 | 当前估算 | 结论 |
 | --- | ---: | --- |
-| 只看本地 coding-agent harness，并假设接入同等级前沿模型 | 55-65% | 核心 loop、工具、安全、memory、context、GUI 控制面已具备；生态与自动治理还弱。 |
+| 只看本地 coding-agent harness，并假设接入同等级前沿模型 | 55-65% | 核心 loop、工具、安全、`code_exec`、memory、context、GUI 控制面已具备；生态与自动治理还弱。 |
 | 默认 DeepSeek/OpenAI-compatible 模型线，对比 Claude Code + Fable 级模型端到端表现 | 35-45% | 硬任务会被模型推理、长上下文质量、工具纪律和原生平台集成拉开。 |
 | Windows 本地桌面分发体验 | 60-70% | CLI zip、Tauri NSIS installer、配置入口已有；产品抛光和跨入口体验还不到平台级。 |
 
@@ -31,7 +31,7 @@
 | --- | --- | --- |
 | Task budget | Rust loop 强制 per-turn model/tool call budget；CLI `/budget` 可见；Tauri GUI 已恢复每轮模型/工具调用累计面板；`TaskLedger` 写入 `.nanocodex/task-ledger.jsonl` 并报告平均耗时、预算耗尽率和模型/工具预算利用率；orchestrator reason/worker 节点共享父任务预算，worker 会按并行度预留预算并退回未用额度。 | 云端/队列额度、预算超限后的续跑策略、更完整的 CI/端到端预算回归测试。 |
 | Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、按 `context_token_budget`/`context_window` 自动推导 1M-friendly 字符与分桶上限、按预算丢旧前缀，并在截断前生成带 focus anchors 的确定性 assistant 摘要 checkpoint；CLI `/context` 与 Tauri Usage 面板展示 telemetry；每次 provider 调用会写脱敏 payload snapshot 供 `/context payload [N]` 和 GUI Usage 面板审计；telemetry 已按 system/runtime notes/memory/history/tool result 拆出 context-pack 桶；context regression 已覆盖大工具输出、长会话、memory/runtime note 竞争预算和 tool_call/tool_result 配对合法性。 | 模型引导的 focus compaction、长上下文质量验证、更强质量评估套件。 |
-| Tool search / connectors | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog；GUI 也显示 MCP server 连接状态、工具数、启动耗时和最近错误；新增 `connectors.toml` install/auth spec 可审计 transport/source/trusted/permission/allowed_tools/auth/OAuth 元数据，并在 stdio MCP 注册时执行 allow-list 与 permission 策略；tool_search 已加入 MCP namespace-aware 评分和 27 条跨类别 tool-selection gold-case 回归测试；MCP tool description 已自动补充确定性 category/capability hints；TaskLedger 已记录 visible tools 与实际 called tools，`/tools eval [N]` 与 `--tools-eval-report` 可输出 schema recall / missed calls / MCP recall。 | 更大的真实 trace 样本、完整 OAuth login UX、远程 transport 启动、connector registry 治理、更丰富的类别体系和大规模动态工具排序。 |
+| Tool search / connectors | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog；GUI 也显示 MCP server 连接状态、工具数、启动耗时和最近错误；新增 `connectors.toml` install/auth spec 可审计 transport/source/trusted/permission/allowed_tools/auth/OAuth 元数据，并在 stdio MCP 注册时执行 allow-list 与 permission 策略；tool_search 已加入 MCP namespace-aware 评分和 29 条跨类别 tool-selection gold-case 回归测试；MCP tool description 已自动补充确定性 category/capability hints；TaskLedger 已记录 visible tools 与实际 called tools，`/tools eval [N]` 与 `--tools-eval-report` 可输出 schema recall / missed calls / MCP recall。 | 更大的真实 trace 样本、完整 OAuth login UX、远程 transport 启动、connector registry 治理、更丰富的类别体系和大规模动态工具排序。 |
 | Semantic memory | `.ncx/memory/LEARNINGS.md`、query-scoped recall、本地 `.ncx/memory/INDEX.json` vector sidecar、`remember`、启发式/LLM merge、`.ncx/memory/PROPOSALS.md` review queue、CLI `/memory edit/accept/reject/accept-all/reject-all/harvest/index`、Tauri Memory 面板编辑/批量 review/文档提炼/重建索引，以及运行时纠正/工具失败/修复说明提炼已有。 | 外部 embedding provider、平台级长期 memory。 |
 
 ## 平台级差距
@@ -93,7 +93,7 @@
 
 当前差距：约 20-30% 仍未补齐。
 
-已有 schema gating、MCP namespace-aware 排序、27 条覆盖 core tools/MCP connectors/release packaging 的 gold-case 回归、每轮 visible tools / called tools trace、`/tools eval [N]` 交互报告、`--tools-eval-report` release/benchmark 非交互报告，以及确定性 MCP category/capability hints。下一层缺口是扩大真实 trace 规模，并把 missed samples 继续沉淀成更丰富的类别体系。
+已有 schema gating、MCP namespace-aware 排序、29 条覆盖 core tools/MCP connectors/release packaging/code execution 的 gold-case 回归、每轮 visible tools / called tools trace、`/tools eval [N]` 交互报告、`--tools-eval-report` release/benchmark 非交互报告，以及确定性 MCP category/capability hints。下一层缺口是扩大真实 trace 规模，并把 missed samples 继续沉淀成更丰富的类别体系。
 
 下一步：
 
@@ -125,10 +125,13 @@
 
 这类能力依赖模型和平台：模型内部长期记忆、模型侧代码执行环境、1M context 质量、agent teams 的云端运行和安全边界。`nanocodex` 可以做 adapter 和本地近似，但不能把模型能力本身补出来。
 
+已完成：
+
+- 新增本地 `code_exec` 工具：支持小段 Python/Node snippet，执行前会把用户代码 base64 包进启动命令，并复用 `shell` 的沙箱、审批、工作目录、timeout 和 session “always allow” 逻辑。它用于快速计算、解析和小片段分析，但仍是本地 runtime 能力，不等价于模型内建/托管代码执行。
+
 下一步：
 
 - 把 provider 层继续保持 OpenAI-compatible，方便切到更强模型。
-- 给本地 code execution 做显式 sandbox tool，而不是假装等价于模型内建执行。
 - 在 README 中持续区分“runtime 能力”和“模型/平台能力”。
 
 ## 当前新进展
@@ -138,7 +141,8 @@
 - Tauri GUI 已新增 Tools 面板：agent 线程按需发出真实 runtime tool catalog，前端展示 core/MCP 来源、read-only/effectful 分类，以及 MCP server connected/error、注册工具数、启动耗时和最近错误。
 - Tauri GUI Settings 已把配置入口扩展到 `~/.nanocodex/config.toml`、`mcp.toml` 和 `connectors.toml`，缺失的 MCP/connector 文件会用注释模板创建，方便配置 allow-list/permission。
 - 已新增 connector install/auth spec：`connectors.example.toml` 说明本地 connector metadata 与 OAuth 审计字段；`load_mcp_connectors()` 解析 `~/.nanocodex/connectors.toml`；stdio connector 会并入 `load_mcp_servers()`；MCP 注册会执行 `allowed_tools` 和 permission 策略；CLI `/mcp` 会展示 connector permission/trusted/source/allowed_tools/auth 元数据。
-- 已增强 tool_search：评分会分解 MCP server/tool namespace，MCP 工具 description 带 server/tool 元数据和确定性 category/capability hints，并新增 27 条跨类别 tool-selection gold cases，覆盖 core tools、MCP connectors 和 release packaging。
+- 已增强 tool_search：评分会分解 MCP server/tool namespace，MCP 工具 description 带 server/tool 元数据和确定性 category/capability hints，并新增 29 条跨类别 tool-selection gold cases，覆盖 core tools、MCP connectors、release packaging 和 code execution。
+- 已新增本地 `code_exec`：Python/Node 小片段会被 base64 包装后通过 `shell` 执行，因此继承同一套沙箱、审批、timeout、workdir 和 session allow 逻辑；文档明确它不是模型侧托管代码执行。
 - 已新增 `TaskLedger`：CLI 与 Tauri 每轮完成后写 `.nanocodex/task-ledger.jsonl`，CLI 支持 `--budget-report` 和 `/budget report`，Tauri Usage 面板可读取最近任务报告；报告已加入平均耗时、预算耗尽率、模型/工具预算利用率，以及 visible tools / called tools trace；CLI `/tools eval [N]` 与 `--tools-eval-report` 可把 trace 汇总成 schema recall / missed calls / MCP recall 报告。
 - 已新增 provider payload snapshot：agent loop 在每次模型调用前把发送时编辑后的消息和工具 schema 摘要写入 `.nanocodex/context-payloads/`；CLI `/context payload [N]` 与 Tauri Usage 面板可审计最近快照。
 - 已新增 context-pack bucket telemetry：CLI、payload snapshot 和 Tauri Usage 面板能看到 system/runtime notes/memory/history/tool result 字符占比。

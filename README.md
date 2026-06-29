@@ -140,7 +140,7 @@ tool.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
   hits are made visible in the next schema view. Ranking is namespace-aware for
-  MCP tools (`mcp__server__tool`) and has 27-query gold-case regression
+  MCP tools (`mcp__server__tool`) and has 29-query gold-case regression
   coverage across core tools, MCP connectors, and release packaging. MCP tool
   descriptions also receive deterministic category/capability hints for sparse
   connector metadata. The Rust
@@ -179,9 +179,9 @@ only adding more features:
 - **Parallel orchestration:** isolated worker copies, verifier selection, and
   result promotion are safer when ownership is explicit and data movement is
   visible in the type system.
-- **Runtime control plane:** task budgets, context editing, tool search, and
-  semantic memory sit in the Rust runtime boundary rather than depending on
-  model-side conventions alone.
+- **Runtime control plane:** task budgets, context editing, tool search,
+  semantic memory, and sandboxed `code_exec` sit in the Rust runtime boundary
+  rather than depending on model-side conventions alone.
 - **Native release performance:** a small `ncx.exe` starts without interpreter
   setup, making one-shot CLI tasks feel immediate and making distribution much
   easier for Windows users.
@@ -210,7 +210,7 @@ The rough current estimate is:
 
 | Area | nanocodex Rust estimate | Main reason |
 | --- | ---: | --- |
-| Local CLI harness and tool loop, assuming a similar frontier model | 55-65% | The typed Rust loop, sandbox, approvals, tool registry, memory recall, context editing, checkpoints, MCP, skills, and Tauri GUI cover much of the local coding-agent harness. |
+| Local CLI harness and tool loop, assuming a similar frontier model | 55-65% | The typed Rust loop, sandbox, approvals, tool registry, memory recall, context editing, sandboxed `code_exec`, checkpoints, MCP, skills, and Tauri GUI cover much of the local coding-agent harness. |
 | End-to-end performance with the default DeepSeek-compatible model line versus Claude Code on Fable-class models | 35-45% | The harness is close enough for many workflows, but model reasoning, latency, tool discipline, and Anthropic-native integrations dominate hard tasks. |
 | Release/distribution ergonomics for Windows local use | 60-70% | Native CLI zip and Tauri NSIS installer are in place, but the ecosystem and cross-surface product polish are not Anthropic-scale. |
 
@@ -221,13 +221,16 @@ are local-runtime implementations:
 | --- | ---: | --- |
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
 | Context editing | 72-80% | Send-time editing compresses tool results, derives 1M-friendly character and bucket caps from `context_token_budget`/`context_window`, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; provider payload snapshots, context-pack bucket telemetry, and regression coverage for large tool outputs/long histories make the actual model input more auditable. Still missing Anthropic-scale long-context model quality, model-guided focus compaction, platform automatic compact, and broader quality evaluation suites. |
-| Tool search / connectors | 70-80% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, 27-query cross-category gold-case ranking tests, deterministic MCP category/capability hints, visible-vs-called task-ledger traces, `/tools eval` / `--tools-eval-report` schema-recall reporting, and an auditable `connectors.toml` install/auth spec reduce schema and connector ambiguity. Missing complete OAuth login UX, remote transport startup, a managed registry, broader trace corpus, richer category ontologies, and large-scale dynamic tool ranking. |
+| Tool search / connectors | 70-80% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, 29-query cross-category gold-case ranking tests, deterministic MCP category/capability hints, visible-vs-called task-ledger traces, `/tools eval` / `--tools-eval-report` schema-recall reporting, and an auditable `connectors.toml` install/auth spec reduce schema and connector ambiguity. Missing complete OAuth login UX, remote transport startup, a managed registry, broader trace corpus, richer category ontologies, and large-scale dynamic tool ranking. |
 | Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, and runtime correction/failure proposal harvesting exist. Remaining gaps are external embedding providers and platform-grade long-term memory. |
 
 The largest remaining gaps are not ordinary Rust code gaps. They are
 platform-level gaps: Anthropic's native tool/connectors ecosystem, managed
 task budgets and cloud execution, model-integrated context management,
 first-party memory behavior, and model-side code execution/analysis ability.
+The new local `code_exec` tool narrows the harness gap for quick calculations
+and parsing, but it still runs through the local shell sandbox rather than a
+model-native hosted execution environment.
 
 ## Table of Contents
 
@@ -311,7 +314,7 @@ nanocodex/
 ├── provider/
 │   ├── base.py            # Provider / ToolCall / ModelResponse contracts
 │   └── deepseek.py        # OpenAI-compatible chat-completions + streaming
-├── tools/                 # shell, apply_patch, update_plan, read_file,
+├── tools/                 # shell, code_exec, apply_patch, update_plan, read_file,
 │                          # web_search, schedule, skills, remember,
 │                          # mcp, mcp_store, marketplace, patch
 ├── sandbox/
@@ -331,6 +334,7 @@ The model sees these tools each turn (order matters):
 | Tool | Purpose |
 | --- | --- |
 | `shell` | Run a shell command, gated by the sandbox/approval policy. |
+| `code_exec` | Run a small Python/Node snippet through the same sandbox/approval policy; not model-native hosted execution. |
 | `apply_patch` | Apply a Codex-style patch to create/edit/delete files. |
 | `update_plan` | Maintain a visible step plan for multi-step tasks. |
 | `read_file` | Read a file (or a line range) from the workspace. |
@@ -501,7 +505,7 @@ In the REPL:
 `$ARGUMENTS[0]`..`$ARGUMENTS[9]` for simple positional arguments. If a command
 template has no placeholders, the raw arguments are appended under an
 `Arguments:` block. These commands expand to a normal user prompt; they do not
-run local shell code by themselves.
+run local shell or `code_exec` snippets by themselves.
 
 ## Local Model / OpenAI-Compatible Endpoint
 
