@@ -201,7 +201,7 @@ are local-runtime implementations:
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
 | Context editing | 58-68% | Send-time editing compresses tool results and drops old prefixes under budget; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model variants and policy-driven context budget allocation. |
 | Tool search / connectors | 62-72% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, gold-case ranking tests, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, and large-scale dynamic tool ranking. |
-| Semantic memory | 70-80% | Query-scoped lexical-semantic recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, and runtime correction/failure proposal harvesting exist. Remaining gaps are stronger embedding/vector retrieval and platform-grade long-term memory. |
+| Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, and runtime correction/failure proposal harvesting exist. Remaining gaps are external embedding providers and platform-grade long-term memory. |
 
 The largest remaining gaps are not ordinary Rust code gaps. They are
 platform-level gaps: Anthropic's native tool/connectors ecosystem, managed
@@ -605,7 +605,10 @@ Three complementary layers of persistent context:
   retrieved as query-scoped recall leads for each turn. Written by the
   `remember` tool or the Tauri Memory panel; maintained with
   `ncx --memory-merge`, heuristic Merge, or LLM merge. Rust `/memory [query]`
-  shows the file path, entry count, recent notes, tags, and a recall preview.
+  shows the file path, vector index path, entry count, recent notes, tags, and
+  a recall preview. Verified notes also build `.ncx/memory/INDEX.json`, a local
+  deterministic vector sidecar; `/memory index` or the Tauri Memory panel can
+  rebuild it after manual edits.
 - **Memory proposals** (`.ncx/memory/PROPOSALS.md`) — candidate learnings that
   are useful but not trusted yet. `remember` can set `propose=true`, the CLI can
   run `/memory propose <note>`, `/memory edit <id> <note>`, `/memory accept
@@ -750,10 +753,11 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
   completion tokens, cache hit/miss tokens, estimated cost, context-edit
   telemetry, provider payload snapshots, and task-ledger wall time / approval /
   budget report visibility.
-- Memory panel for viewing project notes, adding verified notes, harvesting
-  handoff/release docs into pending proposals, editing proposal text/tags,
-  reviewing proposals with single/batch accept/reject, opening `LEARNINGS.md`,
-  heuristic deduplication, and LLM-backed memory merge.
+- Memory panel for viewing project notes, adding verified notes, rebuilding the
+  local vector index, harvesting handoff/release docs into pending proposals,
+  editing proposal text/tags, reviewing proposals with single/batch
+  accept/reject, opening `LEARNINGS.md`, heuristic deduplication, and
+  LLM-backed memory merge.
 
 The original Tkinter GUI remains in the Python tree as a legacy prototype.
 Note: the desktop GUI does not hot-reload — code changes require closing and

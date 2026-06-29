@@ -620,6 +620,16 @@ fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str, workspace: &Pa
         return "Project memory is not enabled in this runtime.".into();
     };
     let arg = arg.trim();
+    if arg == "index" || arg == "reindex" {
+        return match memory.rebuild_vector_index() {
+            Ok(count) => format!(
+                "Rebuilt memory vector index with {count} entr{} at {}.",
+                if count == 1 { "y" } else { "ies" },
+                memory.index_path().display()
+            ),
+            Err(e) => format!("Error rebuilding memory vector index: {e}"),
+        };
+    }
     if arg == "harvest" || arg.starts_with("harvest ") {
         let raw = arg.strip_prefix("harvest").unwrap_or("").trim();
         let paths = if raw.is_empty() {
@@ -782,13 +792,15 @@ fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
     };
 
     let mut out = format!(
-        "Project memory\npath: {}\nproposals_path: {}\nentries: {}\npending_proposals: {}\nmax_entries: {}\nmax_proposals: {}\ntop_tags: {}",
+        "Project memory\npath: {}\nproposals_path: {}\nindex_path: {}\nentries: {}\npending_proposals: {}\nmax_entries: {}\nmax_proposals: {}\nvector_dims: {}\ntop_tags: {}",
         memory.path().display(),
         memory.proposal_path().display(),
+        memory.index_path().display(),
         entries.len(),
         proposals.len(),
         ncx_core::memory::MAX_ENTRIES,
         ncx_core::memory::MAX_PROPOSALS,
+        ncx_core::memory::VECTOR_DIMS,
         tag_line
     );
     out.push_str("\n\nRecent notes:");
@@ -821,7 +833,7 @@ fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
 
     if query.is_empty() {
         out.push_str(
-            "\n\nUse /memory <query> to preview recall, /memory propose <note>, /memory harvest [path], /memory edit <id> <note>, /memory accept-all, or /memory reject-all.",
+            "\n\nUse /memory <query> to preview recall, /memory index, /memory propose <note>, /memory harvest [path], /memory edit <id> <note>, /memory accept-all, or /memory reject-all.",
         );
     } else {
         let recall = memory.recall(query, 5, 2_000);
@@ -2061,8 +2073,10 @@ mod tests {
         assert!(out.contains("Project memory"));
         assert!(out.contains("LEARNINGS.md"));
         assert!(out.contains("PROPOSALS.md"));
+        assert!(out.contains("INDEX.json"));
         assert!(out.contains("entries: 2"));
         assert!(out.contains("pending_proposals: 1"));
+        assert!(out.contains("vector_dims:"));
         assert!(out.contains("release=1"));
         assert!(out.contains("Recent notes:"));
         assert!(out.contains("Pending proposals:"));
@@ -2122,6 +2136,21 @@ mod tests {
         let out = handle_memory_command(Some(&memory), "reject-all", &dir);
         assert!(out.contains("Rejected 1 memory proposals"), "{out}");
         assert!(memory.proposals().is_empty());
+    }
+
+    #[test]
+    fn memory_command_rebuilds_vector_index() {
+        let dir = std::env::temp_dir().join(format!("ncx_memory_index_{}", new_session_id()));
+        let memory = MemoryStore::new(&dir);
+        memory
+            .remember("Vector index supports memory recall", &["memory".into()], 1)
+            .unwrap();
+        let _ = std::fs::remove_file(memory.index_path());
+
+        let out = handle_memory_command(Some(&memory), "index", &dir);
+
+        assert!(out.contains("Rebuilt memory vector index"), "{out}");
+        assert!(memory.index_path().exists());
     }
 
     #[test]

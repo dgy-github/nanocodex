@@ -13,6 +13,8 @@
 //!
 //! Memory proposals are kept separately in `.ncx/memory/PROPOSALS.md` so
 //! auto-detected learnings can be reviewed before they become trusted recall.
+//! A deterministic local vector sidecar, `.ncx/memory/INDEX.json`, is built
+//! from verified notes only and blended with lexical ranking during recall.
 //! On write: deduplicate (normalized text) and cap to the newest [`MAX_ENTRIES`].
 //! On recall: score by a lightweight semantic lexical ranker (keywords, tags,
 //! phrases, Jaccard, and a tiny domain synonym map), tie-break by recency, and
@@ -23,7 +25,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// Merges several same-topic facts into one concise note (the LLM-backed
 /// consolidation). `None` = couldn't summarize → caller keeps the newest.
@@ -37,6 +39,8 @@ pub trait Summarizer {
 pub const MAX_ENTRIES: usize = 200;
 pub const MAX_PROPOSALS: usize = 100;
 pub const MAX_HARVEST_PROPOSALS: usize = 20;
+pub const VECTOR_DIMS: usize = 96;
+const VECTOR_INDEX_VERSION: u64 = 1;
 const RECALL_HEADER: &str =
     "Project memory (verified notes from past work — treat as leads, verify before acting):";
 
@@ -65,6 +69,7 @@ pub struct MemoryProposal {
 pub struct MemoryStore {
     path: PathBuf,
     proposal_path: PathBuf,
+    index_path: PathBuf,
 }
 
 impl MemoryStore {
@@ -74,6 +79,7 @@ impl MemoryStore {
         MemoryStore {
             path: dir.join("LEARNINGS.md"),
             proposal_path: dir.join("PROPOSALS.md"),
+            index_path: dir.join("INDEX.json"),
         }
     }
 
@@ -85,6 +91,11 @@ impl MemoryStore {
     /// Path to the pending memory proposal queue.
     pub fn proposal_path(&self) -> &std::path::Path {
         &self.proposal_path
+    }
+
+    /// Path to the local vector sidecar built from verified project memory.
+    pub fn index_path(&self) -> &std::path::Path {
+        &self.index_path
     }
 
     /// Record a verified note. Returns `Ok(false)` if it duplicates an existing
@@ -202,6 +213,13 @@ impl MemoryStore {
         parse_proposals(&text)
     }
 
+    /// Rebuild the local vector sidecar from verified memory entries.
+    pub fn rebuild_vector_index(&self) -> std::io::Result<usize> {
+        let entries = self.entries();
+        self.write_vector_index(&entries)?;
+        Ok(entries.len())
+    }
+
     /// Accept a pending proposal into verified project memory and remove it from
     /// the review queue. Returns `Ok(false)` when no proposal has that id.
     pub fn accept_proposal(&self, id: &str, now: u64) -> std::io::Result<bool> {
@@ -307,12 +325,24 @@ impl MemoryStore {
         let qwords = expanded_keywords(query);
         let qset = word_set(query);
         let qphrases = phrases(query);
+        let qvec = vectorize_text(query);
+        let vectors = self
+            .read_vector_index(&entries)
+            .unwrap_or_else(|| entries.iter().map(vectorize_entry).collect());
         let mut scored: Vec<(i64, &MemoryEntry)> = entries
             .iter()
-            .map(|e| {
+            .enumerate()
+            .map(|(i, e)| {
                 let overlap = semantic_score(e, &qwords, &qset, &qphrases);
+                let vector = vectors
+                    .get(i)
+                    .map(|v| dot(&qvec, v))
+                    .unwrap_or(0.0)
+                    .clamp(0.0, 1.0);
                 // Pack recency into the low bits so higher ts wins ties.
-                let s = overlap * 1_000_000 + (e.ts.min(999_999) as i64);
+                let s = overlap * 10_000_000
+                    + (vector * 1_000_000.0).round() as i64
+                    + (e.ts.min(999_999) as i64);
                 (s, e)
             })
             .collect();
@@ -471,7 +501,8 @@ impl MemoryStore {
                 e.text
             ));
         }
-        std::fs::write(&self.path, s)
+        std::fs::write(&self.path, s)?;
+        self.write_vector_index(entries)
     }
 
     fn write_proposals(&self, proposals: &[MemoryProposal]) -> std::io::Result<()> {
@@ -490,6 +521,75 @@ impl MemoryStore {
             ));
         }
         std::fs::write(&self.proposal_path, s)
+    }
+
+    fn write_vector_index(&self, entries: &[MemoryEntry]) -> std::io::Result<()> {
+        if let Some(parent) = self.index_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let docs = entries
+            .iter()
+            .map(|e| {
+                json!({
+                    "ts": e.ts,
+                    "tags": e.tags.clone(),
+                    "text": e.text.clone(),
+                    "vector": vectorize_entry(e),
+                })
+            })
+            .collect::<Vec<_>>();
+        let value = json!({
+            "version": VECTOR_INDEX_VERSION,
+            "dims": VECTOR_DIMS,
+            "docs": docs,
+        });
+        let text = serde_json::to_string_pretty(&value)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(&self.index_path, text)
+    }
+
+    fn read_vector_index(&self, entries: &[MemoryEntry]) -> Option<Vec<Vec<f64>>> {
+        let text = std::fs::read_to_string(&self.index_path).ok()?;
+        let value: Value = serde_json::from_str(&text).ok()?;
+        if value.get("version").and_then(|v| v.as_u64()) != Some(VECTOR_INDEX_VERSION) {
+            return None;
+        }
+        if value.get("dims").and_then(|v| v.as_u64()) != Some(VECTOR_DIMS as u64) {
+            return None;
+        }
+        let docs = value.get("docs")?.as_array()?;
+        if docs.len() != entries.len() {
+            return None;
+        }
+        let mut out = Vec::with_capacity(docs.len());
+        for (doc, entry) in docs.iter().zip(entries) {
+            if doc.get("ts").and_then(|v| v.as_u64()) != Some(entry.ts) {
+                return None;
+            }
+            if doc.get("text").and_then(|v| v.as_str()) != Some(entry.text.as_str()) {
+                return None;
+            }
+            let tags = doc
+                .get("tags")?
+                .as_array()?
+                .iter()
+                .map(|v| v.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()?;
+            if tags.as_slice() != entry.tags.as_slice() {
+                return None;
+            }
+            let vector = doc
+                .get("vector")?
+                .as_array()?
+                .iter()
+                .map(|v| v.as_f64())
+                .collect::<Option<Vec<_>>>()?;
+            if vector.len() != VECTOR_DIMS {
+                return None;
+            }
+            out.push(vector);
+        }
+        Some(out)
     }
 }
 
@@ -520,6 +620,40 @@ fn clean_tags(tags: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+fn vectorize_entry(entry: &MemoryEntry) -> Vec<f64> {
+    vectorize_text(&format!("{} {}", entry.text, entry.tags.join(" ")))
+}
+
+fn vectorize_text(text: &str) -> Vec<f64> {
+    let mut v = vec![0.0_f64; VECTOR_DIMS];
+    let mut terms = expanded_keywords(text);
+    terms.extend(phrases(text));
+    for term in terms {
+        let idx = (stable_hash(&term) as usize) % VECTOR_DIMS;
+        v[idx] += 1.0;
+    }
+    let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+    if norm > 0.0 {
+        for x in &mut v {
+            *x /= norm;
+        }
+    }
+    v
+}
+
+fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+fn stable_hash(text: &str) -> u64 {
+    let mut h = 0xcbf29ce484222325_u64;
+    for b in text.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
 }
 
 fn extract_memory_candidates(source: &str, text: &str) -> Vec<(String, Vec<String>)> {
@@ -1227,6 +1361,62 @@ mod tests {
         assert!(s
             .recall("connector permissions", 5, 4000)
             .contains("allow-lists"));
+    }
+
+    #[test]
+    fn verified_memory_writes_vector_index_sidecar() {
+        let s = store("vector_sidecar");
+        s.remember(
+            "Use the local vector index to improve memory recall",
+            &["memory".into(), "vector".into()],
+            10,
+        )
+        .unwrap();
+
+        let text = std::fs::read_to_string(s.index_path()).unwrap();
+        let value: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["version"].as_u64(), Some(VECTOR_INDEX_VERSION));
+        assert_eq!(value["dims"].as_u64(), Some(VECTOR_DIMS as u64));
+        assert_eq!(value["docs"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            value["docs"][0]["vector"].as_array().unwrap().len(),
+            VECTOR_DIMS
+        );
+    }
+
+    #[test]
+    fn vector_index_can_be_rebuilt_and_stale_index_is_ignored() {
+        let s = store("vector_rebuild");
+        s.remember("Tauri installer release requires NSIS", &["release".into()], 1)
+            .unwrap();
+        std::fs::write(
+            s.index_path(),
+            r#"{"version":1,"dims":96,"docs":[{"ts":999,"text":"stale","tags":[],"vector":[]}]}"#,
+        )
+        .unwrap();
+
+        let block = s.recall("native package", 1, 4000);
+        assert!(block.contains("NSIS"), "stale sidecar should not hide recall: {block}");
+        assert_eq!(s.rebuild_vector_index().unwrap(), 1);
+
+        let text = std::fs::read_to_string(s.index_path()).unwrap();
+        assert!(text.contains("Tauri installer release"));
+    }
+
+    #[test]
+    fn vector_index_ignores_tag_mismatch() {
+        let s = store("vector_tag_mismatch");
+        s.remember("Task budget should preserve subagent limits", &["budget".into()], 1)
+            .unwrap();
+        std::fs::write(
+            s.index_path(),
+            r#"{"version":1,"dims":96,"docs":[{"ts":1,"text":"Task budget should preserve subagent limits","tags":["stale"],"vector":[]}]}"#,
+        )
+        .unwrap();
+
+        let block = s.recall("subagent limits", 1, 4000);
+
+        assert!(block.contains("Task budget"), "tag mismatch should fall back to live entries: {block}");
     }
 
     #[test]

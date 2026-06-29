@@ -981,6 +981,14 @@ fn memory_consolidate() -> Result<usize, String> {
     memory_store().consolidate(0.85).map_err(|e| e.to_string())
 }
 
+/// Rebuild the local vector sidecar from verified project memory.
+#[tauri::command]
+fn memory_rebuild_index() -> Result<usize, String> {
+    memory_store()
+        .rebuild_vector_index()
+        .map_err(|e| e.to_string())
+}
+
 /// Manually record a verified learning into project memory.
 #[tauri::command]
 fn memory_add(note: String, tags: Vec<String>) -> Result<bool, String> {
@@ -1157,6 +1165,7 @@ pub fn run() {
             memory_list,
             memory_proposals,
             memory_consolidate,
+            memory_rebuild_index,
             memory_add,
             memory_propose,
             memory_harvest,

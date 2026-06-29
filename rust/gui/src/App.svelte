@@ -1012,6 +1012,17 @@
     }
     hermesBusy = false;
   }
+  async function rebuildMemoryIndex() {
+    hermesBusy = true;
+    try {
+      const count = await invoke<number>("memory_rebuild_index");
+      messages.push({ role: "note", text: `记忆：已重建 ${count} 条向量索引。` });
+      await loadNotes();
+    } catch (e) {
+      messages.push({ role: "note", text: `记忆索引重建失败：${e}` });
+    }
+    hermesBusy = false;
+  }
   async function addNote() {
     if (!newNote.trim()) return;
     hermesBusy = true;
@@ -1809,9 +1820,10 @@
           <button onclick={addNote} disabled={hermesBusy}>添加</button>
           <button class="plain" onclick={proposeNote} disabled={hermesBusy}>加入待审</button>
         </div>
-        <div class="checkpoint-create">
+        <div class="checkpoint-create memory-tools">
           <button onclick={consolidateMemory} disabled={hermesBusy}>整理：合并重复</button>
           <button class="plain" onclick={harvestMemory} disabled={hermesBusy}>从文档提炼</button>
+          <button class="plain" onclick={rebuildMemoryIndex} disabled={hermesBusy}>重建索引</button>
           <button class="plain" onclick={loadNotes} disabled={hermesBusy}>刷新</button>
           <span class="emptyline">{notes.length} 条 / 待审 {proposals.length}</span>
         </div>

@@ -729,6 +729,10 @@ button:disabled {
   gap: var(--sp-2);
   margin: var(--sp-4) 0 var(--sp-5);
 }
+.checkpoint-create.memory-tools {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  align-items: center;
+}
 .checkpoint-create input {
   min-width: 0;
   border: 1px solid var(--line-strong);
