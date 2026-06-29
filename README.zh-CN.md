@@ -90,7 +90,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - **Context editing：** 本地完整 session 不会被删；发给 provider 的是发送时编辑视图，
   会压缩旧 tool result，并在超过上下文预算时丢弃更早的前缀。Rust REPL 提供
   `/context` 查看当前策略、session 大小、上一轮 telemetry、下一次发送预览，并可通过
-  `/context payload [N]` 查看最近 provider payload 快照。
+  `/context payload [N]` 查看最近 provider payload 快照。telemetry 会把发送 payload
+  拆成 context-pack 桶：system prompt、运行注记、memory recall、历史和 tool result 字符数。
 - **Tool search：** 工具注册时会进入 catalog。小工具集仍全量暴露；工具变多时只暴露核心
   工具和 `tool_search`，搜索命中的工具会在下一轮 schema 里出现。排序会识别 MCP
   工具命名空间（`mcp__server__tool`），并用 tool-selection gold cases 做回归覆盖。
@@ -150,7 +151,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 | 能力 | 当前覆盖 | 剩余差距 |
 | --- | ---: | --- |
 | Task budget | 80-88% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和更完整的分析面板。 |
-| Context editing | 55-65% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；provider payload snapshot 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体和策略化 context pack。 |
+| Context editing | 58-68% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体和策略化 context 预算分配。 |
 | Tool search / connectors | 62-72% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、gold-case 排名测试，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry 和大规模动态工具排序。 |
 | Semantic memory | 45-55% | query-scoped lexical-semantic recall、`remember` 和 LLM merge 已有；还缺从纠错自动提炼 memory、更强 embedding/vector 检索，以及跨入口 memory 治理。 |
 

@@ -45,6 +45,11 @@ impl ContextPayloadSnapshot {
             "context_edit": {
                 "original_chars": self.stats.original_chars,
                 "edited_chars": self.stats.edited_chars,
+                "system_chars": self.stats.system_chars,
+                "system_note_chars": self.stats.system_note_chars,
+                "memory_recall_chars": self.stats.memory_recall_chars,
+                "history_chars": self.stats.history_chars,
+                "tool_result_chars": self.stats.tool_result_chars,
                 "compressed_tool_results": self.stats.compressed_tool_results,
                 "dropped_messages": self.stats.dropped_messages,
             },
@@ -119,6 +124,11 @@ impl ContextPayloadSnapshotStore {
             let stats = row.get("context_edit").unwrap_or(&Value::Null);
             let original = usize_field(stats, "original_chars");
             let edited = usize_field(stats, "edited_chars");
+            let system_chars = usize_field(stats, "system_chars");
+            let note_chars = usize_field(stats, "system_note_chars");
+            let memory_chars = usize_field(stats, "memory_recall_chars");
+            let history_chars = usize_field(stats, "history_chars");
+            let tool_chars = usize_field(stats, "tool_result_chars");
             let compressed = usize_field(stats, "compressed_tool_results");
             let dropped = usize_field(stats, "dropped_messages");
             let roles = row
@@ -132,7 +142,7 @@ impl ContextPayloadSnapshotStore {
                 })
                 .unwrap_or_else(|| "(none)".into());
             out.push_str(&format!(
-                "\n- {id} model={model} messages={message_count} tools={tool_schema_count} chars={edited}/{original} compressed={compressed} dropped={dropped} roles={roles}"
+                "\n- {id} model={model} messages={message_count} tools={tool_schema_count} chars={edited}/{original} pack=system:{system_chars},notes:{note_chars},memory:{memory_chars},history:{history_chars},tool:{tool_chars} compressed={compressed} dropped={dropped} roles={roles}"
             ));
         }
         out
@@ -230,6 +240,11 @@ mod tests {
             stats: ContextEditStats {
                 original_chars: 100,
                 edited_chars: 80,
+                system_chars: 3,
+                system_note_chars: 10,
+                memory_recall_chars: 4,
+                history_chars: 67,
+                tool_result_chars: 20,
                 compressed_tool_results: 1,
                 dropped_messages: 2,
             },
@@ -244,6 +259,7 @@ mod tests {
         assert!(report.contains("model=test-model"));
         assert!(report.contains("messages=2"));
         assert!(report.contains("tools=2"));
+        assert!(report.contains("pack=system:3,notes:10,memory:4,history:67,tool:20"));
         assert!(report.contains("compressed=1"));
         assert!(report.contains("dropped=2"));
     }

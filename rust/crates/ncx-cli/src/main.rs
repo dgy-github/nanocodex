@@ -1219,6 +1219,11 @@ fn format_context_edit_stats_block(stats: &ContextEditStats) -> String {
         format!("original_chars:          {}", stats.original_chars),
         format!("edited_chars:            {}", stats.edited_chars),
         format!("saved_chars:             {saved_chars}"),
+        format!("pack_system_chars:       {}", stats.system_chars),
+        format!("pack_note_chars:         {}", stats.system_note_chars),
+        format!("pack_memory_chars:       {}", stats.memory_recall_chars),
+        format!("pack_history_chars:      {}", stats.history_chars),
+        format!("pack_tool_chars:         {}", stats.tool_result_chars),
         format!(
             "compressed_tool_results: {}",
             stats.compressed_tool_results
@@ -1669,6 +1674,7 @@ mod tests {
                 edited_chars: 700,
                 compressed_tool_results: 2,
                 dropped_messages: 3,
+                ..Default::default()
             },
         });
 
@@ -1686,6 +1692,7 @@ mod tests {
                 edited_chars: 650,
                 compressed_tool_results: 1,
                 dropped_messages: 0,
+                ..Default::default()
             },
         });
 
@@ -1795,6 +1802,9 @@ mod tests {
         assert!(out.contains("context_token_budget: 2048"));
         assert!(out.contains("messages: 3"));
         assert!(out.contains("Next send preview"));
+        assert!(out.contains("pack_system_chars:"), "{out}");
+        assert!(out.contains("pack_history_chars:"), "{out}");
+        assert!(out.contains("pack_tool_chars:"), "{out}");
         assert!(out.contains("compressed_tool_results: 1"), "{out}");
         assert!(out.contains("dropped_messages:        2"), "{out}");
         assert!(out.contains("No model turn recorded yet."));

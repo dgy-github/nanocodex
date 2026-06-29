@@ -121,6 +121,11 @@
   type ContextEditStats = {
     original_chars: number;
     edited_chars: number;
+    system_chars: number;
+    system_note_chars: number;
+    memory_recall_chars: number;
+    history_chars: number;
+    tool_result_chars: number;
     compressed_tool_results: number;
     dropped_messages: number;
   };
@@ -158,7 +163,17 @@
   const totalTokens = (usage: UsageMap | null | undefined) =>
     usageValue(usage, "prompt_tokens") + usageValue(usage, "completion_tokens");
   function emptyContextEdit(): ContextEditStats {
-    return { original_chars: 0, edited_chars: 0, compressed_tool_results: 0, dropped_messages: 0 };
+    return {
+      original_chars: 0,
+      edited_chars: 0,
+      system_chars: 0,
+      system_note_chars: 0,
+      memory_recall_chars: 0,
+      history_chars: 0,
+      tool_result_chars: 0,
+      compressed_tool_results: 0,
+      dropped_messages: 0,
+    };
   }
   function emptyTaskLedger(): TaskLedgerStats {
     return { duration_ms: 0, approval_requests: 0, task_model_budget: 0, task_tool_budget: 0 };
@@ -1564,6 +1579,11 @@
               <div class="usage-row"><span>原始字符</span><b>{lastMetrics.context_edit.original_chars}</b></div>
               <div class="usage-row"><span>发送字符</span><b>{lastMetrics.context_edit.edited_chars}</b></div>
               <div class="usage-row"><span>节省字符</span><b>{savedContextChars(lastMetrics.context_edit)}</b></div>
+              <div class="usage-row"><span>系统</span><b>{lastMetrics.context_edit.system_chars}</b></div>
+              <div class="usage-row"><span>运行注记</span><b>{lastMetrics.context_edit.system_note_chars}</b></div>
+              <div class="usage-row"><span>记忆召回</span><b>{lastMetrics.context_edit.memory_recall_chars}</b></div>
+              <div class="usage-row"><span>历史</span><b>{lastMetrics.context_edit.history_chars}</b></div>
+              <div class="usage-row"><span>工具结果</span><b>{lastMetrics.context_edit.tool_result_chars}</b></div>
               <div class="usage-row"><span>压缩工具结果</span><b>{lastMetrics.context_edit.compressed_tool_results}</b></div>
               <div class="usage-row"><span>丢弃消息</span><b>{lastMetrics.context_edit.dropped_messages}</b></div>
             {:else}

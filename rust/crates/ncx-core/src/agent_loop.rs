@@ -749,6 +749,11 @@ fn add_usage(
 fn add_context_edit_stats(acc: &mut ContextEditStats, stats: &ContextEditStats) {
     acc.original_chars = stats.original_chars;
     acc.edited_chars = stats.edited_chars;
+    acc.system_chars = stats.system_chars;
+    acc.system_note_chars = stats.system_note_chars;
+    acc.memory_recall_chars = stats.memory_recall_chars;
+    acc.history_chars = stats.history_chars;
+    acc.tool_result_chars = stats.tool_result_chars;
     acc.compressed_tool_results += stats.compressed_tool_results;
     acc.dropped_messages += stats.dropped_messages;
 }

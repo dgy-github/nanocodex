@@ -64,6 +64,11 @@ pub type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<ApprovalDecision>>>
 pub struct ContextEditView {
     original_chars: usize,
     edited_chars: usize,
+    system_chars: usize,
+    system_note_chars: usize,
+    memory_recall_chars: usize,
+    history_chars: usize,
+    tool_result_chars: usize,
     compressed_tool_results: usize,
     dropped_messages: usize,
 }
@@ -562,6 +567,13 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                                     context_edit: ContextEditView {
                                         original_chars: result.context_edit.original_chars,
                                         edited_chars: result.context_edit.edited_chars,
+                                        system_chars: result.context_edit.system_chars,
+                                        system_note_chars: result.context_edit.system_note_chars,
+                                        memory_recall_chars: result
+                                            .context_edit
+                                            .memory_recall_chars,
+                                        history_chars: result.context_edit.history_chars,
+                                        tool_result_chars: result.context_edit.tool_result_chars,
                                         compressed_tool_results: result
                                             .context_edit
                                             .compressed_tool_results,

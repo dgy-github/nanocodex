@@ -36,6 +36,11 @@ impl Default for ContextEditPolicy {
 pub struct ContextEditStats {
     pub original_chars: usize,
     pub edited_chars: usize,
+    pub system_chars: usize,
+    pub system_note_chars: usize,
+    pub memory_recall_chars: usize,
+    pub history_chars: usize,
+    pub tool_result_chars: usize,
     pub compressed_tool_results: usize,
     pub dropped_messages: usize,
 }
@@ -242,6 +247,15 @@ impl Session {
         }
 
         stats.edited_chars = total_chars(&self.system, system_notes, &body);
+        stats.system_chars = self.system.chars().count();
+        stats.system_note_chars = system_notes.iter().map(|n| n.chars().count()).sum();
+        stats.memory_recall_chars = system_notes
+            .iter()
+            .filter(|n| n.contains("[memory recall for this prompt]"))
+            .map(|n| n.chars().count())
+            .sum();
+        stats.history_chars = body.iter().map(json_chars).sum();
+        stats.tool_result_chars = tool_result_chars(&body);
         (body, stats)
     }
 
@@ -452,6 +466,15 @@ fn total_chars(system: &str, notes: &[String], messages: &[Value]) -> usize {
         + messages.iter().map(json_chars).sum::<usize>()
 }
 
+fn tool_result_chars(messages: &[Value]) -> usize {
+    messages
+        .iter()
+        .filter(|m| role(m) == Some("tool"))
+        .filter_map(|m| m.get("content").and_then(|v| v.as_str()))
+        .map(|s| s.chars().count())
+        .sum()
+}
+
 fn compress_tool_result(msg: &mut Value, max_chars: usize) -> bool {
     let Some(obj) = msg.as_object_mut() else {
         return false;
@@ -538,6 +561,10 @@ mod tests {
             },
         );
         assert_eq!(out.stats.compressed_tool_results, 1);
+        assert_eq!(out.stats.system_chars, 3);
+        assert!(out.stats.system_note_chars >= "budget note".len());
+        assert!(out.stats.history_chars > 0);
+        assert!(out.stats.tool_result_chars <= 128);
         assert!(out
             .messages
             .iter()
@@ -550,6 +577,26 @@ mod tests {
                     .contains("context edited")
         }));
         assert_eq!(s.messages[2]["content"].as_str().unwrap().len(), 200);
+    }
+
+    #[test]
+    fn context_edit_reports_memory_recall_pack_bucket() {
+        let mut s = Session::new("sys");
+        s.add_user_text("continue");
+
+        let out = s.for_model_edited(
+            &["[memory recall for this prompt]\n- use apply_patch".into()],
+            &ContextEditPolicy {
+                enabled: true,
+                max_chars: 10_000,
+                keep_recent_messages: 4,
+                max_tool_result_chars: 20,
+            },
+        );
+
+        assert!(out.stats.system_note_chars > 0);
+        assert_eq!(out.stats.system_note_chars, out.stats.memory_recall_chars);
+        assert!(out.stats.history_chars > 0);
     }
 
     #[test]
