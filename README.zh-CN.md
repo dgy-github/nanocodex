@@ -636,6 +636,9 @@ python -m pytest -q
 两套测试都完全离线：mock 过的 provider、可注入的 I/O，不需要真实 API key 或网络
 请求。
 
+GitHub Actions 也会在 push、pull request 和手动触发时运行同一条 Windows Rust 验证链，
+并跑 Python 离线测试。本地 Windows 缺 Rust 工具链时，可以把 CI 结果作为 release gate。
+
 ## Release 打包
 
 推荐的 Windows release 入口：

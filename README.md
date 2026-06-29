@@ -739,6 +739,11 @@ python -m pytest -q
 Both suites are fully offline: mocked providers, injectable I/O, no real API
 key or network call required.
 
+GitHub Actions also runs the same Windows Rust verification path plus the
+Python offline test suite on pushes, pull requests, and manual dispatches.
+Use that CI result as the release gate when a local Windows machine is missing
+the Rust toolchain.
+
 ## Release Packaging
 
 Recommended Windows release entry point:
