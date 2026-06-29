@@ -33,6 +33,8 @@ OPTIONS:
                             Send full history without runtime context editing.
         --image <PATH>      Attach an image to the prompt (repeatable). Routes the
                             turn to the configured vision model. One-shot only.
+        --mcp               Connect MCP servers from ~/.nanocodex/mcp.toml and expose
+                            their tools (runs outside the sandbox).
     -r, --resume            Resume the workspace session log before starting.
         --history           List recent saved sessions, then exit.
     -o, --orchestrate       Run the prompt through the tiered flash/pro orchestrator
@@ -59,6 +61,7 @@ pub struct Args {
     pub disable_context_edit: bool,
     /// Image files to attach to the one-shot prompt (multimodal / vision turn).
     pub images: Vec<PathBuf>,
+    pub mcp: bool,
     pub resume: bool,
     pub history: bool,
     pub orchestrate: bool,
@@ -89,6 +92,7 @@ pub fn parse_args(argv: &[String]) -> Result<Args, String> {
             "-h" | "--help" => args.help = true,
             "-V" | "--version" => args.version = true,
             "-o" | "--orchestrate" => args.orchestrate = true,
+            "--mcp" => args.mcp = true,
             "-r" | "--resume" => args.resume = true,
             "--history" => args.history = true,
             "--memory-merge" => args.memory_merge = true,
@@ -219,9 +223,10 @@ mod tests {
 
     #[test]
     fn resume_and_history_flags() {
-        let a = args(&["--resume", "--history"]).unwrap();
+        let a = args(&["--resume", "--history", "--mcp"]).unwrap();
         assert!(a.resume);
         assert!(a.history);
+        assert!(a.mcp);
     }
 
     #[test]

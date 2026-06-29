@@ -181,8 +181,9 @@ only adding more features:
   API or a local server (vLLM, llama-server, LM Studio, …).
 - **Sandbox & approval state machine** — three sandbox modes and four approval
   policies gate every file/shell/network action.
-- **MCP integration + marketplace** — load servers from `mcp.toml`, or install
-  from a built-in / remote catalog; tools surface as `mcp__<server>__<tool>`.
+- **MCP integration** — opt in with `--mcp` to load `mcp.toml` servers; tools
+  surface as `mcp__<server>__<tool>`. The legacy Python GUI also keeps a
+  built-in / remote MCP marketplace installer.
 - **Skills system** — user skills plus three built-in coding skills; only
   name + description are injected, bodies load on demand.
 - **Custom slash commands** — prompt-backed project/user commands in
@@ -463,14 +464,14 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "D:\\projects"]
 Then start with MCP enabled:
 
 ```powershell
-nanocodex --mcp
+ncx --mcp
 ```
 
-Each server's tools surface to the model as `mcp__<server>__<tool>`. A
-**marketplace** adds one-click install from a built-in curated catalog or a
-remote catalog (`NANOCODEX_MARKETPLACE_URL`); every entry funnels through the
-same name-validation and dup-check as a hand-added server, and remote catalogs
-are treated as untrusted data. See `mcp.example.toml` for more.
+Each server's tools surface to the model as `mcp__<server>__<tool>`. Set
+`enabled = false` on a server table to keep it installed but disconnected. The
+legacy Python GUI also has a **marketplace** for one-click installs from a
+built-in curated catalog or a remote catalog (`NANOCODEX_MARKETPLACE_URL`);
+remote catalogs are treated as untrusted data. See `mcp.example.toml` for more.
 
 ## Skills
 
@@ -713,7 +714,8 @@ The Tauri crate deliberately keeps `crate-type = ["lib"]`; changing it to
 - The sandbox is **policy-level on Windows** — it gates tool actions and writable
   roots, but is not kernel isolation.
 - **MCP tools run outside the sandbox** as external subprocesses. Only enable
-  servers you trust; the marketplace validates names but does not vet behavior.
+  servers you trust; the legacy marketplace validates names but does not vet
+  behavior.
 - **Hooks run local commands** around tool execution. Treat hook configuration
   like code and review it before enabling it in a project.
 - External content (file contents, command output, web/MCP results) is treated

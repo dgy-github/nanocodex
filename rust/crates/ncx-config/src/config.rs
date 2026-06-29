@@ -19,6 +19,7 @@ pub struct McpServerConfig {
     pub command: String,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
+    pub enabled: bool,
 }
 
 /// Project-level deterministic hook. Hooks are configured from `[[hooks]]` in

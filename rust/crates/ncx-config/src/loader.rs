@@ -335,16 +335,17 @@ pub fn list_profiles() -> Vec<String> {
 
 /// Load MCP server definitions from a `mcp.toml` file.
 ///
-/// Format:
+/// Preferred format:
 /// ```toml
-/// [[servers]]
-/// name    = "everything"
+/// [mcp_servers.everything]
 /// command = "npx"
-/// args    = ["-y", "@modelcontextprotocol/server-everything"]
-/// env     = { MY_VAR = "value" }   # optional
+/// args = ["-y", "@modelcontextprotocol/server-everything"]
+/// env = { MY_VAR = "value" }   # optional
+/// enabled = true               # optional, defaults true
 /// ```
+///
+/// Legacy `[[servers]]` entries with an explicit `name` field are also accepted.
 pub fn load_mcp_servers_at(path: &Path) -> Vec<crate::config::McpServerConfig> {
-    use crate::config::McpServerConfig;
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(_) => return Vec::new(),
@@ -353,49 +354,23 @@ pub fn load_mcp_servers_at(path: &Path) -> Vec<crate::config::McpServerConfig> {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
-    let arr = match parsed.get("servers").and_then(|v| v.as_array()) {
-        Some(a) => a,
-        None => return Vec::new(),
-    };
     let mut out = Vec::new();
-    for s in arr {
-        let name = s
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let command = s
-            .get("command")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if name.is_empty() || command.is_empty() {
-            continue;
+    if let Some(servers) = parsed.get("mcp_servers").and_then(|v| v.as_table()) {
+        for (name, spec) in servers {
+            if let Some(server) = parse_mcp_server(name, spec) {
+                out.push(server);
+            }
         }
-        let args: Vec<String> = s
-            .get("args")
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let env: HashMap<String, String> = s
-            .get("env")
-            .and_then(|v| v.as_table())
-            .map(|t| {
-                t.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|val| (k.clone(), val.to_string())))
-                    .collect()
-            })
-            .unwrap_or_default();
-        out.push(McpServerConfig {
-            name,
-            command,
-            args,
-            env,
-        });
+    }
+    if let Some(servers) = parsed.get("servers").and_then(|v| v.as_array()) {
+        for spec in servers {
+            let Some(name) = spec.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if let Some(server) = parse_mcp_server(name, spec) {
+                out.push(server);
+            }
+        }
     }
     out
 }
@@ -403,6 +378,46 @@ pub fn load_mcp_servers_at(path: &Path) -> Vec<crate::config::McpServerConfig> {
 /// Load MCP server definitions from `~/.nanocodex/mcp.toml`.
 pub fn load_mcp_servers() -> Vec<crate::config::McpServerConfig> {
     load_mcp_servers_at(&home_dir().join(".nanocodex/mcp.toml"))
+}
+
+fn parse_mcp_server(name: &str, spec: &Value) -> Option<crate::config::McpServerConfig> {
+    use crate::config::McpServerConfig;
+    let command = spec.get("command")?.as_str()?.to_string();
+    if name.trim().is_empty() || command.trim().is_empty() {
+        return None;
+    }
+    let enabled = spec
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    if !enabled {
+        return None;
+    }
+    let args = spec
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let env = spec
+        .get("env")
+        .and_then(|v| v.as_table())
+        .map(|t| {
+            t.iter()
+                .filter_map(|(k, v)| v.as_str().map(|val| (k.clone(), val.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(McpServerConfig {
+        name: name.to_string(),
+        command,
+        args,
+        env,
+        enabled,
+    })
 }
 
 /// Resolve a [`Config`] using real env vars and default config-file paths.
@@ -922,6 +937,60 @@ command = "echo post"
         assert_eq!(cfg.hooks[0].matcher, "shell|apply_patch");
         assert_eq!(cfg.hooks[0].timeout_s, 3);
         assert_eq!(cfg.hooks[1].matcher, "*");
+    }
+
+    #[test]
+    fn mcp_servers_load_modern_named_tables() {
+        let tmp = std::env::temp_dir().join("ncx_config_test_mcp_modern");
+        fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("mcp.toml");
+        write(
+            &path,
+            r#"
+[mcp_servers.fetch]
+command = "uvx"
+args = ["mcp-server-fetch"]
+env = { TOKEN = "secret" }
+
+[mcp_servers.off]
+command = "npx"
+enabled = false
+"#,
+        );
+
+        let servers = load_mcp_servers_at(&path);
+
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "fetch");
+        assert_eq!(servers[0].command, "uvx");
+        assert_eq!(servers[0].args, vec!["mcp-server-fetch"]);
+        assert_eq!(
+            servers[0].env.get("TOKEN").map(String::as_str),
+            Some("secret")
+        );
+        assert!(servers[0].enabled);
+    }
+
+    #[test]
+    fn mcp_servers_keep_legacy_servers_array() {
+        let tmp = std::env::temp_dir().join("ncx_config_test_mcp_legacy");
+        fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("mcp.toml");
+        write(
+            &path,
+            r#"
+[[servers]]
+name = "everything"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-everything"]
+"#,
+        );
+
+        let servers = load_mcp_servers_at(&path);
+
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "everything");
+        assert_eq!(servers[0].command, "npx");
     }
 
     #[test]

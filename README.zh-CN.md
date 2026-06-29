@@ -143,8 +143,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   （vLLM、llama-server、LM Studio……）。
 - **沙箱与审批状态机** —— 三种沙箱模式、四种审批策略，拦截每一次文件/shell/网络
   动作。
-- **MCP 集成 + 市场** —— 从 `mcp.toml` 加载服务，或从内置 / 远程目录一键安装；
-  工具以 `mcp__<server>__<tool>` 形式暴露。
+- **MCP 集成** —— Rust CLI 通过 `--mcp` 显式加载 `mcp.toml` 服务，工具以
+  `mcp__<server>__<tool>` 形式暴露；legacy Python GUI 仍保留内置 / 远程 MCP 市场安装器。
 - **Skills 系统** —— 用户 skill 加三个内置编码 skill；只注入名称 + 描述，正文
   按需加载。
 - **自定义 slash commands** —— 项目/用户级 Markdown prompt 模板放在
@@ -402,13 +402,13 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "D:\\projects"]
 然后以启用 MCP 的方式启动：
 
 ```powershell
-nanocodex --mcp
+ncx --mcp
 ```
 
-每个服务的工具以 `mcp__<server>__<tool>` 暴露给模型。一个**市场**支持从内置精选
-目录或远程目录（`NANOCODEX_MARKETPLACE_URL`）一键安装；每个条目都走和手动添加
-服务相同的名称校验与去重，远程目录被当作不可信数据处理。更多见
-`mcp.example.toml`。
+每个服务的工具以 `mcp__<server>__<tool>` 暴露给模型。服务表里可以设置
+`enabled = false`，保留配置但不连接。legacy Python GUI 另有一个**市场**支持从内置精选
+目录或远程目录（`NANOCODEX_MARKETPLACE_URL`）一键安装；远程目录被当作不可信数据处理。
+更多见 `mcp.example.toml`。
 
 ## Skills
 
@@ -614,7 +614,7 @@ Windows GNU 链接器的 export ordinal 表溢出。
 - **绝不提交真实 API key。** `.env`、`*.key`、`*.pem`、token 文件以及本地交接文件
   都被 git 忽略；`config.toml` / `mcp.toml` 放在 `~/.nanocodex/`，在仓库之外。
 - 在 Windows 上沙箱是**策略级**的——它拦截工具行为和可写根，但不是内核级隔离。
-- **MCP 工具运行在沙箱之外**，作为外部子进程。只启用你信任的服务；市场会校验
+- **MCP 工具运行在沙箱之外**，作为外部子进程。只启用你信任的服务；legacy 市场会校验
   名称但不审查行为。
 - **Hooks 会在工具执行前后运行本地命令**。把 hook 配置当作代码审查后再启用。
 - 外部内容（文件内容、命令输出、web/MCP 结果）被当作不可信数据，而非指令。

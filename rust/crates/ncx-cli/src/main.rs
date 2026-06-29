@@ -177,10 +177,18 @@ async fn run(args: Args) -> i32 {
         );
         return 0;
     }
-    for srv in load_mcp_servers() {
-        match register_mcp_server(&mut tools, &srv.name, &srv.command, &srv.args, &srv.env).await {
-            Ok(n) => eprintln!("mcp({}): {} tool(s) registered", srv.name, n),
-            Err(e) => eprintln!("mcp({}): connect failed: {e}", srv.name),
+    if args.mcp {
+        let servers = load_mcp_servers();
+        if servers.is_empty() {
+            eprintln!("mcp: --mcp set but no enabled servers found in ~/.nanocodex/mcp.toml");
+        }
+        for srv in servers {
+            match register_mcp_server(&mut tools, &srv.name, &srv.command, &srv.args, &srv.env)
+                .await
+            {
+                Ok(n) => eprintln!("mcp({}): {} tool(s) registered", srv.name, n),
+                Err(e) => eprintln!("mcp({}): connect failed: {e}", srv.name),
+            }
         }
     }
     let log_path = session_log_path(&cfg.workspace);
