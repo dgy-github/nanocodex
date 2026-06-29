@@ -11,13 +11,21 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use async_trait::async_trait;
 use ncx_config::{
+    Config,
     load_config, write_nanocodex_config, ConfigPaths, Overrides, VALID_APPROVAL_POLICIES,
     VALID_SANDBOX_MODES,
 };
-use ncx_core::{custom_command_prompt, list_custom_commands, CheckpointMeta, CheckpointStore, RestoreReport};
+use ncx_core::{
+    custom_command_prompt, list_custom_commands, CheckpointMeta, CheckpointStore, MemoryEntry,
+    MemoryStore, RestoreReport, Summarizer,
+};
+use ncx_provider::DeepSeekProvider;
 use serde::Serialize;
+use serde_json::json;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 use bridge::{spawn_worker, Command, PendingMap};
@@ -72,6 +80,27 @@ pub struct CustomCommandView {
     name: String,
     slash: String,
     path: String,
+}
+
+#[derive(Serialize)]
+pub struct MemoryEntryView {
+    ts: u64,
+    tags: Vec<String>,
+    text: String,
+}
+
+#[derive(Serialize)]
+pub struct MemorySnapshot {
+    path: String,
+    count: usize,
+    entries: Vec<MemoryEntryView>,
+}
+
+#[derive(Serialize)]
+pub struct MemoryMergeReport {
+    path: String,
+    removed: usize,
+    count: usize,
 }
 
 /// Load the resolved config and return a display-safe snapshot.
@@ -333,6 +362,59 @@ fn restore_checkpoint(id: String) -> Result<RestoreView, String> {
 }
 
 #[tauri::command]
+fn get_memory() -> Result<MemorySnapshot, String> {
+    let (store, path) = memory_store()?;
+    Ok(memory_snapshot(&store, &path))
+}
+
+#[tauri::command]
+fn remember_note(text: String, tags: Vec<String>) -> Result<MemorySnapshot, String> {
+    let (store, path) = memory_store()?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    let tags = clean_tags(&tags);
+    store
+        .remember(&text, &tags, now)
+        .map_err(|e| e.to_string())?;
+    Ok(memory_snapshot(&store, &path))
+}
+
+#[tauri::command]
+fn consolidate_memory() -> Result<MemoryMergeReport, String> {
+    let (store, path) = memory_store()?;
+    let removed = store.consolidate(0.85).map_err(|e| e.to_string())?;
+    Ok(memory_report(&store, &path, removed))
+}
+
+#[tauri::command]
+fn summarize_memory() -> Result<MemoryMergeReport, String> {
+    let cfg = gui_config()?;
+    let store = MemoryStore::new(cfg.workspace.join(".ncx").join("memory"));
+    let path = memory_path(&cfg);
+    let summarizer = GuiSummarizer::new(cfg);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let removed = rt
+        .block_on(store.summarize_consolidate(&summarizer, 0.85))
+        .map_err(|e| e.to_string())?;
+    Ok(memory_report(&store, &path, removed))
+}
+
+#[tauri::command]
+fn open_memory_file() -> Result<(), String> {
+    let (_store, path) = memory_store()?;
+    ensure_parent_dir(&path)?;
+    if !path.exists() {
+        std::fs::write(&path, "# Project memory (nanocodex)\n\n").map_err(|e| e.to_string())?;
+    }
+    open_file(&path)
+}
+
+#[tauri::command]
 fn get_custom_commands() -> Result<Vec<CustomCommandView>, String> {
     let cfg = load_config(Overrides {
         workspace: std::env::current_dir().ok(),
@@ -361,6 +443,123 @@ fn expand_custom_command(slash: String, arg: String) -> Result<String, String> {
         Ok(Some(prompt)) => Ok(prompt),
         Ok(None) => Err(format!("unknown custom command: {slash}")),
         Err(e) => Err(e),
+    }
+}
+
+fn gui_config() -> Result<Config, String> {
+    load_config(Overrides {
+        workspace: std::env::current_dir().ok(),
+        ..Default::default()
+    })
+    .map_err(|e| e.to_string())
+}
+
+fn memory_store() -> Result<(MemoryStore, PathBuf), String> {
+    let cfg = gui_config()?;
+    let path = memory_path(&cfg);
+    Ok((
+        MemoryStore::new(cfg.workspace.join(".ncx").join("memory")),
+        path,
+    ))
+}
+
+fn memory_path(cfg: &Config) -> PathBuf {
+    cfg.workspace
+        .join(".ncx")
+        .join("memory")
+        .join("LEARNINGS.md")
+}
+
+fn memory_snapshot(store: &MemoryStore, path: &Path) -> MemorySnapshot {
+    let mut entries = store.entries();
+    entries.sort_by(|a, b| b.ts.cmp(&a.ts));
+    let views: Vec<MemoryEntryView> = entries.into_iter().map(memory_entry_view).collect();
+    MemorySnapshot {
+        path: path.display().to_string(),
+        count: views.len(),
+        entries: views,
+    }
+}
+
+fn memory_entry_view(entry: MemoryEntry) -> MemoryEntryView {
+    MemoryEntryView {
+        ts: entry.ts,
+        tags: entry.tags,
+        text: entry.text,
+    }
+}
+
+fn memory_report(store: &MemoryStore, path: &Path, removed: usize) -> MemoryMergeReport {
+    MemoryMergeReport {
+        path: path.display().to_string(),
+        removed,
+        count: store.entries().len(),
+    }
+}
+
+fn clean_tags(tags: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for tag in tags {
+        let tag = tag.trim().trim_start_matches('#').to_lowercase();
+        if tag.is_empty() || out.iter().any(|existing| existing == &tag) {
+            continue;
+        }
+        out.push(tag);
+    }
+    out
+}
+
+fn ensure_parent_dir(path: &Path) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "memory path has no parent directory".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())
+}
+
+struct GuiSummarizer {
+    cfg: Config,
+}
+
+impl GuiSummarizer {
+    fn new(cfg: Config) -> Self {
+        GuiSummarizer { cfg }
+    }
+
+    fn fast_model(&self) -> String {
+        if self.cfg.fast_model.is_empty() {
+            self.cfg.model.clone()
+        } else {
+            self.cfg.fast_model.clone()
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl Summarizer for GuiSummarizer {
+    async fn merge(&self, facts: &[String]) -> Option<String> {
+        let provider = DeepSeekProvider::with_opts(
+            self.cfg.api_key.clone(),
+            &self.cfg.base_url,
+            self.fast_model(),
+            self.cfg.timeout_s as u64,
+            self.cfg.max_retries as u32,
+        );
+        let user = facts
+            .iter()
+            .enumerate()
+            .map(|(i, fact)| format!("{}. {fact}", i + 1))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let messages = vec![
+            json!({"role": "system", "content": "Merge these related project notes into ONE concise factual note (at most 2 sentences). Output ONLY the merged note — no preamble, no list, no quotes."}),
+            json!({"role": "user", "content": user}),
+        ];
+        match provider.chat(&messages, None, None, None, None).await {
+            Ok(response) if !response.content.trim().is_empty() => {
+                Some(response.content.trim().to_string())
+            }
+            _ => None,
+        }
     }
 }
 
@@ -410,7 +609,12 @@ pub fn run() {
             create_checkpoint,
             restore_checkpoint,
             get_custom_commands,
-            expand_custom_command
+            expand_custom_command,
+            get_memory,
+            remember_note,
+            consolidate_memory,
+            summarize_memory,
+            open_memory_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running the nanocodex GUI");

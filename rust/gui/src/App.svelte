@@ -73,6 +73,27 @@
   let commandArgs = $state<Record<string, string>>({});
   let commandBusy = $state(false);
 
+  type MemoryEntry = {
+    ts: number;
+    tags: string[];
+    text: string;
+  };
+  type MemorySnapshot = {
+    path: string;
+    count: number;
+    entries: MemoryEntry[];
+  };
+  type MemoryMergeReport = {
+    path: string;
+    removed: number;
+    count: number;
+  };
+  let memoryOpen = $state(false);
+  let memory = $state<MemorySnapshot | null>(null);
+  let memoryNote = $state("");
+  let memoryTags = $state("");
+  let memoryBusy = $state(false);
+
   type Msg =
     | { role: "user" | "assistant" | "note"; text: string }
     | { role: "tool"; name: string; args?: string; result?: string };
@@ -324,6 +345,74 @@
     }
     commandBusy = false;
   }
+
+  async function loadMemory() {
+    memory = await invoke<MemorySnapshot>("get_memory");
+  }
+
+  async function openMemory() {
+    memoryOpen = true;
+    memoryBusy = true;
+    try {
+      await loadMemory();
+    } catch (e) {
+      messages.push({ role: "note", text: `Memory load failed: ${e}` });
+    }
+    memoryBusy = false;
+  }
+
+  async function saveMemoryNote() {
+    const text = memoryNote.trim();
+    if (!text || memoryBusy) return;
+    memoryBusy = true;
+    try {
+      const tags = memoryTags
+        .split(/[,\s]+/)
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+      memory = await invoke<MemorySnapshot>("remember_note", { text, tags });
+      memoryNote = "";
+      memoryTags = "";
+      messages.push({ role: "note", text: "Memory note saved." });
+    } catch (e) {
+      messages.push({ role: "note", text: `Memory save failed: ${e}` });
+    }
+    memoryBusy = false;
+  }
+
+  async function openMemoryFile() {
+    memoryBusy = true;
+    try {
+      await invoke("open_memory_file");
+      await loadMemory();
+    } catch (e) {
+      messages.push({ role: "note", text: `Open memory failed: ${e}` });
+    }
+    memoryBusy = false;
+  }
+
+  async function mergeMemory(mode: "heuristic" | "llm") {
+    if (memoryBusy) return;
+    memoryBusy = true;
+    try {
+      const report = await invoke<MemoryMergeReport>(
+        mode === "llm" ? "summarize_memory" : "consolidate_memory",
+      );
+      await loadMemory();
+      messages.push({
+        role: "note",
+        text: `Memory merged: ${report.removed} removed, ${report.count} remaining.`,
+      });
+    } catch (e) {
+      messages.push({ role: "note", text: `Memory merge failed: ${e}` });
+    }
+    memoryBusy = false;
+  }
+
+  function formatMemoryTime(ts: number) {
+    if (!ts) return "";
+    return new Date(ts * 1000).toLocaleString();
+  }
 </script>
 
 <main>
@@ -332,6 +421,7 @@
     <span class="meta">{header}</span>
     {#if busy}<span class="spinner" title="working…">●</span>{/if}
     <button class="gear" title="Settings" onclick={openSettings} aria-label="Settings">⚙</button>
+    <button class="toolbtn" title="Memory" onclick={openMemory} aria-label="Memory">M</button>
     <button class="toolbtn" title="Custom commands" onclick={openCommands} aria-label="Custom commands">/</button>
     <button class="toolbtn" title="Checkpoints" onclick={openCheckpoints} aria-label="Checkpoints">CP</button>
   </header>
@@ -453,6 +543,48 @@
         </div>
         <div class="abtns">
           <button class="deny" onclick={() => (commandOpen = false)}>Close</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if memoryOpen}
+    <div class="overlay">
+      <div class="modal wide">
+        <h3>Memory</h3>
+        {#if memory}
+          <div class="memory-path">
+            <span>{memory.count} notes</span>
+            <code title={memory.path}>{memory.path}</code>
+          </div>
+        {/if}
+        <div class="memory-create">
+          <textarea bind:value={memoryNote} rows="3" placeholder="Verified note"></textarea>
+          <input bind:value={memoryTags} placeholder="tags" />
+          <button onclick={saveMemoryNote} disabled={memoryBusy || memoryNote.trim() === ""}>Save</button>
+        </div>
+        <div class="memory-actions">
+          <button class="plain" onclick={loadMemory} disabled={memoryBusy}>Refresh</button>
+          <button class="plain" onclick={openMemoryFile} disabled={memoryBusy}>Open file</button>
+          <button class="plain" onclick={() => mergeMemory("heuristic")} disabled={memoryBusy}>Merge</button>
+          <button class="restore" onclick={() => mergeMemory("llm")} disabled={memoryBusy}>LLM merge</button>
+        </div>
+        <div class="memory-list">
+          {#if !memory || memory.entries.length === 0}
+            <p class="emptyline">No memory notes.</p>
+          {/if}
+          {#each memory?.entries ?? [] as entry}
+            <div class="memory-row">
+              <div class="memory-text">{entry.text}</div>
+              <div class="memory-meta">
+                <span>{formatMemoryTime(entry.ts)}</span>
+                {#if entry.tags.length > 0}<code>{entry.tags.join(", ")}</code>{/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+        <div class="abtns">
+          <button class="deny" onclick={() => (memoryOpen = false)}>Close</button>
         </div>
       </div>
     </div>

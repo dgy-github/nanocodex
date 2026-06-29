@@ -63,7 +63,7 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - 编排层加入任务分类、main/fast 模型路由、隔离 worker 工作区、verifier 选择，以及
   把胜出 worker promote 回真实工作区。
 - 项目记忆保存在 `.ncx/memory/LEARNINGS.md`；启动时只做便宜的启发式去重，显式运行
-  `ncx --memory-merge` 才会做成本更高的 LLM 记忆合并。
+  `ncx --memory-merge`，或在 Tauri Memory 面板里操作，才会执行显式的启发式/LLM 记忆合并。
 - 桌面线切到 Tauri v2 + Svelte 5，把原生后端和 UI 表层分离，为比 Python GUI 更小的
   release bundle 做准备。
 
@@ -444,11 +444,14 @@ Look for behavior regressions first, then missing tests, then maintainability.
 
 ## 记忆与 AGENTS.md
 
-两层互补的持久上下文，每轮都注入：
+三层互补的持久上下文：
 
+- **项目记忆**（`.ncx/memory/LEARNINGS.md`）—— 作为 recall 线索使用的已验证项目笔记。
+  由 `remember` 工具或 Tauri Memory 面板写入；可用 `ncx --memory-merge`、启发式 Merge
+  或 LLM merge 维护。
 - **用户记忆**（`~/.nanocodex/memory.md`）—— 持久的个人事实和偏好。由 `remember`
-  工具写入、在 GUI 输入框里打 `# 内容` 快速捕获、或手工编辑。包在 `<user_memory>`
-  块里。
+  工具写入、在 legacy Python GUI 输入框里打 `# 内容` 快速捕获、或手工编辑。Python 线会包在
+  `<user_memory>` 块里。
 - **AGENTS.md / CLAUDE.md** —— 项目指令，从 `~/.codex/AGENTS.md` 和
   `~/.claude/CLAUDE.md` 开始，再分层读取从仓库根到工作区的每个 `AGENTS.md`、
   `CLAUDE.md` 和 `.claude/CLAUDE.md`，所以嵌套目录可以细化父级。总大小有上限，避免
@@ -529,15 +532,15 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 
 ## GUI
 
-一个面向 Windows 的 Tkinter 桌面 GUI（`nanocodex-gui`）：
+当前桌面线是 Tauri v2 + Svelte GUI（`rust/gui`）：
 
-- 流式对话，推理/答案分离，带 Stop 按钮。
-- 项目切换、模型切换，以及多分区的设置页。
-- 可浏览的会话历史（点击回放完整对话）。
-- 文件面板、prompt 增强（✨）、图片附件、`#` 快速捕获到记忆、MCP 自动连接、
-  定时器控制，以及 A/B 对比流程。
+- 流式对话、工具调用展示和审批弹窗。
+- Settings 面板可配置 model、sandbox、approval、预算、context editing、base URL 和 API key。
+- Checkpoint 面板提供手动保存 / 列表 / 恢复。
+- Custom command 面板复用 CLI 同一套 `.nanocodex/.claude` 模板展开器。
+- Memory 面板可查看项目笔记、新增 verified note、打开 `LEARNINGS.md`、启发式去重和 LLM 记忆合并。
 
-注意：GUI 不热加载——改代码需要关掉再重开。
+原 Tkinter GUI 仍作为 Python 树里的 legacy 原型保留。注意：桌面 GUI 不热加载——改代码需要关掉再重开。
 
 ## 测试
 

@@ -80,8 +80,8 @@ tool.
   isolated worker workspaces, verifier selection, and promotion of the winning
   worker back into the real workspace.
 - Project memory is local to `.ncx/memory/LEARNINGS.md`; startup uses cheap
-  heuristic deduplication, while `ncx --memory-merge` runs the more expensive
-  LLM-backed consolidation only as an explicit maintenance command.
+  heuristic deduplication, while `ncx --memory-merge` or the Tauri Memory panel
+  run explicit heuristic/LLM-backed consolidation.
 - The desktop line moves to Tauri v2 + Svelte 5, separating the native backend
   from the UI surface and preparing a smaller release bundle than the Python GUI
   path.
@@ -510,11 +510,15 @@ A user skill of the same name shadows the built-in.
 
 ## Memory & AGENTS.md
 
-Two complementary layers of persistent context, both injected each turn:
+Three complementary layers of persistent context:
 
+- **Project memory** (`.ncx/memory/LEARNINGS.md`) — verified project notes used
+  as recall leads. Written by the `remember` tool or the Tauri Memory panel;
+  maintained with `ncx --memory-merge`, heuristic Merge, or LLM merge.
 - **User memory** (`~/.nanocodex/memory.md`) — durable personal facts and
   preferences. Written by the `remember` tool, by typing `# something` in the
-  GUI composer (quick-capture), or by hand. Wrapped in a `<user_memory>` block.
+  legacy Python GUI composer (quick-capture), or by hand. Wrapped in a
+  `<user_memory>` block on the Python line.
 - **AGENTS.md / CLAUDE.md** — project instructions layered from
   `~/.codex/AGENTS.md` and `~/.claude/CLAUDE.md`, then every `AGENTS.md`,
   `CLAUDE.md`, and `.claude/CLAUDE.md` from the repo root down to the workspace,
@@ -611,15 +615,20 @@ otherwise.
 
 ## GUI
 
-A Tkinter desktop GUI for Windows (`nanocodex-gui`):
+The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
 
-- Streaming chat with reasoning/answer separation and a Stop button.
-- Project switcher, model switcher, and a multi-section Settings page.
-- Browsable session history (click to replay a full transcript).
-- File panel, prompt enhancement (✨), image attachment, `#` quick-capture to
-  memory, MCP auto-connect, scheduler controls, and the A/B comparison flow.
+- Streaming chat, tool-call display, and approval modals.
+- Settings panel for model, sandbox, approval, budgets, context editing, base
+  URL, and API key.
+- Checkpoint panel for manual save/list/restore.
+- Custom command panel backed by the same core `.nanocodex/.claude` template
+  engine the CLI uses.
+- Memory panel for viewing project notes, adding verified notes, opening
+  `LEARNINGS.md`, heuristic deduplication, and LLM-backed memory merge.
 
-Note: the GUI does not hot-reload — code changes require closing and reopening it.
+The original Tkinter GUI remains in the Python tree as a legacy prototype.
+Note: the desktop GUI does not hot-reload — code changes require closing and
+reopening it.
 
 ## Tests
 
