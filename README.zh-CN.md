@@ -492,14 +492,15 @@ ncx --mcp
 `[connectors.<name>]` 可以声明 `transport`、`source`、`trusted`、`permission`、
 `allowed_tools`、`auth`、`headers`、`headers_helper` 和 `[connectors.<name>.oauth]`。
 stdio connector 会在 `ncx --mcp` 启动时转换成 MCP server；远程 `sse`/`http`
-spec 目前只解析并在 `/mcp` 里展示脱敏 auth 元数据，等后续补完整 OAuth login
+spec 目前只解析并在 `/mcp` 里展示脱敏 auth 元数据、`launch=audit-only`
+和 `launch_gap=remote_transport_not_implemented`，等后续补完整 OAuth login
 和远程 transport 后再真正启动。
 stdio connector/server 注册时会执行 `allowed_tools` 和 `permission`
 （`ask`、`trusted`、`read-only`、`deny`）；`allowed_tools` 可写原始 MCP 工具名，
 也可写完整的 `mcp__<server>__<tool>` 名。
 更多见 `mcp.example.toml` 和 `connectors.example.toml`。
 
-Rust REPL 内可用 `/mcp` 查看 enabled server、connector install/auth spec、connector 权限/信任/source/auth
+Rust REPL 内可用 `/mcp` 查看 enabled server、connector install/auth spec、connector launch 状态、权限/信任/source/auth
 元数据，以及当前会话已经注册的 MCP 工具。Tauri GUI 的 Tools 面板也会展示每个 MCP server
 的 connected/error 状态、注册工具数、启动耗时、启动命令和最近错误。
 

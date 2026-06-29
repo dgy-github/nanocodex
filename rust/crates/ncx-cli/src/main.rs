@@ -978,10 +978,12 @@ fn render_mcp_status(
             };
             let auth = connector_auth_summary(connector);
             out.push_str(&format!(
-                "\n  {}: transport={} enabled={} trusted={} permission={} allowed_tools={} source={} auth={} endpoint={}",
+                "\n  {}: transport={} enabled={} launch={} launch_gap={} trusted={} permission={} allowed_tools={} source={} auth={} endpoint={}",
                 connector.name,
                 connector.transport,
                 connector.enabled,
+                connector.launch_status(),
+                connector.launch_gap_reason(),
                 connector.trusted,
                 connector.permission,
                 allowed,
@@ -2386,7 +2388,7 @@ mod tests {
                     auth_server_metadata_url:
                         "https://example.test/.well-known/oauth-authorization-server".into(),
                 },
-                enabled: false,
+                enabled: true,
                 trusted: false,
                 permission: "ask".into(),
                 allowed_tools: vec![],
@@ -2419,7 +2421,10 @@ mod tests {
         assert!(out.contains("allowed_tools=list"));
         assert!(out.contains("source=npm:server-fs"));
         assert!(out.contains("auth=none"));
+        assert!(out.contains("fs: transport=stdio enabled=true launch=launchable"));
         assert!(out.contains("remote_docs: transport=sse"));
+        assert!(out.contains("enabled=true launch=audit-only"));
+        assert!(out.contains("launch_gap=remote_transport_not_implemented"));
         assert!(out.contains("source=remote:https://example.test"));
         assert!(out.contains("auth=oauth;headers=1;oauth_client_id=set"));
         assert!(out.contains("oauth_secret_env=set"));

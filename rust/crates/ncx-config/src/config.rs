@@ -99,6 +99,27 @@ pub struct McpConnectorConfig {
 }
 
 impl McpConnectorConfig {
+    pub fn launch_status(&self) -> &'static str {
+        if !self.enabled {
+            return "disabled";
+        }
+        match self.transport.as_str() {
+            "stdio" if !self.command.trim().is_empty() => "launchable",
+            "stdio" => "invalid",
+            "sse" | "http" | "streamable-http" => "audit-only",
+            _ => "invalid",
+        }
+    }
+
+    pub fn launch_gap_reason(&self) -> &'static str {
+        match self.launch_status() {
+            "launchable" => "none",
+            "audit-only" => "remote_transport_not_implemented",
+            "disabled" => "connector_disabled",
+            _ => "invalid_connector_spec",
+        }
+    }
+
     pub fn to_mcp_server(&self) -> Option<McpServerConfig> {
         if !self.enabled || self.transport != "stdio" || self.command.trim().is_empty() {
             return None;

@@ -306,7 +306,7 @@ fn open_connectors_file() -> Result<(), String> {
 # permission = "ask"        # ask | trusted | read-only | deny
 # allowed_tools = ["fetch"] # optional raw or mcp__server__tool names; empty = all
 
-# Remote connectors are audit-only until OAuth login and remote transports land.
+# Remote connectors show launch=audit-only until OAuth login and remote transports land.
 # [connectors.remote_docs]
 # display_name = "Remote Docs"
 # description = "Remote MCP docs connector."
@@ -315,7 +315,7 @@ fn open_connectors_file() -> Result<(), String> {
 # auth = "oauth" # none | header | headers-helper | oauth
 # headers = { Authorization = "Bearer ${TOKEN}" }
 # headers_helper = "" # optional command that would mint headers; not executed yet
-# enabled = false
+# enabled = false # even true stays audit-only until remote transport support lands
 # trusted = false
 # permission = "ask"
 #

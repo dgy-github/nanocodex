@@ -582,15 +582,16 @@ when `ncx --mcp` starts, and `allowed_tools` plus `permission` (`ask`,
 `trusted`, `read-only`, `deny`) are enforced while registering tools.
 `allowed_tools` accepts raw MCP tool names or fully qualified
 `mcp__<server>__<tool>` names. Remote `sse`/`http` specs are parsed and shown
-for audit with redacted auth metadata, but are not launched until first-class
-OAuth login and remote transports land. See `mcp.example.toml` and
-`connectors.example.toml`.
+for audit with redacted auth metadata plus an explicit `launch=audit-only`
+status and `launch_gap=remote_transport_not_implemented`; they are not launched
+until first-class OAuth login and remote transports land. See
+`mcp.example.toml` and `connectors.example.toml`.
 
 Inside the Rust REPL, `/mcp` shows enabled server entries, connector install
-specs, connector permission/trust/source/auth metadata, and MCP tools
-registered in the active session. In the Tauri GUI, the Tools panel also shows
-each configured MCP server's connected/error state, registered tool count,
-startup elapsed time, command, and last error.
+specs, connector launch status, permission/trust/source/auth metadata, and MCP
+tools registered in the active session. In the Tauri GUI, the Tools panel also
+shows each configured MCP server's connected/error state, registered tool
+count, startup elapsed time, command, and last error.
 
 ## Skills
 

@@ -1422,6 +1422,8 @@ transport = "http"
         assert_eq!(connectors[0].command, "cmd");
         assert_eq!(connectors[0].args[0], "/c");
         assert_eq!(connectors[0].allowed_tools, vec!["fetch"]);
+        assert_eq!(connectors[0].launch_status(), "launchable");
+        assert_eq!(connectors[0].launch_gap_reason(), "none");
         assert_eq!(
             connectors[0].env.get("TOKEN").map(String::as_str),
             Some("secret")
@@ -1442,6 +1444,11 @@ transport = "http"
             "https://example.test/.well-known/oauth-authorization-server"
         );
         assert!(connectors[1].trusted);
+        assert_eq!(connectors[1].launch_status(), "audit-only");
+        assert_eq!(
+            connectors[1].launch_gap_reason(),
+            "remote_transport_not_implemented"
+        );
     }
 
     #[test]
@@ -1473,6 +1480,36 @@ transport = "http"
         assert_eq!(server.args, vec!["/c", "npx"]);
         assert_eq!(server.permission, "ask");
         assert_eq!(server.allowed_tools, vec!["fetch"]);
+    }
+
+    #[test]
+    fn remote_connector_never_materializes_until_transport_lands() {
+        let connector = crate::config::McpConnectorConfig {
+            name: "remote_docs".into(),
+            display_name: "Remote Docs".into(),
+            description: String::new(),
+            transport: "streamable-http".into(),
+            command: String::new(),
+            args: vec![],
+            url: "https://example.test/mcp".into(),
+            env: HashMap::new(),
+            headers: HashMap::new(),
+            auth: "oauth".into(),
+            headers_helper: String::new(),
+            oauth: crate::config::McpConnectorOAuthConfig::default(),
+            enabled: true,
+            trusted: false,
+            permission: "ask".into(),
+            allowed_tools: vec![],
+            source: "remote:https://example.test".into(),
+        };
+
+        assert_eq!(connector.launch_status(), "audit-only");
+        assert_eq!(
+            connector.launch_gap_reason(),
+            "remote_transport_not_implemented"
+        );
+        assert!(connector.to_mcp_server().is_none());
     }
 
     #[test]

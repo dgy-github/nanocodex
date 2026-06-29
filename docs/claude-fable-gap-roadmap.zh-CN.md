@@ -45,7 +45,7 @@
 已完成：
 
 - Tauri GUI 已有 Tools 面板，可展示 runtime tool catalog、core/MCP 来源、read-only/effectful 分类，以及 MCP server connected/error、最近失败原因和启动耗时。
-- 新增 `~/.nanocodex/connectors.toml`：stdio connector 可转换为 MCP server；`allowed_tools` 与 `permission` 会在注册时过滤/约束 MCP tools；remote `sse`/`http` spec 会被解析并在 CLI `/mcp` 中展示 transport/source/trusted/permission/allowed_tools/auth/OAuth 元数据，作为完整 OAuth login 与远程 transport 落地前的审计面。
+- 新增 `~/.nanocodex/connectors.toml`：stdio connector 可转换为 MCP server；`allowed_tools` 与 `permission` 会在注册时过滤/约束 MCP tools；remote `sse`/`http` spec 会被解析并在 CLI `/mcp` 中展示 transport/source/trusted/permission/allowed_tools/auth/OAuth 元数据，以及明确的 `launch=audit-only` / `launch_gap=remote_transport_not_implemented`，作为完整 OAuth login 与远程 transport 落地前的审计面。
 
 下一步：
 
@@ -140,7 +140,7 @@
 - Tauri GUI 已补回 Usage/Context 面板：每轮 `done` 事件携带 `iterations`、`visible_tools`、`tools_used`、token usage 和 context-edit telemetry；前端展示上一轮与当前 session 汇总。
 - Tauri GUI 已新增 Tools 面板：agent 线程按需发出真实 runtime tool catalog，前端展示 core/MCP 来源、read-only/effectful 分类，以及 MCP server connected/error、注册工具数、启动耗时和最近错误。
 - Tauri GUI Settings 已把配置入口扩展到 `~/.nanocodex/config.toml`、`mcp.toml` 和 `connectors.toml`，缺失的 MCP/connector 文件会用注释模板创建，方便配置 allow-list/permission。
-- 已新增 connector install/auth spec：`connectors.example.toml` 说明本地 connector metadata 与 OAuth 审计字段；`load_mcp_connectors()` 解析 `~/.nanocodex/connectors.toml`；stdio connector 会并入 `load_mcp_servers()`；MCP 注册会执行 `allowed_tools` 和 permission 策略；CLI `/mcp` 会展示 connector permission/trusted/source/allowed_tools/auth 元数据。
+- 已新增 connector install/auth spec：`connectors.example.toml` 说明本地 connector metadata 与 OAuth 审计字段；`load_mcp_connectors()` 解析 `~/.nanocodex/connectors.toml`；stdio connector 会并入 `load_mcp_servers()`；MCP 注册会执行 `allowed_tools` 和 permission 策略；CLI `/mcp` 会展示 connector launch status/gap、permission/trusted/source/allowed_tools/auth 元数据。
 - 已增强 tool_search：评分会分解 MCP server/tool namespace，MCP 工具 description 带 server/tool 元数据和确定性 category/capability hints，并新增 29 条跨类别 tool-selection gold cases，覆盖 core tools、MCP connectors、release packaging 和 code execution。
 - 已新增本地 `code_exec`：Python/Node 小片段会被 base64 包装后通过 `shell` 执行，因此继承同一套沙箱、审批、timeout、workdir 和 session allow 逻辑；文档明确它不是模型侧托管代码执行。
 - 已新增 `TaskLedger`：CLI 与 Tauri 每轮完成后写 `.nanocodex/task-ledger.jsonl`，CLI 支持 `--budget-report` 和 `/budget report`，Tauri Usage 面板可读取最近任务报告；报告已加入平均耗时、预算耗尽率、模型/工具预算利用率，以及 visible tools / called tools trace；CLI `/tools eval [N]` 与 `--tools-eval-report` 可把 trace 汇总成 schema recall / missed calls / MCP recall 报告。
