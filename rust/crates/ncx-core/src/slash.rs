@@ -20,7 +20,7 @@ pub const SLASH_HELP: &[(&str, &str)] = &[
     ),
     (
         "/budget",
-        "Show task budget limits and last-turn/session budget use.",
+        "Show task budget limits; /budget report [N] shows the task ledger.",
     ),
     (
         "/context",

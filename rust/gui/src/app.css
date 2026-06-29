@@ -1499,6 +1499,22 @@ main.app { flex-direction: row; }
   font-size: var(--fs-sm);
   color: var(--ink);
 }
+.ledger-report {
+  margin: 0;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-soft);
+  padding: var(--sp-3);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
 .tool-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

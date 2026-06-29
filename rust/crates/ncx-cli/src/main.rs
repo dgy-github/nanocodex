@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use ncx_config::{
     load_config, load_mcp_servers, permission_mode_to_knobs, write_nanocodex_config, Config,
@@ -27,7 +28,8 @@ use ncx_core::{
     load_project_instructions, new_session_id, parse_custom_command_query, register_mcp_server,
     skills_index_block, AgentLoop, CheckpointMeta, CheckpointStore, ContextEditPolicy,
     ContextEditStats, Genome, MemoryStore, Orchestrator, OrchestratorConfig, Provider, Session,
-    SessionIndex, SessionSummary, TaskBudget, ToolContext, ToolRegistry, TurnResult,
+    SessionIndex, SessionSummary, TaskBudget, TaskLedger, TaskLedgerRecord, ToolContext,
+    ToolRegistry, TurnResult,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -122,6 +124,10 @@ async fn run(args: Args) -> i32 {
             );
             return 1;
         }
+    }
+    if args.budget_report {
+        println!("{}", render_budget_report(&TaskLedger::new(&cfg.workspace), 20));
+        return 0;
     }
 
     // Maintenance: LLM-fold near-duplicate memory notes, then exit.
@@ -264,7 +270,26 @@ async fn run(args: Args) -> i32 {
                 return 1;
             }
         };
+        let approvals_before = agent.tools.ctx.approval_request_count();
+        let started_at = ncx_core::task_ledger_now();
+        let started = Instant::now();
         let result = agent.run_turn(user_input, None).await;
+        let approval_requests = agent
+            .tools
+            .ctx
+            .approval_request_count()
+            .saturating_sub(approvals_before);
+        record_task_ledger(
+            &TaskLedger::new(&cfg.workspace),
+            &recorder.session_id,
+            &cfg.workspace,
+            &cfg.model,
+            agent.task_budget.clone(),
+            &result,
+            approval_requests,
+            started_at,
+            started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+        );
         recorder.record(&agent.session);
         println!("{}", result.final_text);
         // Emit a stable, parseable token-usage line on stderr so external tools
@@ -418,7 +443,26 @@ async fn run_one_turn(
             return;
         }
     };
+    let approvals_before = agent.tools.ctx.approval_request_count();
+    let started_at = ncx_core::task_ledger_now();
+    let started = Instant::now();
     let result = agent.run_turn(user_input, None).await;
+    let approval_requests = agent
+        .tools
+        .ctx
+        .approval_request_count()
+        .saturating_sub(approvals_before);
+    record_task_ledger(
+        &TaskLedger::new(&cfg.workspace),
+        &recorder.session_id,
+        &cfg.workspace,
+        &cfg.model,
+        agent.task_budget.clone(),
+        &result,
+        approval_requests,
+        started_at,
+        started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+    );
     recorder.record(&agent.session);
     usage.record(&result);
     println!("{}", result.final_text);
@@ -464,7 +508,16 @@ fn dispatch_slash(
         "/help" => SlashOutcome::Printed(render_help_for_workspace(&cfg.workspace)),
         "/status" => SlashOutcome::Printed(render_status(cfg)),
         "/usage" | "/cost" => SlashOutcome::Printed(usage.render()),
-        "/budget" => SlashOutcome::Printed(render_budget_status(agent, cfg, usage)),
+        "/budget" => {
+            if arg.trim().starts_with("report") || arg.trim().starts_with("ledger") {
+                SlashOutcome::Printed(render_budget_report(
+                    &TaskLedger::new(&cfg.workspace),
+                    budget_report_limit(arg),
+                ))
+            } else {
+                SlashOutcome::Printed(render_budget_status(agent, cfg, usage))
+            }
+        }
         "/context" => SlashOutcome::Printed(render_context_status(agent, cfg, usage)),
         "/config" => SlashOutcome::Printed(config_text(cfg, arg)),
         "/history" => SlashOutcome::Printed(render_history(&SessionIndex::default().entries(), 20)),
@@ -721,6 +774,51 @@ fn mcp_tool_name_parts(name: &str) -> Option<(&str, &str)> {
     Some((server, tool))
 }
 
+fn record_task_ledger(
+    ledger: &TaskLedger,
+    session_id: &str,
+    workspace: &Path,
+    model: &str,
+    budget: TaskBudget,
+    result: &TurnResult,
+    approval_requests: usize,
+    started_at: String,
+    duration_ms: u64,
+) {
+    let record = TaskLedgerRecord {
+        session_id: session_id.to_string(),
+        workspace: workspace.display().to_string(),
+        model: model.to_string(),
+        started_at,
+        duration_ms,
+        model_calls: result.iterations,
+        tool_calls: result.tools_used.len(),
+        approval_requests,
+        stop_reason: result.stop_reason.clone(),
+        task_model_budget: budget.max_model_calls,
+        task_tool_budget: budget.max_tool_calls,
+        usage: result.usage.clone(),
+    };
+    if let Err(e) = ledger.append(&record) {
+        eprintln!(
+            "ncx: could not write task ledger {}: {e}",
+            ledger.path().display()
+        );
+    }
+}
+
+fn budget_report_limit(arg: &str) -> usize {
+    arg.split_whitespace()
+        .filter_map(|part| part.parse::<usize>().ok())
+        .next()
+        .unwrap_or(20)
+        .clamp(1, 200)
+}
+
+fn render_budget_report(ledger: &TaskLedger, limit: usize) -> String {
+    ledger.render_report(limit)
+}
+
 fn render_help() -> String {
     let mut out = String::from("Commands:");
     for (cmd, help) in SLASH_HELP {
@@ -793,13 +891,14 @@ fn render_budget_status(
         .unwrap_or_else(|| "No model turn recorded yet.".into());
 
     format!(
-        "Task budget\nper_task_model_calls: {}\nper_task_tool_calls: {}\ncontext_edit_max_chars: {}\ncontext_token_budget: {}\nconfig_max_iterations: {}\nconfig_max_tool_calls: {}\n\nSession use\nmodel_calls: {}\ntool_calls:  {}\n\nLast turn vs budget\n{}",
+        "Task budget\nper_task_model_calls: {}\nper_task_tool_calls: {}\ncontext_edit_max_chars: {}\ncontext_token_budget: {}\nconfig_max_iterations: {}\nconfig_max_tool_calls: {}\nledger: {}\n\nSession use\nmodel_calls: {}\ntool_calls:  {}\n\nLast turn vs budget\n{}\n\nUse /budget report [N] to inspect recent completed task records.",
         model_limit,
         tool_limit,
         agent.context_edit.max_chars,
         cfg.context_token_budget,
         cfg.max_iterations,
         cfg.max_tool_calls,
+        TaskLedger::new(&cfg.workspace).path().display(),
         usage.total_model_calls,
         usage.total_tool_calls,
         last_block

@@ -16,7 +16,7 @@
     | { kind: "tool_start"; name: string; args: string }
     | { kind: "tool_result"; name: string; result: string }
     | { kind: "approval"; id: number; command: string; reason: string; cwd: string; details: string }
-    | { kind: "done"; final_text: string; iterations: number; stop_reason: string; tools_used: string[]; usage: UsageMap; context_edit: ContextEditStats }
+    | { kind: "done"; final_text: string; iterations: number; stop_reason: string; tools_used: string[]; usage: UsageMap; context_edit: ContextEditStats; task_ledger: TaskLedgerStats }
     | { kind: "loaded"; messages: { role: string; text: string }[] }
     | { kind: "tool_catalog"; tools: ToolInfo[]; mcp_servers: McpRuntimeStatus[] }
     | { kind: "error"; message: string };
@@ -122,18 +122,27 @@
     compressed_tool_results: number;
     dropped_messages: number;
   };
+  type TaskLedgerStats = {
+    duration_ms: number;
+    approval_requests: number;
+    task_model_budget: number;
+    task_tool_budget: number;
+  };
   type TurnMetrics = {
     iterations: number;
     stop_reason: string;
     tool_calls: number;
     usage: UsageMap;
     context_edit: ContextEditStats;
+    task_ledger: TaskLedgerStats;
   };
   let lastMetrics = $state<TurnMetrics | null>(null);
   let sessionModelCalls = $state(0);
   let sessionToolCalls = $state(0);
   let sessionCompressedToolResults = $state(0);
   let sessionDroppedMessages = $state(0);
+  let budgetReport = $state("");
+  let budgetReportBusy = $state(false);
   // Per-1M-token prices (from config); 0 = unknown → cost is hidden.
   let priceIn = $state(0);
   let priceOut = $state(0);
@@ -146,6 +155,9 @@
     usageValue(usage, "prompt_tokens") + usageValue(usage, "completion_tokens");
   function emptyContextEdit(): ContextEditStats {
     return { original_chars: 0, edited_chars: 0, compressed_tool_results: 0, dropped_messages: 0 };
+  }
+  function emptyTaskLedger(): TaskLedgerStats {
+    return { duration_ms: 0, approval_requests: 0, task_model_budget: 0, task_tool_budget: 0 };
   }
   function savedContextChars(stats: ContextEditStats | null | undefined) {
     if (!stats) return 0;
@@ -175,6 +187,7 @@
       tool_calls: turn.tools_used?.length ?? 0,
       usage: turn.usage ?? {},
       context_edit: contextEdit,
+      task_ledger: turn.task_ledger ?? emptyTaskLedger(),
     };
     sessionUsage = addUsage(sessionUsage, turn.usage);
     sessionModelCalls += turn.iterations ?? 0;
@@ -437,6 +450,7 @@
             messages.push({ role: "note", text: `[${p.stop_reason}] ${p.final_text}` });
           }
           recordMetrics(p);
+          if (rightPanel === "usage") loadBudgetReport();
           streamingIdx = null;
           busy = false;
           refreshSessions();
@@ -969,8 +983,19 @@
       return String(ts);
     }
   }
-  function openUsage() {
-    rightPanel = rightPanel === "usage" ? "" : "usage";
+  async function loadBudgetReport() {
+    budgetReportBusy = true;
+    try {
+      budgetReport = await invoke<string>("budget_report", { limit: 20 });
+    } catch (e) {
+      budgetReport = `读取 task ledger 失败：${e}`;
+    }
+    budgetReportBusy = false;
+  }
+  async function openUsage() {
+    if (rightPanel === "usage") { rightPanel = ""; return; }
+    rightPanel = "usage";
+    await loadBudgetReport();
   }
   async function loadTools() {
     toolBusy = true;
@@ -1467,7 +1492,7 @@
 
   {#if rightPanel === "usage"}
     <aside class="rightpanel">
-      <div class="rp-head"><span class="rp-title">用量与上下文</span><span class="rp-actions"><button class="plain rp-refresh" onclick={resetUsage}>重置</button><button class="rp-close" onclick={() => (rightPanel = "")} aria-label="关闭">×</button></span></div>
+      <div class="rp-head"><span class="rp-title">用量与上下文</span><span class="rp-actions"><button class="plain rp-refresh" onclick={loadBudgetReport} disabled={budgetReportBusy}>账本</button><button class="plain rp-refresh" onclick={resetUsage}>重置</button><button class="rp-close" onclick={() => (rightPanel = "")} aria-label="关闭">×</button></span></div>
       <div class="rp-body">
         <div class="usage-grid">
           <div class="usage-card">
@@ -1481,6 +1506,9 @@
               <div class="usage-row"><span>总 token</span><b>{totalTokens(lastMetrics.usage)}</b></div>
               <div class="usage-row"><span>缓存命中</span><b>{usageValue(lastMetrics.usage, "prompt_cache_hit_tokens")}</b></div>
               <div class="usage-row"><span>缓存未命中</span><b>{usageValue(lastMetrics.usage, "prompt_cache_miss_tokens")}</b></div>
+              <div class="usage-row"><span>审批请求</span><b>{lastMetrics.task_ledger.approval_requests}</b></div>
+              <div class="usage-row"><span>耗时 ms</span><b>{lastMetrics.task_ledger.duration_ms}</b></div>
+              <div class="usage-row"><span>预算</span><b>{lastMetrics.iterations}/{lastMetrics.task_ledger.task_model_budget} · {lastMetrics.tool_calls}/{lastMetrics.task_ledger.task_tool_budget}</b></div>
             {:else}
               <p class="emptyline">还没有完成的模型轮次。</p>
             {/if}
@@ -1509,6 +1537,16 @@
             {/if}
             <div class="usage-row"><span>累计压缩</span><b>{sessionCompressedToolResults}</b></div>
             <div class="usage-row"><span>累计丢弃</span><b>{sessionDroppedMessages}</b></div>
+          </div>
+          <div class="usage-card">
+            <strong>Task ledger</strong>
+            {#if budgetReportBusy}
+              <p class="emptyline">正在读取 task ledger…</p>
+            {:else if budgetReport}
+              <pre class="ledger-report">{budgetReport}</pre>
+            {:else}
+              <p class="emptyline">暂无 task ledger 快照。</p>
+            {/if}
           </div>
         </div>
       </div>

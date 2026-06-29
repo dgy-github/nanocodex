@@ -40,6 +40,7 @@ OPTIONS:
                             their tools (runs outside the sandbox).
     -r, --resume            Resume the workspace session log before starting.
         --history           List recent saved sessions, then exit.
+        --budget-report     Print the workspace task budget ledger, then exit.
     -o, --orchestrate       Run the prompt through the tiered flash/pro orchestrator
                             (classify → plan → parallel workers → verify). One-shot only.
         --memory-merge      Maintenance: LLM-fold near-duplicate project memory notes, then exit.
@@ -70,6 +71,7 @@ pub struct Args {
     pub mcp: bool,
     pub resume: bool,
     pub history: bool,
+    pub budget_report: bool,
     pub orchestrate: bool,
     pub memory_merge: bool,
     /// Print the default genome (system_prompt + core tool descriptions) as TOML and exit.
@@ -101,6 +103,7 @@ pub fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--mcp" => args.mcp = true,
             "-r" | "--resume" => args.resume = true,
             "--history" => args.history = true,
+            "--budget-report" => args.budget_report = true,
             "--memory-merge" => args.memory_merge = true,
             "--dump-genome" => args.dump_genome = true,
             "--disable-context-edit" => args.disable_context_edit = true,
@@ -194,6 +197,12 @@ mod tests {
         assert_eq!(a.profile.as_deref(), Some("fast"));
         assert_eq!(a.max_iterations, Some(7));
         assert_eq!(a.max_tool_calls, Some(9));
+    }
+
+    #[test]
+    fn budget_report_flag() {
+        let a = args(&["--budget-report"]).unwrap();
+        assert!(a.budget_report);
     }
 
     #[test]

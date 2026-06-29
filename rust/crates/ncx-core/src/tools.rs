@@ -5,7 +5,7 @@
 //! Single-threaded by design (the REPL runs on a current-thread runtime), so
 //! shared mutable state (the plan) uses `Rc<RefCell<…>>`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -100,6 +100,8 @@ pub struct ToolContext {
     /// Optional approval prompt. `None` = no prompting (escalations then rely on
     /// the policy alone, i.e. an out-of-sandbox write simply fails).
     pub approver: Option<Rc<dyn ApprovalHandler>>,
+    /// Monotonic count of user approval prompts issued in this session.
+    approval_requests: Rc<Cell<usize>>,
     /// Optional project memory store. When set, the `remember` tool is exposed.
     pub memory: Option<Rc<MemoryStore>>,
     /// Web search backend ("duckduckgo" | "tavily") and its key (for tavily).
@@ -131,6 +133,7 @@ impl ToolContext {
             timeout_s: 120,
             plan: Rc::new(RefCell::new(Vec::new())),
             approver: None,
+            approval_requests: Rc::new(Cell::new(0)),
             memory: None,
             search_provider: "duckduckgo".to_string(),
             search_api_key: String::new(),
@@ -208,6 +211,15 @@ impl ToolContext {
     pub fn with_genome(mut self, genome: Genome) -> Self {
         self.genome = Rc::new(genome);
         self
+    }
+
+    pub fn approval_request_count(&self) -> usize {
+        self.approval_requests.get()
+    }
+
+    fn record_approval_request(&self) {
+        self.approval_requests
+            .set(self.approval_requests.get().saturating_add(1));
     }
 }
 
@@ -697,6 +709,7 @@ impl Tool for ApplyPatchTool {
                         true,
                     )
                 };
+                ctx.record_approval_request();
                 let decision = approver
                     .request(ApprovalRequest {
                         command,
@@ -1241,6 +1254,7 @@ impl Tool for ShellTool {
                     } else {
                         justification.to_string()
                     };
+                    ctx.record_approval_request();
                     let ans = h
                         .request(ApprovalRequest {
                             command: command.to_string(),
@@ -1274,6 +1288,7 @@ impl Tool for ShellTool {
         // on-failure: if the sandboxed run failed (not a timeout), offer to retry.
         if !result.ok() && ctx.approval_policy == ON_FAILURE && !result.timed_out {
             if let Some(h) = &ctx.approver {
+                ctx.record_approval_request();
                 let ans = h
                     .request(ApprovalRequest {
                         command: command.to_string(),

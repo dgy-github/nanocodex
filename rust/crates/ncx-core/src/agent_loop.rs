@@ -211,6 +211,10 @@ impl AgentLoop {
         self
     }
 
+    pub fn model(&self) -> &str {
+        self.provider.model()
+    }
+
     /// Route turns that carry an image block to a dedicated vision provider.
     /// When `None`, image turns stay on the main provider (no special routing).
     pub fn with_vision_provider(mut self, provider: Option<Box<dyn Provider>>) -> Self {

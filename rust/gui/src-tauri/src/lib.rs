@@ -16,7 +16,9 @@ use ncx_config::{
     load_config, write_nanocodex_config, ConfigPaths, Overrides, VALID_APPROVAL_POLICIES,
     VALID_SANDBOX_MODES,
 };
-use ncx_core::{CheckpointMeta, CheckpointStore, MemoryStore, RestoreReport, SessionIndex};
+use ncx_core::{
+    CheckpointMeta, CheckpointStore, MemoryStore, RestoreReport, SessionIndex, TaskLedger,
+};
 use serde::Serialize;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
@@ -186,6 +188,12 @@ fn request_tools(state: tauri::State<'_, AppState>) -> Result<(), String> {
         .tx
         .send(Command::RequestTools)
         .map_err(|_| "agent thread is not running".to_string())
+}
+
+#[tauri::command]
+fn budget_report(limit: Option<usize>) -> Result<String, String> {
+    let workspace = std::env::current_dir().map_err(|e| e.to_string())?;
+    Ok(TaskLedger::new(&workspace).render_report(limit.unwrap_or(20)))
 }
 
 /// Archive (or unarchive) a saved session; persisted in the session index.
@@ -955,7 +963,8 @@ pub fn run() {
             set_model,
             set_permission_mode,
             request_ready,
-            request_tools
+            request_tools,
+            budget_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running the nanocodex GUI");

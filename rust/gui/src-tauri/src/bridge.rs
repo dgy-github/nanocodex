@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use async_trait::async_trait;
 use ncx_config::{
@@ -30,7 +31,8 @@ use ncx_core::{
     discover_skills, expand_file_mentions, load_workspace_instructions, new_session_id,
     register_mcp_server, skills_index_block, AgentLoop, ApprovalDecision, ApprovalHandler,
     ApprovalRequest, CheckpointStore, ContextEditPolicy, LoopEvent, MemoryStore, Provider,
-    Session, SessionGrants, SessionIndex, TaskBudget, ToolContext, ToolRegistry,
+    Session, SessionGrants, SessionIndex, TaskBudget, TaskLedger, TaskLedgerRecord, ToolContext,
+    ToolRegistry, TurnResult,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -81,6 +83,14 @@ pub struct McpRuntimeStatusView {
     tools: usize,
     elapsed_ms: u64,
     error: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct TaskLedgerTurnView {
+    duration_ms: u64,
+    approval_requests: usize,
+    task_model_budget: usize,
+    task_tool_budget: usize,
 }
 
 /// A request from the UI to the agent thread.
@@ -158,6 +168,7 @@ pub enum UiEvent {
         tools_used: Vec<String>,
         usage: Value,
         context_edit: ContextEditView,
+        task_ledger: TaskLedgerTurnView,
     },
     /// A session was resumed/forked — the UI should replace its transcript with
     /// these restored messages.
@@ -417,6 +428,34 @@ fn context_edit_from_config(cfg: &Config) -> ContextEditPolicy {
     }
 }
 
+fn record_task_ledger(
+    workspace: &std::path::Path,
+    session_id: &str,
+    model: &str,
+    budget: TaskBudget,
+    result: &TurnResult,
+    approval_requests: usize,
+    started_at: String,
+    duration_ms: u64,
+) {
+    let ledger = TaskLedger::new(workspace);
+    let record = TaskLedgerRecord {
+        session_id: session_id.to_string(),
+        workspace: workspace.display().to_string(),
+        model: model.to_string(),
+        started_at,
+        duration_ms,
+        model_calls: result.iterations,
+        tool_calls: result.tools_used.len(),
+        approval_requests,
+        stop_reason: result.stop_reason.clone(),
+        task_model_budget: budget.max_model_calls,
+        task_tool_budget: budget.max_tool_calls,
+        usage: result.usage.clone(),
+    };
+    let _ = ledger.append(&record);
+}
+
 /// Spawn the dedicated agent thread. Returns immediately; the thread lives for
 /// the app's lifetime, draining `rx` one prompt at a time (turns are serial).
 pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending: PendingMap) {
@@ -466,7 +505,27 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                                     continue;
                                 }
                             };
+                            let approvals_before = agent.tools.ctx.approval_request_count();
+                            let started_at = ncx_core::task_ledger_now();
+                            let started = Instant::now();
                             let result = agent.run_turn(user_input, None).await;
+                            let duration_ms =
+                                started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                            let approval_requests = agent
+                                .tools
+                                .ctx
+                                .approval_request_count()
+                                .saturating_sub(approvals_before);
+                            record_task_ledger(
+                                &workspace,
+                                &session_id,
+                                agent.model(),
+                                agent.task_budget.clone(),
+                                &result,
+                                approval_requests,
+                                started_at,
+                                duration_ms,
+                            );
                             let _ = session_index.record_turn(
                                 &session_id,
                                 &workspace,
@@ -489,6 +548,12 @@ pub fn spawn_worker(app: AppHandle, mut rx: UnboundedReceiver<Command>, pending:
                                             .context_edit
                                             .compressed_tool_results,
                                         dropped_messages: result.context_edit.dropped_messages,
+                                    },
+                                    task_ledger: TaskLedgerTurnView {
+                                        duration_ms,
+                                        approval_requests,
+                                        task_model_budget: agent.task_budget.max_model_calls,
+                                        task_tool_budget: agent.task_budget.max_tool_calls,
                                     },
                                 },
                             );
