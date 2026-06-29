@@ -173,7 +173,6 @@ fn format_answer(v: &Value, query: &str) -> String {
     }
 }
 
-
 const MAX_FETCH_BYTES: usize = 2_000_000;
 const MAX_TEXT_CHARS: usize = 12_000;
 
@@ -203,7 +202,11 @@ pub async fn fetch_url(url: &str) -> Result<String, String> {
         .unwrap_or("")
         .to_lowercase();
     let bytes = resp.bytes().await.map_err(|e| format!("read error: {e}"))?;
-    let slice = if bytes.len() > MAX_FETCH_BYTES { &bytes[..MAX_FETCH_BYTES] } else { &bytes[..] };
+    let slice = if bytes.len() > MAX_FETCH_BYTES {
+        &bytes[..MAX_FETCH_BYTES]
+    } else {
+        &bytes[..]
+    };
     let body = String::from_utf8_lossy(slice);
     let mut text = if ctype.contains("html") || body.trim_start().starts_with('<') {
         html_to_text(&body)
@@ -239,7 +242,11 @@ pub fn html_to_text(html: &str) -> String {
                 .take_while(|c| c.is_ascii_alphabetic())
                 .map(|c| c.to_ascii_lowercase())
                 .collect();
-            let tag_end = chars[i..].iter().position(|&c| c == '>').map(|p| i + p).unwrap_or(chars.len() - 1);
+            let tag_end = chars[i..]
+                .iter()
+                .position(|&c| c == '>')
+                .map(|p| i + p)
+                .unwrap_or(chars.len() - 1);
             if name == "script" || name == "style" {
                 let close = format!("</{name}>");
                 match find_ci(&chars, tag_end, &close) {

@@ -318,7 +318,6 @@ impl Tool for WebSearchTool {
     }
 }
 
-
 /// `web_fetch` — fetch a URL and return its readable text (HTML stripped).
 pub struct WebFetchTool;
 

@@ -97,7 +97,9 @@ pub fn parse_args(argv: &[String]) -> Result<Args, String> {
             "-w" | "--workspace" => {
                 args.workspace = Some(PathBuf::from(take_value(argv, &mut i, a)?));
             }
-            "--image" => args.images.push(PathBuf::from(take_value(argv, &mut i, a)?)),
+            "--image" => args
+                .images
+                .push(PathBuf::from(take_value(argv, &mut i, a)?)),
             "-m" | "--model" => args.model = Some(take_value(argv, &mut i, a)?),
             "-p" | "--profile" => args.profile = Some(take_value(argv, &mut i, a)?),
             "-s" | "--sandbox" => args.sandbox = Some(take_value(argv, &mut i, a)?),

@@ -282,7 +282,11 @@ impl ToolRegistry {
 
     pub fn schemas_limited_for_query(&self, query: &str, limit: usize) -> Vec<Value> {
         if self.tools.len() <= limit {
-            return self.tools.iter().map(|t| self.schema_for(t.as_ref())).collect();
+            return self
+                .tools
+                .iter()
+                .map(|t| self.schema_for(t.as_ref()))
+                .collect();
         }
 
         let mut selected: HashSet<String> = HashSet::new();
@@ -1211,7 +1215,11 @@ impl Tool for SkillTool {
             return "Error: 'name' is required and must be a string.".into();
         };
         let name = name.trim();
-        let Some(skill) = ctx.skills.iter().find(|s| s.name.eq_ignore_ascii_case(name)) else {
+        let Some(skill) = ctx
+            .skills
+            .iter()
+            .find(|s| s.name.eq_ignore_ascii_case(name))
+        else {
             let available = ctx
                 .skills
                 .iter()

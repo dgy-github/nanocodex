@@ -36,7 +36,10 @@ pub const SLASH_HELP: &[(&str, &str)] = &[
     ),
     ("/diff", "Show the working-tree git diff."),
     ("/plan", "Show the current step plan."),
-    ("/skills", "List available agent skills (name + when to use)."),
+    (
+        "/skills",
+        "List available agent skills (name + when to use).",
+    ),
     ("/history", "Show recent saved sessions."),
     ("/checkpoint", "Create a workspace checkpoint."),
     ("/checkpoints", "List recent workspace checkpoints."),

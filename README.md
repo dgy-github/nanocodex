@@ -97,7 +97,7 @@ tool.
   one-shot commands as well as interactive REPL use.
 - Typed ownership makes parallel worker isolation and result promotion easier
   to reason about without shared mutable state leaks.
-- 223 offline Rust tests cover the current crate boundary, including memory
+- 258 offline Rust tests cover the current crate boundary, including memory
   consolidation, provider request/response parsing, sandbox policy, tools, and
   orchestration.
 

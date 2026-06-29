@@ -30,7 +30,11 @@ pub struct McpTool {
 impl McpTool {
     pub fn new(def: McpToolDef, client: Rc<Mutex<McpClient>>) -> Self {
         let read_only = is_read_only_name(&def.name);
-        McpTool { def, client, read_only }
+        McpTool {
+            def,
+            client,
+            read_only,
+        }
     }
 }
 
@@ -75,8 +79,7 @@ impl Tool for McpTool {
                 }
                 Decision::Ask => {
                     if let Some(approver) = &ctx.approver {
-                        let details =
-                            serde_json::to_string_pretty(args).unwrap_or_default();
+                        let details = serde_json::to_string_pretty(args).unwrap_or_default();
                         let ok = approver
                             .request(ApprovalRequest {
                                 command: format!("mcp:{} {args}", self.def.name),
@@ -197,10 +200,8 @@ for line in sys.stdin:
         std::fs::create_dir_all(&ws).unwrap();
         let ws = ws.canonicalize().unwrap();
 
-        let ctx = crate::tools::ToolContext::new(
-            ws.clone(),
-            SandboxPolicy::new(WORKSPACE_WRITE, &ws),
-        );
+        let ctx =
+            crate::tools::ToolContext::new(ws.clone(), SandboxPolicy::new(WORKSPACE_WRITE, &ws));
         let mut reg = ToolRegistry::empty(ctx);
 
         let result = register_mcp_server(
@@ -227,7 +228,9 @@ for line in sys.stdin:
         assert!(reg.get("write_note").is_some());
         assert!(!reg.is_read_only("write_note"));
 
-        let out = reg.execute("echo", &serde_json::json!({"text": "hello mcp"})).await;
+        let out = reg
+            .execute("echo", &serde_json::json!({"text": "hello mcp"}))
+            .await;
         assert_eq!(out, "echo: hello mcp");
     }
 }

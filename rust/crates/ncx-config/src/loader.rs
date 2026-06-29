@@ -359,15 +359,27 @@ pub fn load_mcp_servers_at(path: &Path) -> Vec<crate::config::McpServerConfig> {
     };
     let mut out = Vec::new();
     for s in arr {
-        let name = s.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let command = s.get("command").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let name = s
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let command = s
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         if name.is_empty() || command.is_empty() {
             continue;
         }
         let args: Vec<String> = s
             .get("args")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         let env: HashMap<String, String> = s
             .get("env")
@@ -378,7 +390,12 @@ pub fn load_mcp_servers_at(path: &Path) -> Vec<crate::config::McpServerConfig> {
                     .collect()
             })
             .unwrap_or_default();
-        out.push(McpServerConfig { name, command, args, env });
+        out.push(McpServerConfig {
+            name,
+            command,
+            args,
+            env,
+        });
     }
     out
 }
