@@ -711,8 +711,23 @@ reopening it.
 Rust release line:
 
 ```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1
+```
+
+The verification script checks `cargo fmt`, runs the Rust workspace tests for
+`x86_64-pc-windows-gnu`, and checks the Tauri backend. If `cargo` is not on
+`PATH`, it probes common Windows Rust locations and prints the `rustup` commands
+needed to install the target. Use `-SkipTauri` for CLI-only validation, or
+`-Cargo C:\path\to\cargo.exe` when Rust is installed outside `PATH`.
+
+Manual equivalent:
+
+```powershell
 cd rust
+cargo fmt --all --check
 cargo test --workspace --target x86_64-pc-windows-gnu
+cd gui\src-tauri
+cargo check --target x86_64-pc-windows-gnu
 ```
 
 Python line:
@@ -729,7 +744,7 @@ key or network call required.
 Recommended Windows release entry point:
 
 ```powershell
-.\scripts\build-rust-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-rust-release.ps1
 ```
 
 The script runs the Rust workspace tests, builds the Windows GNU release binary,
@@ -737,7 +752,9 @@ creates `releases\nanocodex-<version>-x86_64-pc-windows-gnu.zip`, builds the
 Tauri NSIS installer, then writes `releases\SHA256SUMS.txt` and
 `releases\release-manifest.json`. The installer build receives the same version
 through a temporary Tauri config overlay, so its NSIS metadata follows the Rust
-workspace release version. Use `-SkipTauri` for a CLI-only package or
+workspace release version. The script uses the same cargo discovery path as
+`scripts\verify-rust.ps1`; pass `-Cargo C:\path\to\cargo.exe` if Rust is
+installed outside `PATH`. Use `-SkipTauri` for a CLI-only package or
 `-SkipTests` only after the same target has already passed in CI/local release
 validation.
 

@@ -609,8 +609,22 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 Rust release 线：
 
 ```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1
+```
+
+验证脚本会检查 `cargo fmt`，运行 `x86_64-pc-windows-gnu` target 的 Rust workspace
+测试，并检查 Tauri backend。若 `cargo` 不在 `PATH`，脚本会探测常见 Windows Rust
+安装位置，并打印安装 target 所需的 `rustup` 命令。只验证 CLI 时可加 `-SkipTauri`；
+Rust 安装在非 PATH 位置时可传 `-Cargo C:\path\to\cargo.exe`。
+
+等价手动命令：
+
+```powershell
 cd rust
+cargo fmt --all --check
 cargo test --workspace --target x86_64-pc-windows-gnu
+cd gui\src-tauri
+cargo check --target x86_64-pc-windows-gnu
 ```
 
 Python 线：
@@ -627,15 +641,17 @@ python -m pytest -q
 推荐的 Windows release 入口：
 
 ```powershell
-.\scripts\build-rust-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-rust-release.ps1
 ```
 
 脚本会先跑 Rust workspace 测试，再构建 Windows GNU release 二进制，生成
 `releases\nanocodex-<version>-x86_64-pc-windows-gnu.zip`，构建 Tauri NSIS
 installer，并写出 `releases\SHA256SUMS.txt` 和 `releases\release-manifest.json`。
 installer 构建会通过临时 Tauri config overlay 注入同一个版本号，因此 NSIS 元数据会跟随
-Rust workspace release 版本。只需要 CLI 包时可加 `-SkipTauri`；只有同 target 已在 CI
-或本地 release 验证通过时，才建议加 `-SkipTests`。
+Rust workspace release 版本。脚本使用和 `scripts\verify-rust.ps1` 相同的 cargo
+探测路径；Rust 安装在非 PATH 位置时可传 `-Cargo C:\path\to\cargo.exe`。只需要 CLI 包时
+可加 `-SkipTauri`；只有同 target 已在 CI 或本地 release 验证通过时，才建议加
+`-SkipTests`。
 
 手动 Windows GNU CLI release：
 

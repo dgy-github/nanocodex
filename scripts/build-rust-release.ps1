@@ -2,6 +2,7 @@ param(
     [string]$Target = "x86_64-pc-windows-gnu",
     [string]$OutputDir = "releases",
     [string]$Version = "",
+    [string]$Cargo = "",
     [switch]$SkipTests,
     [switch]$SkipTauri,
     [switch]$NoNpmCi
@@ -17,6 +18,46 @@ function Invoke-Step {
     Write-Host ""
     Write-Host "==> $Name"
     & $Block
+}
+
+function Find-Executable {
+    param(
+        [string]$Name,
+        [string]$ExplicitPath,
+        [string]$Target
+    )
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitPath)) {
+        if (Test-Path -LiteralPath $ExplicitPath) {
+            return (Resolve-Path -LiteralPath $ExplicitPath).Path
+        }
+        throw "$Name was passed explicitly but was not found: $ExplicitPath"
+    }
+
+    $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+
+    $candidates = @()
+    if ($env:CARGO_HOME) {
+        $candidates += (Join-Path $env:CARGO_HOME "bin\$Name.exe")
+    }
+    if ($env:USERPROFILE) {
+        $candidates += (Join-Path $env:USERPROFILE ".cargo\bin\$Name.exe")
+        $candidates += (Join-Path $env:USERPROFILE "scoop\shims\$Name.exe")
+    }
+    foreach ($path in $candidates) {
+        if (Test-Path -LiteralPath $path) {
+            return (Resolve-Path -LiteralPath $path).Path
+        }
+    }
+
+    throw @"
+$Name was not found on PATH or in common Windows Rust locations.
+Install Rust with rustup, then reopen PowerShell:
+  winget install Rustlang.Rustup
+  rustup target add $Target
+"@
 }
 
 function Read-WorkspaceVersion {
@@ -65,6 +106,7 @@ function Add-ArtifactRecord {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$cargoExe = Find-Executable -Name "cargo" -ExplicitPath $Cargo -Target $Target
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = Read-WorkspaceVersion -RepoRoot $repoRoot
 }
@@ -87,7 +129,7 @@ if (-not $SkipTests) {
     Invoke-Step "Rust tests ($Target)" {
         Push-Location $rustRoot
         try {
-            & cargo test --workspace --target $Target
+            & $cargoExe test --workspace --target $Target
         } finally {
             Pop-Location
         }
@@ -97,7 +139,7 @@ if (-not $SkipTests) {
 Invoke-Step "Rust release build ($Target)" {
     Push-Location $rustRoot
     try {
-        & cargo build --release --workspace --target $Target
+        & $cargoExe build --release --workspace --target $Target
     } finally {
         Pop-Location
     }

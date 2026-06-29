@@ -8,7 +8,9 @@
 - 分支：**`rust-capability`**（基于 rust-rewrite，已推 `origin`）。Python 树 `nanocodex/*.py` 不动。
 - remote：`origin` → https://github.com/dgy-github/nanocodex.git（凭据已配）
 - 路径：crates `rust/crates/`，GUI `rust/gui/`，基准 `bench/`。
-- 工具链：无 MSVC，用 `x86_64-pc-windows-gnu`；每条 cargo 前 `export PATH="$HOME/.cargo/bin:$PATH"`。
+- 工具链：无 MSVC，用 `x86_64-pc-windows-gnu`；Rust 验证入口是 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1`
+  （会探测 cargo / 打印 rustup target 提示），release 脚本 `.\scripts\build-rust-release.ps1`
+  也支持 `-Cargo C:\path\to\cargo.exe`。
 - ✅ **`feat/train` 已并入 rust-capability**（merge `a26793b`）：ncx-forge 训练框架全部回灌 —— `genome.rs` 读 `NCX_GENOME` 覆盖 prompt/工具描述、`--dump-genome`/`--from-genome` CLI、`train/` 纯 Python 框架。详见下节 + `train/DESIGN.md`。
 
 ## ncx-forge 训练框架（分支 `feat/train`，已推 origin）— 当前活跃工作线
@@ -103,7 +105,7 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
   （config 里是 `ark_api_key`，未必对）；④ 自检别用"refuse genome→通过率降"（模型常无视，不可靠），
   用 sentinel 注入。
 
-## 当前状态（已完成；上一轮 264 个 Rust 测试全绿，本轮新增 `/budget` + `/context` + `/tools` + `/memory` 测试后文档计 269，需在 cargo 可用环境复跑）
+## 当前状态（已完成；上一轮 264 个 Rust 测试全绿，本轮新增 `/budget` + `/context` + `/tools` + `/memory` 测试后文档计 269，需在 cargo 可用环境用 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1` 复跑）
 - 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、Sessions、Usage、custom command、memory 面板）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册 + REPL `/mcp` 状态面板）
 - 工具：read_file·apply_patch·shell·update_plan·grep·glob·web_search·web_fetch·tool_search·remember·skill
 - **Skills（已并入 rust-capability）**：SKILL.md 发现 + 渐进披露注入 + `skill` 工具 + builtin（`commit-message`，include_str! 编入二进制，FS 同名可覆盖）+ `/skills` 命令。stream C vision 基础（`7de2235`）也随 FF 一起进了 rust-capability。
