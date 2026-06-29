@@ -1060,6 +1060,18 @@ fn memory_harvest(path: Option<String>) -> Result<Vec<MemoryProposal>, String> {
     Ok(out)
 }
 
+/// Edit a pending learning before accepting it.
+#[tauri::command]
+fn memory_update_proposal(id: String, note: String, tags: Vec<String>) -> Result<bool, String> {
+    let note = note.trim();
+    if note.is_empty() {
+        return Err("note is required".into());
+    }
+    memory_store()
+        .update_proposal(&id, note, &tags)
+        .map_err(|e| e.to_string())
+}
+
 /// Accept a pending learning into verified project memory.
 #[tauri::command]
 fn memory_accept_proposal(id: String) -> Result<bool, String> {
@@ -1072,11 +1084,31 @@ fn memory_accept_proposal(id: String) -> Result<bool, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Accept every pending learning into verified project memory.
+#[tauri::command]
+fn memory_accept_all_proposals() -> Result<usize, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    memory_store()
+        .accept_all_proposals(now)
+        .map_err(|e| e.to_string())
+}
+
 /// Reject a pending learning without adding it to recall.
 #[tauri::command]
 fn memory_reject_proposal(id: String) -> Result<bool, String> {
     memory_store()
         .reject_proposal(&id)
+        .map_err(|e| e.to_string())
+}
+
+/// Reject every pending learning without adding it to recall.
+#[tauri::command]
+fn memory_reject_all_proposals() -> Result<usize, String> {
+    memory_store()
+        .reject_all_proposals()
         .map_err(|e| e.to_string())
 }
 
@@ -1128,8 +1160,11 @@ pub fn run() {
             memory_add,
             memory_propose,
             memory_harvest,
+            memory_update_proposal,
             memory_accept_proposal,
+            memory_accept_all_proposals,
             memory_reject_proposal,
+            memory_reject_all_proposals,
             set_workspace,
             get_workspace,
             resume_session,

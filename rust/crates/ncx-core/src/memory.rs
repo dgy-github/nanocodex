@@ -194,6 +194,55 @@ impl MemoryStore {
         Ok(true)
     }
 
+    /// Edit a pending proposal before accepting it. Returns `Ok(false)` for a
+    /// missing id, empty text, or text that duplicates trusted/other pending
+    /// memory.
+    pub fn update_proposal(
+        &self,
+        id: &str,
+        text: &str,
+        tags: &[String],
+    ) -> std::io::Result<bool> {
+        let id = id.trim();
+        let text = text.trim();
+        if id.is_empty() || text.is_empty() {
+            return Ok(false);
+        }
+        let norm = normalize(text);
+        if self.entries().iter().any(|e| normalize(&e.text) == norm) {
+            return Ok(false);
+        }
+        let mut proposals = self.proposals();
+        let Some(pos) = proposals.iter().position(|p| p.id == id) else {
+            return Ok(false);
+        };
+        if proposals
+            .iter()
+            .enumerate()
+            .any(|(i, p)| i != pos && normalize(&p.text) == norm)
+        {
+            return Ok(false);
+        }
+        proposals[pos].text = text.to_string();
+        proposals[pos].tags = clean_tags(tags);
+        self.write_proposals(&proposals)?;
+        Ok(true)
+    }
+
+    /// Accept every pending proposal into verified memory. Returns the number
+    /// of proposals removed from the queue.
+    pub fn accept_all_proposals(&self, now: u64) -> std::io::Result<usize> {
+        let proposals = self.proposals();
+        if proposals.is_empty() {
+            return Ok(0);
+        }
+        for (i, proposal) in proposals.iter().enumerate() {
+            let _ = self.remember(&proposal.text, &proposal.tags, now + i as u64)?;
+        }
+        self.write_proposals(&[])?;
+        Ok(proposals.len())
+    }
+
     /// Reject a pending proposal and remove it from the review queue. Returns
     /// `Ok(false)` when no proposal has that id.
     pub fn reject_proposal(&self, id: &str) -> std::io::Result<bool> {
@@ -205,6 +254,17 @@ impl MemoryStore {
         }
         self.write_proposals(&proposals)?;
         Ok(true)
+    }
+
+    /// Reject every pending proposal. Returns how many were removed.
+    pub fn reject_all_proposals(&self) -> std::io::Result<usize> {
+        let proposals = self.proposals();
+        if proposals.is_empty() {
+            return Ok(0);
+        }
+        let count = proposals.len();
+        self.write_proposals(&[])?;
+        Ok(count)
     }
 
     /// Parse all stored entries (empty if the file is absent / unreadable).
@@ -952,6 +1012,64 @@ mod tests {
         assert!(s.reject_proposal(&p.id).unwrap());
         assert!(s.proposals().is_empty());
         assert!(s.entries().is_empty());
+    }
+
+    #[test]
+    fn update_proposal_edits_text_and_tags() {
+        let s = store("proposal_update");
+        let p = s
+            .propose("Draft memory needs cleanup", &["draft".into()], "test", 10)
+            .unwrap()
+            .unwrap();
+        assert!(s
+            .update_proposal(
+                &p.id,
+                "Cleaned memory proposal",
+                &["memory".into(), "review".into()],
+            )
+            .unwrap());
+        let proposals = s.proposals();
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].text, "Cleaned memory proposal");
+        assert_eq!(proposals[0].tags, vec!["memory", "review"]);
+        assert_eq!(proposals[0].source, "test");
+    }
+
+    #[test]
+    fn update_proposal_rejects_duplicates() {
+        let s = store("proposal_update_dedup");
+        s.remember("Trusted memory", &[], 1).unwrap();
+        let p = s
+            .propose("Pending memory", &[], "test", 10)
+            .unwrap()
+            .unwrap();
+        assert!(!s.update_proposal(&p.id, "trusted MEMORY", &[]).unwrap());
+
+        let other = s
+            .propose("Another pending memory", &[], "test", 11)
+            .unwrap()
+            .unwrap();
+        assert!(!s
+            .update_proposal(&other.id, "pending memory", &[])
+            .unwrap());
+    }
+
+    #[test]
+    fn batch_accept_and_reject_clear_queue() {
+        let s = store("proposal_batch");
+        s.propose("First pending fact", &["one".into()], "test", 10)
+            .unwrap();
+        s.propose("Second pending fact", &["two".into()], "test", 11)
+            .unwrap();
+        assert_eq!(s.accept_all_proposals(20).unwrap(), 2);
+        assert!(s.proposals().is_empty());
+        assert_eq!(s.entries().len(), 2);
+
+        s.propose("Third pending fact", &[], "test", 12).unwrap();
+        s.propose("Fourth pending fact", &[], "test", 13).unwrap();
+        assert_eq!(s.reject_all_proposals().unwrap(), 2);
+        assert!(s.proposals().is_empty());
+        assert_eq!(s.entries().len(), 2);
     }
 
     #[test]

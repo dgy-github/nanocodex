@@ -974,6 +974,7 @@
   let hermesOpen = $state(false);
   let notes = $state<MemoryNote[]>([]);
   let proposals = $state<MemoryProposal[]>([]);
+  let proposalDrafts = $state<Record<string, { text: string; tags: string }>>({});
   let hermesBusy = $state(false);
   let newNote = $state("");
   let newNoteTags = $state("");
@@ -985,6 +986,9 @@
     ]);
     notes = loadedNotes;
     proposals = pending;
+    proposalDrafts = Object.fromEntries(
+      pending.map((p) => [p.id, { text: p.text, tags: p.tags.join(", ") }]),
+    );
   }
   async function openHermes() {
     if (rightPanel === "memory") { rightPanel = ""; return; }
@@ -1049,6 +1053,24 @@
     }
     hermesBusy = false;
   }
+  async function saveProposal(id: string) {
+    const draft = proposalDrafts[id];
+    if (!draft?.text.trim()) return;
+    hermesBusy = true;
+    try {
+      const tags = draft.tags.split(",").map((t) => t.trim()).filter(Boolean);
+      const saved = await invoke<boolean>("memory_update_proposal", { id, note: draft.text, tags });
+      messages.push({ role: "note", text: saved ? "记忆：提议已更新。" : "记忆：未找到该提议，或内容已重复。" });
+      await loadNotes();
+    } catch (e) {
+      messages.push({ role: "note", text: `更新记忆提议失败：${e}` });
+    }
+    hermesBusy = false;
+  }
+  function updateProposalDraft(id: string, patch: Partial<{ text: string; tags: string }>) {
+    const current = proposalDrafts[id] || { text: "", tags: "" };
+    proposalDrafts = { ...proposalDrafts, [id]: { ...current, ...patch } };
+  }
   async function acceptProposal(id: string) {
     hermesBusy = true;
     try {
@@ -1060,6 +1082,17 @@
     }
     hermesBusy = false;
   }
+  async function acceptAllProposals() {
+    hermesBusy = true;
+    try {
+      const count = await invoke<number>("memory_accept_all_proposals");
+      messages.push({ role: "note", text: `记忆：已接受 ${count} 条提议。` });
+      await loadNotes();
+    } catch (e) {
+      messages.push({ role: "note", text: `批量接受记忆提议失败：${e}` });
+    }
+    hermesBusy = false;
+  }
   async function rejectProposal(id: string) {
     hermesBusy = true;
     try {
@@ -1068,6 +1101,17 @@
       await loadNotes();
     } catch (e) {
       messages.push({ role: "note", text: `拒绝记忆提议失败：${e}` });
+    }
+    hermesBusy = false;
+  }
+  async function rejectAllProposals() {
+    hermesBusy = true;
+    try {
+      const count = await invoke<number>("memory_reject_all_proposals");
+      messages.push({ role: "note", text: `记忆：已拒绝 ${count} 条提议。` });
+      await loadNotes();
+    } catch (e) {
+      messages.push({ role: "note", text: `批量拒绝记忆提议失败：${e}` });
     }
     hermesBusy = false;
   }
@@ -1772,18 +1816,36 @@
           <span class="emptyline">{notes.length} 条 / 待审 {proposals.length}</span>
         </div>
         <div class="checkpoint-list">
-          <p class="emptyline">待审提议</p>
+          <div class="memory-section-head">
+            <span class="emptyline">待审提议</span>
+            <span class="memory-bulk">
+              <button class="plain" onclick={acceptAllProposals} disabled={hermesBusy || proposals.length === 0}>全部接受</button>
+              <button class="deny" onclick={rejectAllProposals} disabled={hermesBusy || proposals.length === 0}>全部拒绝</button>
+            </span>
+          </div>
           {#if proposals.length === 0}
             <p class="emptyline">暂无待审提议。</p>
           {/if}
           {#each proposals as p}
             <div class="checkpoint-row proposal-row">
               <div class="checkpoint-main">
-                <strong>{p.text}</strong>
+                <textarea
+                  class="proposal-edit"
+                  value={proposalDrafts[p.id]?.text ?? p.text}
+                  oninput={(e) => updateProposalDraft(p.id, { text: e.currentTarget.value })}
+                  rows="3"
+                ></textarea>
+                <input
+                  class="proposal-tags"
+                  value={proposalDrafts[p.id]?.tags ?? p.tags.join(", ")}
+                  oninput={(e) => updateProposalDraft(p.id, { tags: e.currentTarget.value })}
+                  placeholder="标签（逗号分隔）"
+                />
                 <code>{p.id} · {p.source}{p.tags.length ? ` · ${p.tags.join(", ")}` : ""}</code>
               </div>
               <div class="checkpoint-meta proposal-actions">
                 <span>{fmtTs(p.ts)}</span>
+                <button class="plain" onclick={() => saveProposal(p.id)} disabled={hermesBusy}>保存</button>
                 <button class="plain" onclick={() => acceptProposal(p.id)} disabled={hermesBusy}>接受</button>
                 <button class="deny" onclick={() => rejectProposal(p.id)} disabled={hermesBusy}>拒绝</button>
               </div>

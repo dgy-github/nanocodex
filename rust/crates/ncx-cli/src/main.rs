@@ -656,6 +656,38 @@ fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str, workspace: &Pa
         out.push_str("\nReview with /memory accept <id> or /memory reject <id>.");
         return out;
     }
+    if arg == "accept-all" {
+        return match memory.accept_all_proposals(ncx_core::task_ledger_now()) {
+            Ok(count) => format!("Accepted {count} memory proposals."),
+            Err(e) => format!("Error accepting memory proposals: {e}"),
+        };
+    }
+    if arg == "reject-all" {
+        return match memory.reject_all_proposals() {
+            Ok(count) => format!("Rejected {count} memory proposals."),
+            Err(e) => format!("Error rejecting memory proposals: {e}"),
+        };
+    }
+    if let Some(rest) = arg.strip_prefix("edit ") {
+        let rest = rest.trim();
+        let mut parts = rest.splitn(2, char::is_whitespace);
+        let id = parts.next().unwrap_or("").trim();
+        let note = parts.next().unwrap_or("").trim();
+        if id.is_empty() || note.is_empty() {
+            return "Usage: /memory edit <proposal-id> <new-note>".into();
+        }
+        let tags = memory
+            .proposals()
+            .into_iter()
+            .find(|p| p.id == id)
+            .map(|p| p.tags)
+            .unwrap_or_default();
+        return match memory.update_proposal(id, note, &tags) {
+            Ok(true) => format!("Updated memory proposal {id}."),
+            Ok(false) => format!("No editable memory proposal found for {id}, or the new note duplicates existing memory."),
+            Err(e) => format!("Error updating memory proposal {id}: {e}"),
+        };
+    }
     if let Some(id) = arg.strip_prefix("accept ") {
         let id = id.trim();
         if id.is_empty() {
@@ -782,7 +814,7 @@ fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
 
     if query.is_empty() {
         out.push_str(
-            "\n\nUse /memory <query> to preview query-scoped recall, /memory propose <note> to queue a candidate, or /memory harvest [path] to extract proposals from handoff/release docs.",
+            "\n\nUse /memory <query> to preview recall, /memory propose <note>, /memory harvest [path], /memory edit <id> <note>, /memory accept-all, or /memory reject-all.",
         );
     } else {
         let recall = memory.recall(query, 5, 2_000);
@@ -2053,6 +2085,36 @@ mod tests {
         assert!(out.contains("Rejected memory proposal"), "{out}");
         assert!(memory.proposals().is_empty());
         assert_eq!(memory.entries().len(), 1);
+    }
+
+    #[test]
+    fn memory_command_edits_and_batches_proposals() {
+        let dir = std::env::temp_dir().join(format!("ncx_memory_batch_{}", new_session_id()));
+        let memory = MemoryStore::new(&dir);
+        let _ = handle_memory_command(Some(&memory), "propose Draft one", &dir);
+        let _ = handle_memory_command(Some(&memory), "propose Draft two", &dir);
+        let first = memory.proposals().first().unwrap().id.clone();
+
+        let out = handle_memory_command(
+            Some(&memory),
+            &format!("edit {first} Edited memory note"),
+            &dir,
+        );
+        assert!(out.contains("Updated memory proposal"), "{out}");
+        assert!(memory
+            .proposals()
+            .iter()
+            .any(|p| p.text == "Edited memory note"));
+
+        let out = handle_memory_command(Some(&memory), "accept-all", &dir);
+        assert!(out.contains("Accepted 2 memory proposals"), "{out}");
+        assert!(memory.proposals().is_empty());
+        assert_eq!(memory.entries().len(), 2);
+
+        let _ = handle_memory_command(Some(&memory), "propose Draft three", &dir);
+        let out = handle_memory_command(Some(&memory), "reject-all", &dir);
+        assert!(out.contains("Rejected 1 memory proposals"), "{out}");
+        assert!(memory.proposals().is_empty());
     }
 
     #[test]
