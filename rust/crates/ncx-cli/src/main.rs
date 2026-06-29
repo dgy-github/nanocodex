@@ -27,9 +27,9 @@ use ncx_core::{
     custom_command_prompt, discover_skills, expand_file_mentions, list_custom_commands,
     load_project_instructions, new_session_id, parse_custom_command_query, register_mcp_server,
     skills_index_block, AgentLoop, CheckpointMeta, CheckpointStore, ContextEditPolicy,
-    ContextEditStats, Genome, MemoryStore, Orchestrator, OrchestratorConfig, Provider, Session,
-    SessionIndex, SessionSummary, TaskBudget, TaskLedger, TaskLedgerRecord, ToolContext,
-    ToolRegistry, TurnResult,
+    ContextEditStats, ContextPayloadSnapshotStore, Genome, MemoryStore, Orchestrator,
+    OrchestratorConfig, Provider, Session, SessionIndex, SessionSummary, TaskBudget, TaskLedger,
+    TaskLedgerRecord, ToolContext, ToolRegistry, TurnResult,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -518,7 +518,16 @@ fn dispatch_slash(
                 SlashOutcome::Printed(render_budget_status(agent, cfg, usage))
             }
         }
-        "/context" => SlashOutcome::Printed(render_context_status(agent, cfg, usage)),
+        "/context" => {
+            if arg.trim().starts_with("payload") || arg.trim().starts_with("snapshot") {
+                SlashOutcome::Printed(render_context_payload_report(
+                    &cfg.workspace,
+                    context_payload_report_limit(arg),
+                ))
+            } else {
+                SlashOutcome::Printed(render_context_status(agent, cfg, usage))
+            }
+        }
         "/config" => SlashOutcome::Printed(config_text(cfg, arg)),
         "/history" => SlashOutcome::Printed(render_history(&SessionIndex::default().entries(), 20)),
         "/checkpoint" => SlashOutcome::Printed(create_checkpoint_text(&cfg.workspace, arg)),
@@ -926,19 +935,37 @@ fn render_context_status(
         .map(|last| format_context_edit_stats_block(&last.context_edit))
         .unwrap_or_else(|| "No model turn recorded yet.".into());
 
+    let snapshot_dir = ContextPayloadSnapshotStore::new(&cfg.workspace)
+        .root()
+        .display()
+        .to_string();
+
     format!(
-        "Context editing\nenabled: {}\nmax_chars: {}\nkeep_recent_messages: {}\nmax_tool_result_chars: {}\ncontext_token_budget: {}\n\nSession\nmessages: {}\nrestored_messages: {}\nlog: {}\n\nNext send preview\n{}\n\nLast turn context edit\n{}",
+        "Context editing\nenabled: {}\nmax_chars: {}\nkeep_recent_messages: {}\nmax_tool_result_chars: {}\ncontext_token_budget: {}\npayload_snapshots: {}\n\nSession\nmessages: {}\nrestored_messages: {}\nlog: {}\n\nNext send preview\n{}\n\nLast turn context edit\n{}\n\nUse /context payload [N] to inspect recent provider payload snapshots.",
         agent.context_edit.enabled,
         agent.context_edit.max_chars,
         agent.context_edit.keep_recent_messages,
         agent.context_edit.max_tool_result_chars,
         cfg.context_token_budget,
+        snapshot_dir,
         agent.session.messages.len(),
         agent.session.restored_count,
         log_path,
         format_context_edit_stats_block(&preview),
         last
     )
+}
+
+fn context_payload_report_limit(arg: &str) -> usize {
+    arg.split_whitespace()
+        .filter_map(|part| part.parse::<usize>().ok())
+        .next()
+        .unwrap_or(10)
+        .clamp(1, 50)
+}
+
+fn render_context_payload_report(workspace: &Path, limit: usize) -> String {
+    ContextPayloadSnapshotStore::new(workspace).render_report(limit)
 }
 
 fn config_text(cfg: &ncx_config::Config, arg: &str) -> String {

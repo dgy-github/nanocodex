@@ -24,7 +24,7 @@ pub const SLASH_HELP: &[(&str, &str)] = &[
     ),
     (
         "/context",
-        "Show active context-edit policy, session size, and next-send preview.",
+        "Show context-edit policy; /context payload [N] shows provider payload snapshots.",
     ),
     (
         "/cost",

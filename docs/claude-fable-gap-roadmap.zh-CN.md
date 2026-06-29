@@ -28,7 +28,7 @@
 | 能力 | 当前 nanocodex 状态 | 下一步缺口 |
 | --- | --- | --- |
 | Task budget | Rust loop 强制 per-turn model/tool call budget；CLI `/budget` 可见；Tauri GUI 已恢复每轮模型/工具调用累计面板；`TaskLedger` 写入 `.nanocodex/task-ledger.jsonl`，CLI/Tauri 都可读最近任务 report。 | 嵌套 subagent budget、云端/队列额度、预算超限后的续跑策略、CI 预算回归测试。 |
-| Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、按预算丢旧前缀；CLI `/context` 与 Tauri Usage 面板展示 telemetry。 | 策略化 context pack、按来源分配预算、长期任务的摘要检查点、对 1M context 模型的适配策略。 |
+| Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、按预算丢旧前缀；CLI `/context` 与 Tauri Usage 面板展示 telemetry；每次 provider 调用会写脱敏 payload snapshot 供 `/context payload [N]` 和 GUI Usage 面板审计。 | 策略化 context pack、按来源分配预算、长期任务的摘要检查点、对 1M context 模型的适配策略。 |
 | Tool search | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog；GUI 也显示 MCP server 连接状态、工具数、启动耗时和最近错误。 | ranking 评测集、MCP tool metadata 权重、connector registry、auth/permission 治理。 |
 | Semantic memory | `.ncx/memory/LEARNINGS.md`、query-scoped recall、`remember`、启发式/LLM merge、Tauri Memory 面板已有。 | 自动从纠错/复盘提炼 memory、embedding/vector 可选 provider、memory review queue、跨入口治理。 |
 
@@ -70,10 +70,14 @@
 
 本项目现在做的是发送时编辑视图，优点是本地完整 session 不丢；缺点是策略还粗，无法等价于模型侧长上下文、上下文缓存、平台自动 compact 和长任务 memory 的组合。
 
+已完成：
+
+- 对每轮 provider payload 写脱敏 snapshot：记录实际发送的编辑后 messages、工具 schema 名称、role 统计和 context-edit 压缩/丢弃数据，方便调试“为什么这轮模型没看到某信息”。
+- CLI `/context payload [N]` 与 Tauri Usage 面板可读取 `.nanocodex/context-payloads/` 的最近快照。
+
 下一步：
 
 - context pack：把 project instructions、recent edits、tool results、memory recall 分桶预算化。
-- 对每轮 provider payload 写 snapshot，方便调试“为什么这轮模型没看到某信息”。
 - 增加 context regression tests，覆盖大工具输出、长会话、memory recall 竞争预算。
 
 4. Tool search
@@ -118,6 +122,7 @@
 - Tauri GUI 已补回 Usage/Context 面板：每轮 `done` 事件携带 `iterations`、`tools_used`、token usage 和 context-edit telemetry；前端展示上一轮与当前 session 汇总。
 - Tauri GUI 已新增 Tools 面板：agent 线程按需发出真实 runtime tool catalog，前端展示 core/MCP 来源、read-only/effectful 分类，以及 MCP server connected/error、注册工具数、启动耗时和最近错误。
 - 已新增 `TaskLedger`：CLI 与 Tauri 每轮完成后写 `.nanocodex/task-ledger.jsonl`，CLI 支持 `--budget-report` 和 `/budget report`，Tauri Usage 面板可读取最近任务报告。
+- 已新增 provider payload snapshot：agent loop 在每次模型调用前把发送时编辑后的消息和工具 schema 摘要写入 `.nanocodex/context-payloads/`；CLI `/context payload [N]` 与 Tauri Usage 面板可审计最近快照。
 - `cmd /c npm run build` 已通过，证明 Svelte/Tauri 前端合并后可构建。
 
 ## 最近可执行 backlog
@@ -126,4 +131,4 @@
 2. CI 通过后，从 `codex/gui-mcp-runtime-conflict-merge` 开 PR，优先处理 Rust/Tauri 编译问题。
 3. 给 MCP/Tool catalog 增加 connector install spec、auth/permission 治理和权限审计。
 4. 增加 orchestrator/subagent budget 传播和 CI 预算回归测试。
-5. 增加 context-pack 策略和 payload snapshot，进一步缩小 context editing 差距。
+5. 增加 context-pack 策略和 context regression tests，进一步缩小 context editing 差距。

@@ -13,6 +13,9 @@ use futures_util::future::join_all;
 use ncx_provider::{DeepSeekProvider, ModelResponse, ToolCall};
 use serde_json::{json, Value};
 
+use crate::context_snapshot::{
+    new_snapshot_id, schema_tool_names, ContextPayloadSnapshot, ContextPayloadSnapshotStore,
+};
 use crate::hooks::{run_matching_hooks, HookEvent};
 use crate::session::{ContextEditPolicy, ContextEditStats, Session};
 use crate::tools::ToolRegistry;
@@ -172,6 +175,7 @@ pub struct AgentLoop {
     pub reasoning_effort: Option<String>,
     use_vision_this_turn: bool,
     event_sink: Option<EventSink>,
+    context_snapshot_seq: usize,
 }
 
 impl AgentLoop {
@@ -187,6 +191,7 @@ impl AgentLoop {
             reasoning_effort: None,
             use_vision_this_turn: false,
             event_sink: None,
+            context_snapshot_seq: 0,
         }
     }
 
@@ -241,7 +246,7 @@ impl AgentLoop {
     }
 
     async fn call_model(
-        &self,
+        &mut self,
         schemas: &[Value],
         system_notes: &[String],
         sink: &mut Option<EventSink>,
@@ -249,6 +254,18 @@ impl AgentLoop {
         let edited = self
             .session
             .for_model_edited(system_notes, &self.context_edit);
+        self.context_snapshot_seq = self.context_snapshot_seq.saturating_add(1);
+        let snapshot_seq = self.context_snapshot_seq;
+        let model = self.active_provider().model().to_string();
+        let snapshot = ContextPayloadSnapshot {
+            id: new_snapshot_id(snapshot_seq),
+            model,
+            sequence: snapshot_seq,
+            messages: edited.messages.clone(),
+            tool_names: schema_tool_names(schemas),
+            stats: edited.stats.clone(),
+        };
+        let _ = ContextPayloadSnapshotStore::new(&self.tools.ctx.workspace).write(&snapshot);
         let effort = self.reasoning_effort.as_deref();
         // Stream the assistant text live: each delta becomes an AssistantDelta the
         // UI appends. `sink` is a local (threaded from run_turn), not borrowed

@@ -11,6 +11,7 @@
 
 pub mod agent_loop;
 pub mod checkpoint;
+pub mod context_snapshot;
 pub mod custom_commands;
 pub mod genome;
 pub mod hooks;
@@ -30,6 +31,7 @@ pub mod tools;
 
 pub use agent_loop::{AgentLoop, EventSink, LoopEvent, Provider, TaskBudget, TurnResult};
 pub use checkpoint::{CheckpointMeta, CheckpointStore, RestoreReport};
+pub use context_snapshot::{ContextPayloadSnapshot, ContextPayloadSnapshotStore};
 pub use custom_commands::{
     custom_command_prompt, expand_custom_command_template, list_custom_commands,
     parse_custom_command_query, resolve_custom_command, CustomCommandQuery, CustomCommandSummary,

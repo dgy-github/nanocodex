@@ -87,7 +87,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   和 `--budget-report` 可查看最近任务的 wall time、审批数、停止原因和 token 汇总。
 - **Context editing：** 本地完整 session 不会被删；发给 provider 的是发送时编辑视图，
   会压缩旧 tool result，并在超过上下文预算时丢弃更早的前缀。Rust REPL 提供
-  `/context` 查看当前策略、session 大小、上一轮 telemetry 和下一次发送预览。
+  `/context` 查看当前策略、session 大小、上一轮 telemetry、下一次发送预览，并可通过
+  `/context payload [N]` 查看最近 provider payload 快照。
 - **Tool search：** 工具注册时会进入 catalog。小工具集仍全量暴露；工具变多时只暴露核心
   工具和 `tool_search`，搜索命中的工具会在下一轮 schema 里出现。Rust REPL 提供
   `/tools` 检查工具 catalog、当前可见 schema 视图和 active search hints；Tauri Tools
@@ -146,7 +147,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 | 能力 | 当前覆盖 | 剩余差距 |
 | --- | ---: | --- |
 | Task budget | 75-85% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 现在会写入/读取 task ledger，记录 wall time、审批数、停止原因和 usage 汇总。还缺云端任务额度、嵌套 subagent 预算核算和更完整的分析面板。 |
-| Context editing | 50-60% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；还缺 Anthropic 级长上下文模型变体、更细的 `/context` 检查和策略化 context pack。 |
+| Context editing | 55-65% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；provider payload snapshot 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体和策略化 context pack。 |
 | Tool search | 55-65% | 工具 catalog、`tool_search` 和 GUI MCP runtime 状态已降低 schema 过载，并让工具可用性可见；还缺托管 connector/plugin 生态、远程认证 UX 和大规模动态工具排序。 |
 | Semantic memory | 45-55% | query-scoped lexical-semantic recall、`remember` 和 LLM merge 已有；还缺从纠错自动提炼 memory、更强 embedding/vector 检索，以及跨入口 memory 治理。 |
 
@@ -286,7 +287,8 @@ Rust REPL 里可以用 `/config` 查看解析后的配置文件路径、当前 m
 provider、model、sandbox 或预算类变更需要重启 REPL 后影响当前会话。`/usage`（或
 `/cost`）会显示上一轮和当前 REPL session 的原始 token 用量；`/budget` 会显示任务预算
 限额和上一轮/session 用量；`/context` 会显示当前 context-edit 策略、session 大小、上一轮
-telemetry 和下一次 provider 发送预览。
+telemetry 和下一次 provider 发送预览；`/context payload [N]` 会列出
+`.nanocodex/context-payloads/` 下最近的脱敏 provider payload 快照。
 
 Python CLI，原始功能线：
 
@@ -369,9 +371,9 @@ Rust REPL 可以把 Markdown prompt 模板变成 slash command。项目级命令
 
 内置 REPL slash command 也暴露平台状态面：`/usage` 查看原始 token 和 context-edit
 telemetry，`/budget` 查看 task-budget 用量，`/context` 查看当前 context-edit 策略和下一次
-发送预览，`/tools` 查看工具 catalog 和当前可见 schema 视图，`/memory` 查看项目记忆状态和
-recall 预览，`/skills` 查看已发现 skill catalog，`/history` 查看保存的会话，`/mcp` 查看
-enabled MCP server 以及当前会话已注册的 MCP 工具。
+发送预览以及 provider payload 快照，`/tools` 查看工具 catalog 和当前可见 schema 视图，
+`/memory` 查看项目记忆状态和 recall 预览，`/skills` 查看已发现 skill catalog，
+`/history` 查看保存的会话，`/mcp` 查看 enabled MCP server 以及当前会话已注册的 MCP 工具。
 
 Tauri GUI 也通过标题栏的 `/` 按钮暴露同一套 project/user command catalog。可以在面板里
 填写参数后直接运行，也可以在聊天输入框里直接输入 custom slash command；GUI 会用和 CLI
@@ -553,7 +555,9 @@ Rust CLI 里的 `/compact` 会把当前 context-edit 策略物化到 live sessio
 session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。Rust `/context` 会用同一套
 发送时编辑策略做无变异预览，展示策略旋钮、消息数、上一轮 telemetry，以及下一次发送会
 压缩/丢弃多少。Rust `/usage` 和 Tauri GUI 的 `U` 面板也会展示 send-time context editing
-telemetry：原始字符数、编辑后字符数、节省字符数、压缩工具结果数和丢弃消息数。
+telemetry：原始字符数、编辑后字符数、节省字符数、压缩工具结果数和丢弃消息数。每次
+provider 调用还会把脱敏 JSON 快照写到 `.nanocodex/context-payloads/`，所以
+`/context payload [N]` 和 GUI Usage 面板可以检查真实发给模型的编辑后消息与工具 schema。
 
 ## Token 用量与成本
 
@@ -609,7 +613,8 @@ nanocodex schedule run        # 让它一直跑，任务才会触发
 - Tools 面板展示当前运行时真实注册的 core/MCP 工具目录、read-only / effectful 分类，以及
   MCP server runtime health、启动耗时和最近错误。
 - Usage 面板展示上一轮和当前 session 的模型调用数、工具调用数、输入/输出 token、
-  缓存命中/未命中 token、费用估算、context editing telemetry，以及 task-ledger 耗时/审批/预算报告。
+  缓存命中/未命中 token、费用估算、context editing telemetry、provider payload 快照，
+  以及 task-ledger 耗时/审批/预算报告。
 - Memory 面板可查看项目笔记、新增 verified note、打开 `LEARNINGS.md`、启发式去重和 LLM 记忆合并。
 
 原 Tkinter GUI 仍作为 Python 树里的 legacy 原型保留。注意：桌面 GUI 不热加载——改代码需要关掉再重开。

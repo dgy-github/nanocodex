@@ -143,6 +143,8 @@
   let sessionDroppedMessages = $state(0);
   let budgetReport = $state("");
   let budgetReportBusy = $state(false);
+  let contextPayloadReport = $state("");
+  let contextPayloadBusy = $state(false);
   // Per-1M-token prices (from config); 0 = unknown → cost is hidden.
   let priceIn = $state(0);
   let priceOut = $state(0);
@@ -450,7 +452,10 @@
             messages.push({ role: "note", text: `[${p.stop_reason}] ${p.final_text}` });
           }
           recordMetrics(p);
-          if (rightPanel === "usage") loadBudgetReport();
+          if (rightPanel === "usage") {
+            loadBudgetReport();
+            loadContextPayloadReport();
+          }
           streamingIdx = null;
           busy = false;
           refreshSessions();
@@ -992,10 +997,19 @@
     }
     budgetReportBusy = false;
   }
+  async function loadContextPayloadReport() {
+    contextPayloadBusy = true;
+    try {
+      contextPayloadReport = await invoke<string>("context_payload_report", { limit: 10 });
+    } catch (e) {
+      contextPayloadReport = `读取 context payload 快照失败：${e}`;
+    }
+    contextPayloadBusy = false;
+  }
   async function openUsage() {
     if (rightPanel === "usage") { rightPanel = ""; return; }
     rightPanel = "usage";
-    await loadBudgetReport();
+    await Promise.all([loadBudgetReport(), loadContextPayloadReport()]);
   }
   async function loadTools() {
     toolBusy = true;
@@ -1492,7 +1506,7 @@
 
   {#if rightPanel === "usage"}
     <aside class="rightpanel">
-      <div class="rp-head"><span class="rp-title">用量与上下文</span><span class="rp-actions"><button class="plain rp-refresh" onclick={loadBudgetReport} disabled={budgetReportBusy}>账本</button><button class="plain rp-refresh" onclick={resetUsage}>重置</button><button class="rp-close" onclick={() => (rightPanel = "")} aria-label="关闭">×</button></span></div>
+      <div class="rp-head"><span class="rp-title">用量与上下文</span><span class="rp-actions"><button class="plain rp-refresh" onclick={loadContextPayloadReport} disabled={contextPayloadBusy}>Payload</button><button class="plain rp-refresh" onclick={loadBudgetReport} disabled={budgetReportBusy}>账本</button><button class="plain rp-refresh" onclick={resetUsage}>重置</button><button class="rp-close" onclick={() => (rightPanel = "")} aria-label="关闭">×</button></span></div>
       <div class="rp-body">
         <div class="usage-grid">
           <div class="usage-card">
@@ -1537,6 +1551,16 @@
             {/if}
             <div class="usage-row"><span>累计压缩</span><b>{sessionCompressedToolResults}</b></div>
             <div class="usage-row"><span>累计丢弃</span><b>{sessionDroppedMessages}</b></div>
+          </div>
+          <div class="usage-card">
+            <strong>Context payload</strong>
+            {#if contextPayloadBusy}
+              <p class="emptyline">正在读取 provider payload 快照…</p>
+            {:else if contextPayloadReport}
+              <pre class="ledger-report">{contextPayloadReport}</pre>
+            {:else}
+              <p class="emptyline">暂无 provider payload 快照。</p>
+            {/if}
           </div>
           <div class="usage-card">
             <strong>Task ledger</strong>

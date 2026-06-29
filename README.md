@@ -113,7 +113,8 @@ tool.
 - **Context editing:** the full local session remains intact, but the provider
   sees a send-time edited view that compresses old tool results and drops older
   prefixes once the context budget is exceeded. The Rust REPL exposes `/context`
-  for active policy, session size, last-turn telemetry, and next-send preview.
+  for active policy, session size, last-turn telemetry, next-send preview, and
+  recent provider payload snapshots via `/context payload [N]`.
 - **Tool search:** tools are registered into a catalog. Small registries expose
   all tools; larger registries expose core tools plus `tool_search`, and search
   hits are made visible in the next schema view. The Rust REPL exposes `/tools`
@@ -188,7 +189,7 @@ are local-runtime implementations:
 | Capability | Current coverage | Remaining gap |
 | --- | ---: | --- |
 | Task budget | 75-85% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI now write/read a task ledger with wall time, approval count, stop reason, and usage totals. Remaining gaps are cloud task quotas, nested subagent budget accounting, and richer analytics. |
-| Context editing | 50-60% | Send-time editing compresses tool results and drops old prefixes under budget; missing Anthropic-scale long-context model variants, richer `/context` inspection, and policy-driven context packs. |
+| Context editing | 55-65% | Send-time editing compresses tool results and drops old prefixes under budget, and provider payload snapshots make the actual model input auditable. Still missing Anthropic-scale long-context model variants and policy-driven context packs. |
 | Tool search | 55-65% | Tool catalogs, `tool_search`, and GUI MCP runtime status reduce schema overload and make tool availability visible; missing a managed connector/plugin ecosystem, remote auth UX, and large-scale dynamic tool ranking. |
 | Semantic memory | 45-55% | Query-scoped lexical-semantic recall, `remember`, and LLM merge exist; missing fully automatic correction-derived memory, stronger embedding/vector retrieval, and cross-surface memory governance. |
 
@@ -337,7 +338,8 @@ sandbox, or budget changes to affect the active session. `/usage` (or `/cost`)
 shows raw token usage for the last turn and current REPL session. `/budget`
 shows task-budget limits and last-turn/session use. `/context` shows the active
 context-edit policy, session size, last-turn telemetry, and a preview of the
-next provider send.
+next provider send; `/context payload [N]` lists recent redacted provider
+payload snapshots from `.nanocodex/context-payloads/`.
 
 Python CLI, original line:
 
@@ -432,11 +434,11 @@ compatibility fallback.
 
 Built-in REPL slash commands also expose platform status surfaces: `/usage`
 for raw token and context-edit telemetry, `/budget` for task-budget use,
-`/context` for the active context-edit policy and next-send preview, `/tools`
-for the tool catalog and visible schema view, `/memory` for project memory
-status and recall preview, `/skills` for the discovered skill catalog,
-`/history` for saved sessions, and `/mcp` for enabled MCP servers plus
-currently registered MCP tools.
+`/context` for the active context-edit policy, next-send preview, and
+provider payload snapshots, `/tools` for the tool catalog and visible schema
+view, `/memory` for project memory status and recall preview, `/skills` for
+the discovered skill catalog, `/history` for saved sessions, and `/mcp` for
+enabled MCP servers plus currently registered MCP tools.
 
 The Tauri GUI exposes the same project/user command catalog from the `/` header
 button. You can run a command from the panel with arguments, or type the custom
@@ -643,7 +645,10 @@ same send-time edit without mutating the session, including policy knobs,
 message counts, last-turn telemetry, and the next-send compression/drop stats.
 Rust `/usage` and the Tauri GUI's `U` panel also surface send-time context
 editing telemetry: original chars, edited chars, saved chars, compressed tool
-results, and dropped messages.
+results, and dropped messages. Each provider call also writes a redacted JSON
+snapshot under `.nanocodex/context-payloads/`, so `/context payload [N]` and
+the GUI Usage panel can inspect exactly which edited messages and tool schemas
+were sent.
 
 ## Token Usage & Cost
 
@@ -712,7 +717,8 @@ The current desktop line is a Tauri v2 + Svelte GUI (`rust/gui`):
   health with startup timing and last-error visibility.
 - Usage panel for last-turn and session model calls, tool calls, prompt tokens,
   completion tokens, cache hit/miss tokens, estimated cost, context-edit
-  telemetry, and task-ledger wall time / approval / budget report visibility.
+  telemetry, provider payload snapshots, and task-ledger wall time / approval /
+  budget report visibility.
 - Memory panel for viewing project notes, adding verified notes, opening
   `LEARNINGS.md`, heuristic deduplication, and LLM-backed memory merge.
 

@@ -17,7 +17,8 @@ use ncx_config::{
     VALID_SANDBOX_MODES,
 };
 use ncx_core::{
-    CheckpointMeta, CheckpointStore, MemoryStore, RestoreReport, SessionIndex, TaskLedger,
+    CheckpointMeta, CheckpointStore, ContextPayloadSnapshotStore, MemoryStore, RestoreReport,
+    SessionIndex, TaskLedger,
 };
 use serde::Serialize;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -194,6 +195,12 @@ fn request_tools(state: tauri::State<'_, AppState>) -> Result<(), String> {
 fn budget_report(limit: Option<usize>) -> Result<String, String> {
     let workspace = std::env::current_dir().map_err(|e| e.to_string())?;
     Ok(TaskLedger::new(&workspace).render_report(limit.unwrap_or(20)))
+}
+
+#[tauri::command]
+fn context_payload_report(limit: Option<usize>) -> Result<String, String> {
+    let workspace = std::env::current_dir().map_err(|e| e.to_string())?;
+    Ok(ContextPayloadSnapshotStore::new(&workspace).render_report(limit.unwrap_or(10)))
 }
 
 /// Archive (or unarchive) a saved session; persisted in the session index.
@@ -964,7 +971,8 @@ pub fn run() {
             set_permission_mode,
             request_ready,
             request_tools,
-            budget_report
+            budget_report,
+            context_payload_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running the nanocodex GUI");
