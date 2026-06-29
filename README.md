@@ -740,9 +740,10 @@ Both suites are fully offline: mocked providers, injectable I/O, no real API
 key or network call required.
 
 GitHub Actions also runs the same Windows Rust verification path plus the
-Python offline test suite on pushes, pull requests, and manual dispatches.
-Use that CI result as the release gate when a local Windows machine is missing
-the Rust toolchain.
+Python offline test suite on pushes, pull requests, and manual dispatches. The
+Windows job installs the MinGW linker before testing the
+`x86_64-pc-windows-gnu` target. Use that CI result as the release gate when a
+local Windows machine is missing the Rust toolchain.
 
 ## Release Packaging
 

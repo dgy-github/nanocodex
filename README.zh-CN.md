@@ -637,7 +637,9 @@ python -m pytest -q
 请求。
 
 GitHub Actions 也会在 push、pull request 和手动触发时运行同一条 Windows Rust 验证链，
-并跑 Python 离线测试。本地 Windows 缺 Rust 工具链时，可以把 CI 结果作为 release gate。
+并跑 Python 离线测试。Windows job 会先安装 MinGW linker，再测试
+`x86_64-pc-windows-gnu` target。本地 Windows 缺 Rust 工具链时，可以把 CI 结果作为
+release gate。
 
 ## Release 打包
 
