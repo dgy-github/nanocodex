@@ -30,7 +30,7 @@
 | --- | --- | --- |
 | Task budget | Rust loop 强制 per-turn model/tool call budget；CLI `/budget` 可见；Tauri GUI 已恢复每轮模型/工具调用累计面板；`TaskLedger` 写入 `.nanocodex/task-ledger.jsonl`；orchestrator reason/worker 节点共享父任务预算，worker 会按并行度预留预算并退回未用额度。 | 云端/队列额度、预算超限后的续跑策略、更完整的 CI/端到端预算回归测试。 |
 | Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、按预算丢旧前缀；CLI `/context` 与 Tauri Usage 面板展示 telemetry；每次 provider 调用会写脱敏 payload snapshot 供 `/context payload [N]` 和 GUI Usage 面板审计。 | 策略化 context pack、按来源分配预算、长期任务的摘要检查点、对 1M context 模型的适配策略。 |
-| Tool search | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog；GUI 也显示 MCP server 连接状态、工具数、启动耗时和最近错误。 | ranking 评测集、MCP tool metadata 权重、connector registry、auth/permission 治理。 |
+| Tool search / connectors | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog；GUI 也显示 MCP server 连接状态、工具数、启动耗时和最近错误；新增 `connectors.toml` install spec 可审计 transport/source/trusted/permission/allowed_tools。 | ranking 评测集、MCP tool metadata 权重、远程 auth/OAuth、connector registry 治理。 |
 | Semantic memory | `.ncx/memory/LEARNINGS.md`、query-scoped recall、`remember`、启发式/LLM merge、Tauri Memory 面板已有。 | 自动从纠错/复盘提炼 memory、embedding/vector 可选 provider、memory review queue、跨入口治理。 |
 
 ## 平台级差距
@@ -39,16 +39,16 @@
 
 当前差距：约 65-75% 仍未补齐。
 
-`nanocodex` 有 MCP stdio 客户端、工具注册表、审批和 GUI 连接状态可见性，但还不是“平台 connector”。缺少 OAuth/remote auth UX、可安装 connector registry、工具权限审计和大规模工具排序。
+`nanocodex` 有 MCP stdio 客户端、工具注册表、审批和 GUI 连接状态可见性，也开始有本地 connector install spec。但它还不是“平台 connector”：缺少 OAuth/remote auth UX、托管 connector registry、集中工具权限审计和大规模工具排序。
 
 已完成：
 
 - Tauri GUI 已有 Tools 面板，可展示 runtime tool catalog、core/MCP 来源、read-only/effectful 分类，以及 MCP server connected/error、最近失败原因和启动耗时。
+- 新增 `~/.nanocodex/connectors.toml`：stdio connector 可转换为 MCP server；remote `sse`/`http` spec 会被解析并在 CLI `/mcp` 中展示 transport/source/trusted/permission/allowed_tools，作为 auth/OAuth 落地前的审计面。
 
 下一步：
 
-- 增加 connector install spec，而不是只读 `mcp.toml`。
-- 增加 connector auth/permission 治理和工具权限审计。
+- 增加 connector auth/OAuth、远程 transport 启动、托管 registry 和更细的工具权限审计。
 
 2. Managed task budget / cloud execution
 
@@ -124,6 +124,7 @@
 - GUI/Tauri release 分支已集成到 `codex/gui-mcp-runtime-conflict-merge`（上一稳定集成分支为 `codex/gui-mcp-integration`）。
 - Tauri GUI 已补回 Usage/Context 面板：每轮 `done` 事件携带 `iterations`、`tools_used`、token usage 和 context-edit telemetry；前端展示上一轮与当前 session 汇总。
 - Tauri GUI 已新增 Tools 面板：agent 线程按需发出真实 runtime tool catalog，前端展示 core/MCP 来源、read-only/effectful 分类，以及 MCP server connected/error、注册工具数、启动耗时和最近错误。
+- 已新增 connector install spec：`connectors.example.toml` 说明本地 connector metadata；`load_mcp_connectors()` 解析 `~/.nanocodex/connectors.toml`；stdio connector 会并入 `load_mcp_servers()`；CLI `/mcp` 会展示 connector permission/trusted/allowed_tools。
 - 已新增 `TaskLedger`：CLI 与 Tauri 每轮完成后写 `.nanocodex/task-ledger.jsonl`，CLI 支持 `--budget-report` 和 `/budget report`，Tauri Usage 面板可读取最近任务报告。
 - 已新增 provider payload snapshot：agent loop 在每次模型调用前把发送时编辑后的消息和工具 schema 摘要写入 `.nanocodex/context-payloads/`；CLI `/context payload [N]` 与 Tauri Usage 面板可审计最近快照。
 - 已新增 orchestrator/subagent shared budget：CLI live runner 中的 reason/worker 节点共用父任务预算，parallel worker 按剩余 worker 数公平预留预算，未用额度退回池中，并在 orchestrator 状态行输出剩余预算。
@@ -133,6 +134,6 @@
 
 1. 跑 Windows Rust 工具链验证：`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1`。
 2. CI 通过后，从 `codex/gui-mcp-runtime-conflict-merge` 开 PR，优先处理 Rust/Tauri 编译问题。
-3. 给 MCP/Tool catalog 增加 connector install spec、auth/permission 治理和权限审计。
+3. 给 MCP/Tool catalog 增加 connector auth/OAuth、远程 transport 启动和权限审计。
 4. 增加云端/队列 budget 策略和更完整的端到端预算回归测试。
 5. 增加 context-pack 策略和 context regression tests，进一步缩小 context editing 差距。

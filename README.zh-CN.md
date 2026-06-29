@@ -150,7 +150,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 | --- | ---: | --- |
 | Task budget | 80-88% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和更完整的分析面板。 |
 | Context editing | 55-65% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；provider payload snapshot 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体和策略化 context pack。 |
-| Tool search | 55-65% | 工具 catalog、`tool_search` 和 GUI MCP runtime 状态已降低 schema 过载，并让工具可用性可见；还缺托管 connector/plugin 生态、远程认证 UX 和大规模动态工具排序。 |
+| Tool search / connectors | 60-70% | 工具 catalog、`tool_search`、GUI MCP runtime 状态，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry 和大规模动态工具排序。 |
 | Semantic memory | 45-55% | query-scoped lexical-semantic recall、`remember` 和 LLM merge 已有；还缺从纠错自动提炼 memory、更强 embedding/vector 检索，以及跨入口 memory 治理。 |
 
 最大的剩余差距不是普通 Rust 代码量，而是平台能力：Anthropic 原生工具/connector
@@ -444,8 +444,8 @@ curl http://127.0.0.1:8005/v1/models
 
 ## MCP
 
-MCP 服务是可选的（opt-in），并且运行在沙箱**之外**（它们会启动外部子进程）。在
-`~/.nanocodex/mcp.toml` 里配置：
+MCP 服务是可选的（opt-in），并且运行在沙箱**之外**（它们会启动外部子进程）。底层
+server 文件仍是 `~/.nanocodex/mcp.toml`：
 
 ```toml
 [mcp_servers.fetch]
@@ -464,12 +464,17 @@ ncx --mcp
 ```
 
 每个服务的工具以 `mcp__<server>__<tool>` 暴露给模型。服务表里可以设置
-`enabled = false`，保留配置但不连接。legacy Python GUI 另有一个**市场**支持从内置精选
-目录或远程目录（`NANOCODEX_MARKETPLACE_URL`）一键安装；远程目录被当作不可信数据处理。
-更多见 `mcp.example.toml`。
-Rust REPL 内可用 `/mcp` 查看 enabled server 条目和当前会话已经注册的 MCP 工具。Tauri
-GUI 的 Tools 面板也会展示每个 MCP server 的 connected/error 状态、注册工具数、启动耗时、
-启动命令和最近错误。
+`enabled = false`，保留配置但不连接。
+
+更可审计的 connector install 层放在 `~/.nanocodex/connectors.toml`。其中
+`[connectors.<name>]` 可以声明 `transport`、`source`、`trusted`、`permission` 和
+`allowed_tools`。stdio connector 会在 `ncx --mcp` 启动时转换成 MCP server；远程
+`sse`/`http` spec 目前只解析并在 `/mcp` 里展示，等后续补一方 auth/OAuth 后再真正启动。
+更多见 `mcp.example.toml` 和 `connectors.example.toml`。
+
+Rust REPL 内可用 `/mcp` 查看 enabled server、connector install spec、connector 权限/信任
+元数据，以及当前会话已经注册的 MCP 工具。Tauri GUI 的 Tools 面板也会展示每个 MCP server
+的 connected/error 状态、注册工具数、启动耗时、启动命令和最近错误。
 
 ## Skills
 
@@ -704,7 +709,8 @@ Windows GNU 链接器的 export ordinal 表溢出。
 ## 安全说明
 
 - **绝不提交真实 API key。** `.env`、`*.key`、`*.pem`、token 文件以及本地交接文件
-  都被 git 忽略；`config.toml` / `mcp.toml` 放在 `~/.nanocodex/`，在仓库之外。
+  都被 git 忽略；`config.toml`、`mcp.toml` 和 `connectors.toml` 放在
+  `~/.nanocodex/`，在仓库之外。
 - 在 Windows 上沙箱是**策略级**的——它拦截工具行为和可写根，但不是内核级隔离。
 - **MCP 工具运行在沙箱之外**，作为外部子进程。只启用你信任的服务；legacy 市场会校验
   名称但不审查行为。

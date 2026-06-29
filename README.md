@@ -193,7 +193,7 @@ are local-runtime implementations:
 | --- | ---: | --- |
 | Task budget | 80-88% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and richer analytics. |
 | Context editing | 55-65% | Send-time editing compresses tool results and drops old prefixes under budget, and provider payload snapshots make the actual model input auditable. Still missing Anthropic-scale long-context model variants and policy-driven context packs. |
-| Tool search | 55-65% | Tool catalogs, `tool_search`, and GUI MCP runtime status reduce schema overload and make tool availability visible; missing a managed connector/plugin ecosystem, remote auth UX, and large-scale dynamic tool ranking. |
+| Tool search / connectors | 60-70% | Tool catalogs, `tool_search`, GUI MCP runtime status, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, and large-scale dynamic tool ranking. |
 | Semantic memory | 45-55% | Query-scoped lexical-semantic recall, `remember`, and LLM merge exist; missing fully automatic correction-derived memory, stronger embedding/vector retrieval, and cross-surface memory governance. |
 
 The largest remaining gaps are not ordinary Rust code gaps. They are
@@ -516,7 +516,7 @@ happen at the tool boundary. It is not kernel isolation.
 ## MCP
 
 MCP servers are opt-in and run **outside** the sandbox (they launch external
-subprocesses). Configure them in `~/.nanocodex/mcp.toml`:
+subprocesses). The low-level server file remains `~/.nanocodex/mcp.toml`:
 
 ```toml
 [mcp_servers.fetch]
@@ -535,14 +535,20 @@ ncx --mcp
 ```
 
 Each server's tools surface to the model as `mcp__<server>__<tool>`. Set
-`enabled = false` on a server table to keep it installed but disconnected. The
-legacy Python GUI also has a **marketplace** for one-click installs from a
-built-in curated catalog or a remote catalog (`NANOCODEX_MARKETPLACE_URL`);
-remote catalogs are treated as untrusted data. See `mcp.example.toml` for more.
-Inside the Rust REPL, `/mcp` shows the enabled server entries and the MCP tools
-registered in the active session. In the Tauri GUI, the Tools panel also shows
-each configured MCP server's connected/error state, registered tool count,
-startup elapsed time, command, and last error.
+`enabled = false` on a server table to keep it installed but disconnected.
+
+For a more auditable connector install layer, `~/.nanocodex/connectors.toml`
+also supports `[connectors.<name>]` specs with `transport`, `source`, `trusted`,
+`permission`, and `allowed_tools`. Stdio connectors are converted into MCP
+servers when `ncx --mcp` starts; remote `sse`/`http` specs are parsed and shown
+for audit, but are not launched until first-class auth/OAuth support lands. See
+`mcp.example.toml` and `connectors.example.toml`.
+
+Inside the Rust REPL, `/mcp` shows enabled server entries, connector install
+specs, connector permission/trust metadata, and MCP tools registered in the
+active session. In the Tauri GUI, the Tools panel also shows each configured MCP
+server's connected/error state, registered tool count, startup elapsed time,
+command, and last error.
 
 ## Skills
 
@@ -818,8 +824,8 @@ The Tauri crate deliberately keeps `crate-type = ["lib"]`; changing it to
 ## Security Notes
 
 - **Never commit real API keys.** `.env`, `*.key`, `*.pem`, token files, and
-  local handoff files are git-ignored; `config.toml` / `mcp.toml` live in
-  `~/.nanocodex/`, outside the repo.
+  local handoff files are git-ignored; `config.toml`, `mcp.toml`, and
+  `connectors.toml` live in `~/.nanocodex/`, outside the repo.
 - The sandbox is **policy-level on Windows** — it gates tool actions and writable
   roots, but is not kernel isolation.
 - **MCP tools run outside the sandbox** as external subprocesses. Only enable

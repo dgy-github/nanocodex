@@ -1,0 +1,27 @@
+# Copy this file to ~/.nanocodex/connectors.toml and edit for your machine.
+# Stdio connectors are launched when `ncx --mcp` starts. Remote transports are
+# parsed and shown in `/mcp` for audit, but are not launched until first-class
+# auth/OAuth support lands.
+
+[connectors.fetch]
+display_name = "Fetch"
+description = "Fetch HTTP/HTTPS pages through an MCP connector."
+transport = "stdio"
+command = "cmd"
+args = ["/c", "npx", "-y", "mcp-server-fetch"]
+source = "npm:mcp-server-fetch"
+enabled = true
+trusted = false
+permission = "ask"
+allowed_tools = ["fetch"]
+
+# Example remote connector spec. This is visible in `/mcp` but not launched yet.
+# [connectors.remote_docs]
+# display_name = "Remote Docs"
+# description = "Remote MCP docs connector."
+# transport = "sse"
+# url = "https://example.com/mcp"
+# headers = { Authorization = "Bearer ${TOKEN}" }
+# enabled = false
+# trusted = false
+# permission = "ask"

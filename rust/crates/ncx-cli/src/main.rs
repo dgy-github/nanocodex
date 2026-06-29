@@ -17,8 +17,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use ncx_config::{
-    load_config, load_mcp_servers, permission_mode_to_knobs, write_nanocodex_config, Config,
-    ConfigPaths, Overrides, VALID_PERMISSION_MODES, WRITABLE_KEYS,
+    load_config, load_mcp_connectors, load_mcp_servers, permission_mode_to_knobs,
+    write_nanocodex_config, Config, ConfigPaths, Overrides, VALID_PERMISSION_MODES,
+    WRITABLE_KEYS,
 };
 use ncx_core::slash::{is_known, parse_slash, SLASH_HELP};
 use std::rc::Rc;
@@ -558,8 +559,9 @@ fn dispatch_slash(
         "/tools" => SlashOutcome::Printed(render_tools_status(&agent.tools, arg)),
         "/mcp" => {
             let servers = load_mcp_servers();
+            let connectors = load_mcp_connectors();
             let catalog = agent.tools.ctx.tool_catalog.borrow();
-            SlashOutcome::Printed(render_mcp_status(&servers, &catalog))
+            SlashOutcome::Printed(render_mcp_status(&servers, &connectors, &catalog))
         }
         "/plan" => {
             let plan = agent.tools.ctx.plan.borrow();
@@ -730,6 +732,7 @@ fn format_name_list(names: &[String]) -> String {
 
 fn render_mcp_status(
     servers: &[ncx_config::McpServerConfig],
+    connectors: &[ncx_config::McpConnectorConfig],
     catalog: &[ncx_core::tools::ToolCatalogEntry],
 ) -> String {
     let mut out = format!(
@@ -746,6 +749,37 @@ fn render_mcp_status(
                 format!(" {}", server.args.join(" "))
             };
             out.push_str(&format!("\n  {}: {}{}", server.name, server.command, args));
+        }
+    }
+
+    out.push_str(&format!(
+        "\n\nConnector install specs in ~/.nanocodex/connectors.toml: {}",
+        connectors.len()
+    ));
+    if connectors.is_empty() {
+        out.push_str("\n  (none)");
+    } else {
+        for connector in connectors {
+            let allowed = if connector.allowed_tools.is_empty() {
+                "*".to_string()
+            } else {
+                connector.allowed_tools.join(",")
+            };
+            let endpoint = if connector.transport == "stdio" {
+                format!("{} {}", connector.command, connector.args.join(" "))
+            } else {
+                connector.url.clone()
+            };
+            out.push_str(&format!(
+                "\n  {}: transport={} enabled={} trusted={} permission={} allowed_tools={} endpoint={}",
+                connector.name,
+                connector.transport,
+                connector.enabled,
+                connector.trusted,
+                connector.permission,
+                allowed,
+                endpoint.trim()
+            ));
         }
     }
 
@@ -1864,6 +1898,22 @@ mod tests {
             env: HashMap::new(),
             enabled: true,
         }];
+        let connectors = vec![ncx_config::McpConnectorConfig {
+            name: "fs".into(),
+            display_name: "Filesystem".into(),
+            description: "local files".into(),
+            transport: "stdio".into(),
+            command: "npx".into(),
+            args: vec!["-y".into(), "server-fs".into()],
+            url: String::new(),
+            env: HashMap::new(),
+            headers: HashMap::new(),
+            enabled: true,
+            trusted: false,
+            permission: "ask".into(),
+            allowed_tools: vec!["list".into()],
+            source: "npm:server-fs".into(),
+        }];
         let catalog = vec![
             ncx_core::tools::ToolCatalogEntry {
                 name: "read_file".into(),
@@ -1882,9 +1932,12 @@ mod tests {
             },
         ];
 
-        let out = render_mcp_status(&servers, &catalog);
+        let out = render_mcp_status(&servers, &connectors, &catalog);
 
         assert!(out.contains("fs: npx -y server-fs"));
+        assert!(out.contains("Connector install specs"));
+        assert!(out.contains("permission=ask"));
+        assert!(out.contains("allowed_tools=list"));
         assert!(out.contains("Registered MCP tools: 2"));
         assert!(out.contains("fs (2): list, write"));
         assert!(!out.contains("read_file"));
@@ -1892,7 +1945,7 @@ mod tests {
 
     #[test]
     fn mcp_status_mentions_when_no_tools_registered() {
-        let out = render_mcp_status(&[], &[]);
+        let out = render_mcp_status(&[], &[], &[]);
 
         assert!(out.contains("(none)"));
         assert!(out.contains("start the REPL with --mcp"));

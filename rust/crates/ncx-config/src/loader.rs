@@ -4,7 +4,7 @@
 //! The loader avoids reading `std::env` directly so tests can inject a fake env
 //! map without mutating process-global state.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use toml::map::Map as TomlMap;
@@ -383,9 +383,60 @@ pub fn load_mcp_servers_at(path: &Path) -> Vec<crate::config::McpServerConfig> {
     out
 }
 
-/// Load MCP server definitions from `~/.nanocodex/mcp.toml`.
+/// Load MCP connector install specs from a `connectors.toml` file.
+///
+/// Example:
+/// ```toml
+/// [connectors.fetch]
+/// transport = "stdio"
+/// command = "cmd"
+/// args = ["/c", "npx", "-y", "mcp-server-fetch"]
+/// trusted = false
+/// permission = "ask"
+/// allowed_tools = ["fetch"]
+/// ```
+pub fn load_mcp_connectors_at(path: &Path) -> Vec<crate::config::McpConnectorConfig> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    let parsed: Value = match text.parse() {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    if let Some(connectors) = parsed.get("connectors").and_then(|v| v.as_table()) {
+        for (name, spec) in connectors {
+            if let Some(connector) = parse_mcp_connector(name, spec) {
+                out.push(connector);
+            }
+        }
+    }
+    out
+}
+
+/// Load MCP connector specs from `~/.nanocodex/connectors.toml`.
+pub fn load_mcp_connectors() -> Vec<crate::config::McpConnectorConfig> {
+    load_mcp_connectors_at(&home_dir().join(".nanocodex/connectors.toml"))
+}
+
+/// Load MCP server definitions from `~/.nanocodex/mcp.toml` and stdio
+/// connectors from `~/.nanocodex/connectors.toml`.
 pub fn load_mcp_servers() -> Vec<crate::config::McpServerConfig> {
-    load_mcp_servers_at(&home_dir().join(".nanocodex/mcp.toml"))
+    let mut servers = load_mcp_servers_at(&home_dir().join(".nanocodex/mcp.toml"));
+    let mut seen = servers
+        .iter()
+        .map(|server| server.name.clone())
+        .collect::<BTreeSet<_>>();
+    for connector in load_mcp_connectors() {
+        let Some(server) = connector.to_mcp_server() else {
+            continue;
+        };
+        if seen.insert(server.name.clone()) {
+            servers.push(server);
+        }
+    }
+    servers
 }
 
 fn parse_mcp_server(name: &str, spec: &Value) -> Option<crate::config::McpServerConfig> {
@@ -426,6 +477,91 @@ fn parse_mcp_server(name: &str, spec: &Value) -> Option<crate::config::McpServer
         env,
         enabled,
     })
+}
+
+fn parse_mcp_connector(name: &str, spec: &Value) -> Option<crate::config::McpConnectorConfig> {
+    use crate::config::McpConnectorConfig;
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let enabled = spec
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let transport = spec
+        .get("transport")
+        .and_then(|v| v.as_str())
+        .unwrap_or("stdio")
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(transport.as_str(), "stdio" | "sse" | "http" | "streamable-http") {
+        return None;
+    }
+    let command = string_field(spec, "command");
+    let url = string_field(spec, "url");
+    if enabled && transport == "stdio" && command.trim().is_empty() {
+        return None;
+    }
+    if enabled && transport != "stdio" && url.trim().is_empty() {
+        return None;
+    }
+    Some(McpConnectorConfig {
+        name: name.to_string(),
+        display_name: string_field(spec, "display_name"),
+        description: string_field(spec, "description"),
+        transport,
+        command,
+        args: string_array_field(spec, "args"),
+        url,
+        env: string_table_field(spec, "env"),
+        headers: string_table_field(spec, "headers"),
+        enabled,
+        trusted: spec
+            .get("trusted")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        permission: spec
+            .get("permission")
+            .and_then(|v| v.as_str())
+            .unwrap_or("ask")
+            .trim()
+            .to_ascii_lowercase(),
+        allowed_tools: string_array_field(spec, "allowed_tools"),
+        source: string_field(spec, "source"),
+    })
+}
+
+fn string_field(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn string_array_field(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn string_table_field(value: &Value, key: &str) -> HashMap<String, String> {
+    value
+        .get(key)
+        .and_then(|v| v.as_table())
+        .map(|t| {
+            t.iter()
+                .filter_map(|(k, v)| v.as_str().map(|val| (k.clone(), val.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Resolve a [`Config`] using real env vars and default config-file paths.
@@ -1010,6 +1146,82 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
         assert_eq!(servers.len(), 1);
         assert_eq!(servers[0].name, "everything");
         assert_eq!(servers[0].command, "npx");
+    }
+
+    #[test]
+    fn mcp_connectors_parse_install_specs() {
+        let tmp = std::env::temp_dir().join("ncx_config_test_connectors");
+        fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("connectors.toml");
+        write(
+            &path,
+            r#"
+[connectors.fetch]
+display_name = "Fetch"
+description = "HTTP fetch connector"
+transport = "stdio"
+command = "cmd"
+args = ["/c", "npx", "-y", "mcp-server-fetch"]
+env = { TOKEN = "secret" }
+trusted = false
+permission = "ask"
+allowed_tools = ["fetch"]
+source = "npm:mcp-server-fetch"
+
+[connectors.remote]
+transport = "sse"
+url = "https://example.test/mcp"
+headers = { Authorization = "Bearer token" }
+trusted = true
+permission = "trusted"
+
+[connectors.bad_remote]
+transport = "http"
+"#,
+        );
+
+        let connectors = load_mcp_connectors_at(&path);
+
+        assert_eq!(connectors.len(), 2);
+        assert_eq!(connectors[0].name, "fetch");
+        assert_eq!(connectors[0].display_name, "Fetch");
+        assert_eq!(connectors[0].transport, "stdio");
+        assert_eq!(connectors[0].command, "cmd");
+        assert_eq!(connectors[0].args[0], "/c");
+        assert_eq!(connectors[0].allowed_tools, vec!["fetch"]);
+        assert_eq!(
+            connectors[0].env.get("TOKEN").map(String::as_str),
+            Some("secret")
+        );
+        assert_eq!(connectors[1].transport, "sse");
+        assert_eq!(connectors[1].url, "https://example.test/mcp");
+        assert!(connectors[1].trusted);
+    }
+
+    #[test]
+    fn stdio_connector_materializes_as_mcp_server() {
+        let connector = crate::config::McpConnectorConfig {
+            name: "fetch".into(),
+            display_name: "Fetch".into(),
+            description: String::new(),
+            transport: "stdio".into(),
+            command: "cmd".into(),
+            args: vec!["/c".into(), "npx".into()],
+            url: String::new(),
+            env: HashMap::new(),
+            headers: HashMap::new(),
+            enabled: true,
+            trusted: false,
+            permission: "ask".into(),
+            allowed_tools: vec!["fetch".into()],
+            source: "npm:mcp-server-fetch".into(),
+        };
+
+        let server = connector.to_mcp_server().unwrap();
+
+        assert_eq!(server.name, "fetch");
+        assert_eq!(server.command, "cmd");
+        assert_eq!(server.args, vec!["/c", "npx"]);
     }
 
     #[test]

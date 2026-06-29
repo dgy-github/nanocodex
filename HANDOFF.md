@@ -22,8 +22,9 @@
   入口、permission mode、模型快切、workspace/session/fork/archive、右侧 Files/Diff/Branches/Memory
   面板已合并；GUI `Usage` 面板已补回 last-turn/session usage、费用估算和 context-edit
   telemetry；GUI Usage 面板现在也能读取 provider payload snapshot；CLI orchestrator 的 reason/worker/subagent
-  节点已共享父任务预算；GUI `Tools` 面板已能从 agent 线程读取真实 runtime tool catalog，展示 core/MCP、
-  read-only/effectful 分类，以及 MCP server connected/error、注册工具数、启动耗时和最近错误。
+  节点已共享父任务预算；Rust 配置层已新增 `~/.nanocodex/connectors.toml` install spec；
+  GUI `Tools` 面板已能从 agent 线程读取真实 runtime tool catalog，展示 core/MCP、read-only/effectful
+  分类，以及 MCP server connected/error、注册工具数、启动耗时和最近错误。
   详细差距路线图见 `docs/claude-fable-gap-roadmap.zh-CN.md`。
 
 ## ncx-forge 训练框架（分支 `feat/train`，已推 origin）— 当前活跃工作线
@@ -119,11 +120,11 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
   用 sentinel 注入。
 
 ## 当前状态（已完成；上一轮 264 个 Rust 测试全绿，本轮新增 `/budget` + `/context` + `/tools` + `/memory` 测试后文档计 269，需在 cargo 可用环境用 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1` 复跑）
-- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、Sessions、Usage、custom command、memory、Tools/MCP runtime 状态面板、TaskLedger 预算账本）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册 + REPL `/mcp` 状态面板；Tauri agent 启动时注册配置的 MCP server 并把连接状态随 Tools 面板回传）
+- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、Sessions、Usage、custom command、memory、Tools/MCP runtime 状态面板、TaskLedger 预算账本）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册 + REPL `/mcp` 状态面板；`connectors.toml` install spec 可声明 transport/source/trusted/permission/allowed_tools，stdio connector 会并入 MCP server；Tauri agent 启动时注册配置的 MCP server 并把连接状态随 Tools 面板回传）
 - 工具：read_file·apply_patch·shell·update_plan·grep·glob·web_search·web_fetch·tool_search·remember·skill
 - **Skills（已并入 rust-capability）**：SKILL.md 发现 + 渐进披露注入 + `skill` 工具 + builtin（`commit-message`，include_str! 编入二进制，FS 同名可覆盖）+ `/skills` 命令。stream C vision 基础（`7de2235`）也随 FF 一起进了 rust-capability。
 - 分层 flash/pro 编排器（`-o`，verifier 选 BEST worker + promote）；memory 自进化 + 每轮 query-scoped send-time recall + 启发式/LLM consolidate（CLI `--memory-merge` + GUI Memory 面板）；keyed 搜索(Tavily/DDG)
-- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog；Tauri GUI Sessions 面板复用 `SessionIndex`，可打开 log/snapshot 并恢复当前 workspace snapshot；CLI `/usage` + GUI Usage 面板展示真实 last-turn/session usage 和 context-edit telemetry；CLI `/budget` 展示 per-task limits、session use 和 last-turn remaining budget；CLI `/budget report`/`--budget-report` 和 Tauri Usage 面板读取 `.nanocodex/task-ledger.jsonl`，展示每任务 wall time、approval count、stop reason、model/tool calls 和 token 汇总；CLI orchestrator 的 reason 节点、parallel worker 和递归 subtask 共用父任务预算池，worker 按并行度预留预算并退回未用额度；CLI `/context` 展示 active context-edit policy、session size、last-turn telemetry、next-send preview，并通过 `/context payload [N]` 读取 `.nanocodex/context-payloads/` 的脱敏 provider payload snapshot；GUI Usage 面板已增加 Payload 入口；CLI `/tools` 展示 tool catalog、visible schema view 和 active tool_search hints；CLI `/memory` 展示 project memory path、entry count、recent notes、tags 和 recall preview；GUI Tools 面板已显示 MCP server connected/error、tools、elapsed_ms 和 last error；release 脚本会给 Tauri NSIS installer 注入 workspace version
+- 已并入并行会话 18 commit：session 持久化/resume、checkpoints、hooks、project_instructions、富 slash、compact、token usage、release 脚本；custom slash 模板展开已抽到 core，CLI+GUI 共用同一套 `.nanocodex/.claude` command catalog；Tauri GUI Sessions 面板复用 `SessionIndex`，可打开 log/snapshot 并恢复当前 workspace snapshot；CLI `/usage` + GUI Usage 面板展示真实 last-turn/session usage 和 context-edit telemetry；CLI `/budget` 展示 per-task limits、session use 和 last-turn remaining budget；CLI `/budget report`/`--budget-report` 和 Tauri Usage 面板读取 `.nanocodex/task-ledger.jsonl`，展示每任务 wall time、approval count、stop reason、model/tool calls 和 token 汇总；CLI orchestrator 的 reason 节点、parallel worker 和递归 subtask 共用父任务预算池，worker 按并行度预留预算并退回未用额度；CLI `/context` 展示 active context-edit policy、session size、last-turn telemetry、next-send preview，并通过 `/context payload [N]` 读取 `.nanocodex/context-payloads/` 的脱敏 provider payload snapshot；CLI `/mcp` 会展示 enabled server、connector install spec、permission/trusted/allowed_tools 和 registered MCP tools；GUI Usage 面板已增加 Payload 入口；CLI `/tools` 展示 tool catalog、visible schema view 和 active tool_search hints；CLI `/memory` 展示 project memory path、entry count、recent notes、tags 和 recall preview；GUI Tools 面板已显示 MCP server connected/error、tools、elapsed_ms 和 last error；release 脚本会给 Tauri NSIS installer 注入 workspace version
 
 本轮验证：`cmd /c npm run build`（`rust/gui`）通过；`git diff --check` 通过；`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-rust.ps1 -SkipTauri` 因本机 `cargo` 不在 PATH 或常见 Rust 安装目录而中止，需在装好 Rust 的环境/CI 复跑。
 
@@ -150,6 +151,7 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
 
 ## 流 A 完成情况（feat/mcp）
 - `ncx-config`：`McpServerConfig` 结构体 + `load_mcp_servers()`/`load_mcp_servers_at()` 解析 `~/.nanocodex/mcp.toml`
+- `ncx-config`：`McpConnectorConfig` + `load_mcp_connectors()` 解析 `~/.nanocodex/connectors.toml`，stdio connector 会转换成 MCP server，remote spec 先进入 `/mcp` 审计面
 - `ncx-core/src/mcp_tool.rs`：`McpTool`（`Rc<tokio::sync::Mutex<McpClient>>` + 审批）+ `register_mcp_server()` 启动帮助函数
 - `ncx-cli/src/main.rs`：传 `--mcp` 时，`ToolRegistry::new` 后加载并注册 enabled MCP server 工具；REPL `/mcp` 列出 enabled server 和已注册 MCP tools
 - Live 验证：`everything` server 注册 13 个工具，模型成功 `tool_search` + `echo` 调用

@@ -47,6 +47,45 @@ pub struct McpServerConfig {
     pub enabled: bool,
 }
 
+/// Auditable MCP connector install spec, loaded from
+/// `~/.nanocodex/connectors.toml`.
+///
+/// Stdio connectors are materialized as [`McpServerConfig`] entries. Remote
+/// transports are kept visible for audit until the runtime has first-class
+/// auth/OAuth support.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpConnectorConfig {
+    pub name: String,
+    pub display_name: String,
+    pub description: String,
+    pub transport: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub url: String,
+    pub env: HashMap<String, String>,
+    pub headers: HashMap<String, String>,
+    pub enabled: bool,
+    pub trusted: bool,
+    pub permission: String,
+    pub allowed_tools: Vec<String>,
+    pub source: String,
+}
+
+impl McpConnectorConfig {
+    pub fn to_mcp_server(&self) -> Option<McpServerConfig> {
+        if !self.enabled || self.transport != "stdio" || self.command.trim().is_empty() {
+            return None;
+        }
+        Some(McpServerConfig {
+            name: self.name.clone(),
+            command: self.command.clone(),
+            args: self.args.clone(),
+            env: self.env.clone(),
+            enabled: true,
+        })
+    }
+}
+
 /// Project-level deterministic hook. Hooks are configured from `[[hooks]]` in
 /// `~/.nanocodex/config.toml` and executed around tool calls.
 #[derive(Debug, Clone, PartialEq, Eq)]
