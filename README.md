@@ -109,7 +109,8 @@ tool.
   message history stays valid. The Rust REPL exposes `/budget` for per-task
   limits, session use, and last-turn remaining budget; completed turns append
   `.nanocodex/task-ledger.jsonl`, and `/budget report` / `--budget-report` show
-  recent task records with wall time, approvals, stop reasons, and token totals.
+  recent task records with wall time, approvals, stop reasons, token totals,
+  average task time, budget-exhaustion rate, and model/tool budget utilization.
   The orchestrator shares the same parent budget across reasoning nodes and
   parallel workers so subagents cannot each spend a full independent task
   budget.
@@ -195,7 +196,7 @@ are local-runtime implementations:
 
 | Capability | Current coverage | Remaining gap |
 | --- | ---: | --- |
-| Task budget | 80-88% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and richer analytics. |
+| Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
 | Context editing | 58-68% | Send-time editing compresses tool results and drops old prefixes under budget; provider payload snapshots and context-pack bucket telemetry make the actual model input auditable. Still missing Anthropic-scale long-context model variants and policy-driven context budget allocation. |
 | Tool search / connectors | 62-72% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, gold-case ranking tests, and an auditable `connectors.toml` install spec reduce schema and connector ambiguity. Missing remote auth/OAuth UX, a managed registry, and large-scale dynamic tool ranking. |
 | Semantic memory | 45-55% | Query-scoped lexical-semantic recall, `remember`, and LLM merge exist; missing fully automatic correction-derived memory, stronger embedding/vector retrieval, and cross-surface memory governance. |

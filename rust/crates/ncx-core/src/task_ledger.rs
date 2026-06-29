@@ -83,6 +83,17 @@ pub struct TaskLedgerTotals {
     pub stop_reasons: BTreeMap<String, usize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskLedgerTrend {
+    pub tasks: usize,
+    pub avg_duration_ms: u64,
+    pub budget_exhausted_tasks: usize,
+    pub model_budget_used: usize,
+    pub model_budget_total: usize,
+    pub tool_budget_used: usize,
+    pub tool_budget_total: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskLedger {
     path: PathBuf,
@@ -154,8 +165,9 @@ impl TaskLedger {
         };
         let prompt = usage_value(&totals.usage, "prompt_tokens");
         let completion = usage_value(&totals.usage, "completion_tokens");
+        let trend = self.trend(Some(limit));
         let mut out = format!(
-            "Task ledger\npath: {}\nlast_tasks: {}\nmodel_calls: {}\ntool_calls: {}\napproval_requests: {}\nwall_time_ms: {}\nprompt_tokens: {}\ncompletion_tokens: {}\ntotal_tokens: {}\nstop_reasons: {}",
+            "Task ledger\npath: {}\nlast_tasks: {}\nmodel_calls: {}\ntool_calls: {}\napproval_requests: {}\nwall_time_ms: {}\nprompt_tokens: {}\ncompletion_tokens: {}\ntotal_tokens: {}\nstop_reasons: {}\n\nTrend\navg_duration_ms: {}\nbudget_exhausted: {}/{} ({}%)\nmodel_budget_utilization: {}/{} ({}%)\ntool_budget_utilization: {}/{} ({}%)",
             self.path.display(),
             totals.tasks,
             totals.model_calls,
@@ -165,7 +177,17 @@ impl TaskLedger {
             prompt,
             completion,
             prompt + completion,
-            stop_reasons
+            stop_reasons,
+            trend.avg_duration_ms,
+            trend.budget_exhausted_tasks,
+            trend.tasks,
+            pct(trend.budget_exhausted_tasks, trend.tasks),
+            trend.model_budget_used,
+            trend.model_budget_total,
+            pct(trend.model_budget_used, trend.model_budget_total),
+            trend.tool_budget_used,
+            trend.tool_budget_total,
+            pct(trend.tool_budget_used, trend.tool_budget_total),
         );
         out.push_str("\n\nRecent tasks:");
         for row in rows {
@@ -212,6 +234,38 @@ impl TaskLedger {
         }
         totals
     }
+
+    pub fn trend(&self, limit: Option<usize>) -> TaskLedgerTrend {
+        let rows = match limit {
+            Some(n) => self.recent(n),
+            None => self.records(),
+        };
+        let tasks = rows.len();
+        let mut trend = TaskLedgerTrend {
+            tasks,
+            avg_duration_ms: 0,
+            budget_exhausted_tasks: 0,
+            model_budget_used: 0,
+            model_budget_total: 0,
+            tool_budget_used: 0,
+            tool_budget_total: 0,
+        };
+        let mut duration_ms = 0_u64;
+        for row in rows {
+            duration_ms = duration_ms.saturating_add(row.duration_ms);
+            if row.stop_reason == "task_budget" {
+                trend.budget_exhausted_tasks += 1;
+            }
+            trend.model_budget_used += row.model_calls;
+            trend.model_budget_total += row.task_model_budget;
+            trend.tool_budget_used += row.tool_calls;
+            trend.tool_budget_total += row.task_tool_budget;
+        }
+        if tasks > 0 {
+            trend.avg_duration_ms = duration_ms / u64::try_from(tasks).unwrap_or(1);
+        }
+        trend
+    }
 }
 
 pub fn now_stamp() -> String {
@@ -243,6 +297,14 @@ fn u64_field(value: &Value, key: &str) -> u64 {
 
 fn usage_value(usage: &BTreeMap<String, i64>, key: &str) -> i64 {
     usage.get(key).copied().unwrap_or(0)
+}
+
+fn pct(numerator: usize, denominator: usize) -> usize {
+    if denominator == 0 {
+        0
+    } else {
+        numerator.saturating_mul(100) / denominator
+    }
 }
 
 fn short_id(id: &str) -> &str {
@@ -307,10 +369,23 @@ mod tests {
         assert_eq!(totals.usage.get("prompt_tokens"), Some(&200));
         assert_eq!(totals.stop_reasons.get("completed"), Some(&1));
         assert_eq!(totals.stop_reasons.get("task_budget"), Some(&1));
+        let trend = ledger.trend(None);
+        assert_eq!(trend.tasks, 2);
+        assert_eq!(trend.avg_duration_ms, 37);
+        assert_eq!(trend.budget_exhausted_tasks, 1);
+        assert_eq!(trend.model_budget_used, 3);
+        assert_eq!(trend.model_budget_total, 6);
+        assert_eq!(trend.tool_budget_used, 3);
+        assert_eq!(trend.tool_budget_total, 8);
         let report = ledger.render_report(20);
         assert!(report.contains("Task ledger"));
         assert!(report.contains("approval_requests: 1"));
         assert!(report.contains("stop_reasons: completed=1, task_budget=1"));
+        assert!(report.contains("Trend"));
+        assert!(report.contains("avg_duration_ms: 37"));
+        assert!(report.contains("budget_exhausted: 1/2 (50%)"));
+        assert!(report.contains("model_budget_utilization: 3/6 (50%)"));
+        assert!(report.contains("tool_budget_utilization: 3/8 (37%)"));
         assert!(report.contains("Recent tasks:"));
     }
 }

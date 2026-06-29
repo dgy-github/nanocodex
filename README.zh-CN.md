@@ -84,7 +84,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   和上下文限制；模型调用或工具调用超预算时，loop 会干净停止，并补齐未执行工具调用的
   tool result，保证消息历史仍然有效。Rust REPL 提供 `/budget` 查看每任务限额、session
   用量和上一轮剩余额度；每个完成任务会追加 `.nanocodex/task-ledger.jsonl`，`/budget report`
-  和 `--budget-report` 可查看最近任务的 wall time、审批数、停止原因和 token 汇总。编排器会在
+  和 `--budget-report` 可查看最近任务的 wall time、审批数、停止原因、token 汇总、平均耗时、
+  预算耗尽率，以及模型/工具预算利用率。编排器会在
   reasoning 节点和并行 worker/subagent 之间共享同一份父任务预算，避免每个 worker 都拿到一份
   独立满额预算。
 - **Context editing：** 本地完整 session 不会被删；发给 provider 的是发送时编辑视图，
@@ -150,7 +151,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 
 | 能力 | 当前覆盖 | 剩余差距 |
 | --- | ---: | --- |
-| Task budget | 80-88% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和更完整的分析面板。 |
+| Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
 | Context editing | 58-68% | 发送时编辑会压缩旧 tool result，并在超预算时丢弃旧前缀；provider payload snapshot 和 context-pack 分桶 telemetry 已让真实模型输入可审计。还缺 Anthropic 级长上下文模型变体和策略化 context 预算分配。 |
 | Tool search / connectors | 62-72% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、gold-case 排名测试，以及可审计的 `connectors.toml` install spec 已降低 schema 和 connector 歧义；还缺远程 auth/OAuth UX、托管 registry 和大规模动态工具排序。 |
 | Semantic memory | 45-55% | query-scoped lexical-semantic recall、`remember` 和 LLM merge 已有；还缺从纠错自动提炼 memory、更强 embedding/vector 检索，以及跨入口 memory 治理。 |
