@@ -103,8 +103,8 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
   （config 里是 `ark_api_key`，未必对）；④ 自检别用"refuse genome→通过率降"（模型常无视，不可靠），
   用 sentinel 注入。
 
-## 当前状态（已完成，262 个 Rust 测试全绿）
-- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、Sessions、Usage、custom command、memory 面板）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册）
+## 当前状态（已完成，264 个 Rust 测试全绿）
+- 6 核心 crate + CLI(`ncx`) + Tauri GUI（含 Settings/config 首启入口、Sessions、Usage、custom command、memory 面板）+ **`ncx-mcp`**（MCP stdio 客户端，已接进 agent：McpTool + `[mcp_servers.*]` loader + `--mcp` opt-in 启动注册 + REPL `/mcp` 状态面板）
 - 工具：read_file·apply_patch·shell·update_plan·grep·glob·web_search·web_fetch·tool_search·remember·skill
 - **Skills（已并入 rust-capability）**：SKILL.md 发现 + 渐进披露注入 + `skill` 工具 + builtin（`commit-message`，include_str! 编入二进制，FS 同名可覆盖）+ `/skills` 命令。stream C vision 基础（`7de2235`）也随 FF 一起进了 rust-capability。
 - 分层 flash/pro 编排器（`-o`，verifier 选 BEST worker + promote）；memory 自进化 + 每轮 query-scoped send-time recall + 启发式/LLM consolidate（CLI `--memory-merge` + GUI Memory 面板）；keyed 搜索(Tavily/DDG)
@@ -134,7 +134,7 @@ fitness 做闭环进化。**只训 Rust 版 `ncx.exe`**；权重不动，纯 API
 ## 流 A 完成情况（feat/mcp）
 - `ncx-config`：`McpServerConfig` 结构体 + `load_mcp_servers()`/`load_mcp_servers_at()` 解析 `~/.nanocodex/mcp.toml`
 - `ncx-core/src/mcp_tool.rs`：`McpTool`（`Rc<tokio::sync::Mutex<McpClient>>` + 审批）+ `register_mcp_server()` 启动帮助函数
-- `ncx-cli/src/main.rs`：传 `--mcp` 时，`ToolRegistry::new` 后加载并注册 enabled MCP server 工具
+- `ncx-cli/src/main.rs`：传 `--mcp` 时，`ToolRegistry::new` 后加载并注册 enabled MCP server 工具；REPL `/mcp` 列出 enabled server 和已注册 MCP tools
 - Live 验证：`everything` server 注册 13 个工具，模型成功 `tool_search` + `echo` 调用
 
 ## Do-Not（踩过的坑）

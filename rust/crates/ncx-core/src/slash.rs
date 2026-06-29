@@ -40,6 +40,7 @@ pub const SLASH_HELP: &[(&str, &str)] = &[
         "/skills",
         "List available agent skills (name + when to use).",
     ),
+    ("/mcp", "Show enabled MCP servers and registered MCP tools."),
     ("/history", "Show recent saved sessions."),
     ("/checkpoint", "Create a workspace checkpoint."),
     ("/checkpoints", "List recent workspace checkpoints."),

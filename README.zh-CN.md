@@ -75,7 +75,7 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - 启动路径避开 Python 解释器和 import 开销，适合短的一次性命令，也适合交互 REPL。
 - 显式所有权让并行 worker 隔离、结果选择和 promote 更容易推理，不容易出现共享可变状态
   泄漏。
-- 258 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
+- 264 个 Rust 离线测试覆盖当前 crate 边界，包括记忆合并、provider 请求/响应解析、
   沙箱策略、工具和编排器。
 
 **平台控制面补齐**
@@ -319,6 +319,10 @@ Rust REPL 可以把 Markdown prompt 模板变成 slash command。项目级命令
 `.claude/commands/<name>.md`。用户级命令放在 `~/.nanocodex/commands/<name>.md`，
 并兼容 `~/.claude/commands/<name>.md`。
 
+内置 REPL slash command 也暴露平台状态面：`/usage` 查看原始 token 和 context-edit
+telemetry，`/skills` 查看已发现 skill catalog，`/history` 查看保存的会话，`/mcp` 查看
+enabled MCP server 以及当前会话已注册的 MCP 工具。
+
 Tauri GUI 也通过标题栏的 `/` 按钮暴露同一套 project/user command catalog。可以在面板里
 填写参数后直接运行，也可以在聊天输入框里直接输入 custom slash command；GUI 会用和 CLI
 相同的 core 模板引擎展开 prompt。
@@ -409,6 +413,7 @@ ncx --mcp
 `enabled = false`，保留配置但不连接。legacy Python GUI 另有一个**市场**支持从内置精选
 目录或远程目录（`NANOCODEX_MARKETPLACE_URL`）一键安装；远程目录被当作不可信数据处理。
 更多见 `mcp.example.toml`。
+Rust REPL 内可用 `/mcp` 查看 enabled server 条目和当前会话已经注册的 MCP 工具。
 
 ## Skills
 

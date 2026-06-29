@@ -450,6 +450,11 @@ fn dispatch_slash(
             }
         }
         "/skills" => SlashOutcome::Printed(render_skills(&agent.tools.ctx.skills)),
+        "/mcp" => {
+            let servers = load_mcp_servers();
+            let catalog = agent.tools.ctx.tool_catalog.borrow();
+            SlashOutcome::Printed(render_mcp_status(&servers, &catalog))
+        }
         "/plan" => {
             let plan = agent.tools.ctx.plan.borrow();
             if plan.is_empty() {
@@ -490,6 +495,64 @@ fn render_skills(skills: &[ncx_core::Skill]) -> String {
     }
     out.push_str("\n\nThe agent loads a skill's full instructions on demand via the `skill` tool.");
     out
+}
+
+fn render_mcp_status(
+    servers: &[ncx_config::McpServerConfig],
+    catalog: &[ncx_core::tools::ToolCatalogEntry],
+) -> String {
+    let mut out = format!(
+        "MCP enabled servers in ~/.nanocodex/mcp.toml: {}",
+        servers.len()
+    );
+    if servers.is_empty() {
+        out.push_str("\n  (none)");
+    } else {
+        for server in servers {
+            let args = if server.args.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", server.args.join(" "))
+            };
+            out.push_str(&format!("\n  {}: {}{}", server.name, server.command, args));
+        }
+    }
+
+    let mut tools_by_server: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for entry in catalog {
+        let Some((server, tool)) = mcp_tool_name_parts(&entry.name) else {
+            continue;
+        };
+        tools_by_server
+            .entry(server.to_string())
+            .or_default()
+            .push(tool.to_string());
+    }
+
+    let total_tools: usize = tools_by_server.values().map(Vec::len).sum();
+    out.push_str(&format!("\n\nRegistered MCP tools: {total_tools}"));
+    if total_tools == 0 {
+        out.push_str("\n  (none; start the REPL with --mcp and check startup errors)");
+        return out;
+    }
+    for (server, mut tools) in tools_by_server {
+        tools.sort();
+        out.push_str(&format!(
+            "\n  {server} ({}): {}",
+            tools.len(),
+            tools.join(", ")
+        ));
+    }
+    out
+}
+
+fn mcp_tool_name_parts(name: &str) -> Option<(&str, &str)> {
+    let rest = name.strip_prefix("mcp__")?;
+    let (server, tool) = rest.split_once("__")?;
+    if server.is_empty() || tool.is_empty() {
+        return None;
+    }
+    Some((server, tool))
 }
 
 fn render_help() -> String {
@@ -1260,6 +1323,49 @@ mod tests {
         assert!(out.contains("sid"));
         assert!(out.contains("fix bug"));
         assert!(out.contains("tools=3"));
+    }
+
+    #[test]
+    fn mcp_status_groups_registered_tools_by_server() {
+        let servers = vec![ncx_config::McpServerConfig {
+            name: "fs".into(),
+            command: "npx".into(),
+            args: vec!["-y".into(), "server-fs".into()],
+            env: HashMap::new(),
+            enabled: true,
+        }];
+        let catalog = vec![
+            ncx_core::tools::ToolCatalogEntry {
+                name: "read_file".into(),
+                description: "core".into(),
+                read_only: true,
+            },
+            ncx_core::tools::ToolCatalogEntry {
+                name: "mcp__fs__list".into(),
+                description: "list".into(),
+                read_only: true,
+            },
+            ncx_core::tools::ToolCatalogEntry {
+                name: "mcp__fs__write".into(),
+                description: "write".into(),
+                read_only: false,
+            },
+        ];
+
+        let out = render_mcp_status(&servers, &catalog);
+
+        assert!(out.contains("fs: npx -y server-fs"));
+        assert!(out.contains("Registered MCP tools: 2"));
+        assert!(out.contains("fs (2): list, write"));
+        assert!(!out.contains("read_file"));
+    }
+
+    #[test]
+    fn mcp_status_mentions_when_no_tools_registered() {
+        let out = render_mcp_status(&[], &[]);
+
+        assert!(out.contains("(none)"));
+        assert!(out.contains("start the REPL with --mcp"));
     }
 
     #[test]

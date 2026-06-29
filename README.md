@@ -97,7 +97,7 @@ tool.
   one-shot commands as well as interactive REPL use.
 - Typed ownership makes parallel worker isolation and result promotion easier
   to reason about without shared mutable state leaks.
-- 258 offline Rust tests cover the current crate boundary, including memory
+- 264 offline Rust tests cover the current crate boundary, including memory
   consolidation, provider request/response parsing, sandbox policy, tools, and
   orchestration.
 
@@ -376,6 +376,11 @@ commands in `.nanocodex/commands/<name>.md`; for Claude Code compatibility,
 `~/.nanocodex/commands/<name>.md`, with `~/.claude/commands/<name>.md` as a
 compatibility fallback.
 
+Built-in REPL slash commands also expose platform status surfaces: `/usage`
+for raw token and context-edit telemetry, `/skills` for the discovered skill
+catalog, `/history` for saved sessions, and `/mcp` for enabled MCP servers plus
+currently registered MCP tools.
+
 The Tauri GUI exposes the same project/user command catalog from the `/` header
 button. You can run a command from the panel with arguments, or type the custom
 slash command directly in the chat box; the GUI expands it with the same core
@@ -472,6 +477,8 @@ Each server's tools surface to the model as `mcp__<server>__<tool>`. Set
 legacy Python GUI also has a **marketplace** for one-click installs from a
 built-in curated catalog or a remote catalog (`NANOCODEX_MARKETPLACE_URL`);
 remote catalogs are treated as untrusted data. See `mcp.example.toml` for more.
+Inside the Rust REPL, `/mcp` shows the enabled server entries and the MCP tools
+registered in the active session.
 
 ## Skills
 
