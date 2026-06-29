@@ -25,9 +25,13 @@ use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
 use serde_json::json;
 
+const BUDGET_EXHAUSTED: &str =
+    "Stopped before this orchestrator node ran because the shared task budget was exhausted.";
+
 pub struct LiveRunner {
     cfg: Config,
     memory: Rc<MemoryStore>,
+    budget: BudgetPool,
     counter: Cell<u64>,
     /// Per-worker isolated scratch workspaces (kept until promote/cleanup).
     scratch: RefCell<HashMap<usize, PathBuf>>,
@@ -37,9 +41,11 @@ impl LiveRunner {
     pub fn new(cfg: Config) -> Self {
         let memory = Rc::new(MemoryStore::new(cfg.workspace.join(".ncx").join("memory")));
         let _ = memory.consolidate(0.85); // tidy near-dups at startup (idempotent)
+        let budget = BudgetPool::new(task_budget_from_config(&cfg));
         LiveRunner {
             cfg,
             memory,
+            budget,
             counter: Cell::new(0),
             scratch: RefCell::new(HashMap::new()),
         }
@@ -71,6 +77,7 @@ impl LiveRunner {
         system: &str,
         task: &str,
         with_tools: bool,
+        reservation: BudgetReservation,
     ) -> String {
         let provider = DeepSeekProvider::with_opts(
             self.cfg.api_key.clone(),
@@ -100,10 +107,16 @@ impl LiveRunner {
         let instructions = load_project_instructions(workspace, 16_000);
         let system = compose_system_prompt(system, &[instructions, skills_index]);
         let session = Session::new(system);
+        let budget = TaskBudget {
+            max_model_calls: reservation.model_calls,
+            max_tool_calls: reservation.tool_calls,
+        };
         let mut agent = AgentLoop::new(Box::new(provider), tools, session)
-            .with_task_budget(task_budget_from_config(&self.cfg))
+            .with_task_budget(budget)
             .with_context_edit(context_edit_from_config(&self.cfg));
-        agent.run_turn(json!(task), None).await.final_text
+        let result = agent.run_turn(json!(task), None).await;
+        self.budget.finish(reservation, &result);
+        result.final_text
     }
 
     /// A unique scratch dir for an isolated worker.
@@ -112,20 +125,58 @@ impl LiveRunner {
         self.counter.set(n);
         std::env::temp_dir().join(format!("ncx_worker_{}_{n}", std::process::id()))
     }
+
+    async fn run_reserved(
+        &self,
+        workspace: &Path,
+        tier: Tier,
+        system: &str,
+        task: &str,
+        with_tools: bool,
+        reservation: Option<BudgetReservation>,
+    ) -> String {
+        match reservation {
+            Some(reservation) => {
+                self.run_in(workspace, tier, system, task, with_tools, reservation)
+                    .await
+            }
+            None => BUDGET_EXHAUSTED.to_string(),
+        }
+    }
+
+    pub fn budget_remaining(&self) -> (usize, usize) {
+        self.budget.remaining()
+    }
 }
 
 #[async_trait(?Send)]
 impl AgentRunner for LiveRunner {
     async fn run(&self, tier: Tier, system: &str, task: &str) -> String {
         let ws = self.cfg.workspace.clone();
-        self.run_in(&ws, tier, system, task, true).await
+        self.run_reserved(
+            &ws,
+            tier,
+            system,
+            task,
+            true,
+            self.budget.reserve_turn(),
+        )
+        .await
     }
 
     async fn reason(&self, tier: Tier, system: &str, task: &str) -> String {
         // Tool-less: classify/plan/decompose/verify reason over the task text,
         // they don't touch the workspace.
         let ws = self.cfg.workspace.clone();
-        self.run_in(&ws, tier, system, task, false).await
+        self.run_reserved(
+            &ws,
+            tier,
+            system,
+            task,
+            false,
+            self.budget.reserve_reason(),
+        )
+        .await
     }
 
     async fn run_worker(&self, idx: usize, _n: usize, system: &str, task: &str) -> String {
@@ -147,7 +198,15 @@ impl AgentRunner for LiveRunner {
                 }
             }
         };
-        self.run_in(&ws, Tier::Fast, system, task, true).await
+        self.run_reserved(
+            &ws,
+            Tier::Fast,
+            system,
+            task,
+            true,
+            self.budget.reserve_worker(idx, _n),
+        )
+        .await
     }
 
     async fn promote_worker(&self, idx: usize) {
@@ -159,6 +218,92 @@ impl AgentRunner for LiveRunner {
         for (_, dir) in self.scratch.borrow_mut().drain() {
             let _ = std::fs::remove_dir_all(dir);
         }
+    }
+}
+
+#[derive(Clone)]
+struct BudgetPool {
+    model_remaining: Rc<Cell<usize>>,
+    tool_remaining: Rc<Cell<usize>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BudgetReservation {
+    model_calls: usize,
+    tool_calls: usize,
+}
+
+impl BudgetPool {
+    fn new(budget: TaskBudget) -> Self {
+        BudgetPool {
+            model_remaining: Rc::new(Cell::new(budget.max_model_calls.max(1))),
+            tool_remaining: Rc::new(Cell::new(budget.max_tool_calls)),
+        }
+    }
+
+    fn remaining(&self) -> (usize, usize) {
+        (self.model_remaining.get(), self.tool_remaining.get())
+    }
+
+    fn reserve_reason(&self) -> Option<BudgetReservation> {
+        self.reserve(1, 0)
+    }
+
+    fn reserve_turn(&self) -> Option<BudgetReservation> {
+        let (models, tools) = self.remaining();
+        self.reserve(models, tools)
+    }
+
+    fn reserve_worker(&self, idx: usize, n_workers: usize) -> Option<BudgetReservation> {
+        let slots_left = n_workers.saturating_sub(idx).max(1);
+        let (models, tools) = self.remaining();
+        let model_share = if models == 0 {
+            0
+        } else {
+            (models / slots_left).max(1)
+        };
+        let tool_share = if tools == 0 {
+            0
+        } else {
+            (tools / slots_left).max(1)
+        };
+        self.reserve(model_share, tool_share)
+    }
+
+    fn reserve(
+        &self,
+        preferred_models: usize,
+        preferred_tools: usize,
+    ) -> Option<BudgetReservation> {
+        let model_remaining = self.model_remaining.get();
+        if model_remaining == 0 {
+            return None;
+        }
+        let model_calls = preferred_models.max(1).min(model_remaining);
+        let tool_calls = preferred_tools.min(self.tool_remaining.get());
+        self.model_remaining
+            .set(model_remaining.saturating_sub(model_calls));
+        self.tool_remaining
+            .set(self.tool_remaining.get().saturating_sub(tool_calls));
+        Some(BudgetReservation {
+            model_calls,
+            tool_calls,
+        })
+    }
+
+    fn finish(&self, reservation: BudgetReservation, result: &ncx_core::TurnResult) {
+        let used_models = result.iterations.min(reservation.model_calls);
+        let used_tools = result.tools_used.len().min(reservation.tool_calls);
+        self.model_remaining.set(
+            self.model_remaining
+                .get()
+                .saturating_add(reservation.model_calls.saturating_sub(used_models)),
+        );
+        self.tool_remaining.set(
+            self.tool_remaining
+                .get()
+                .saturating_add(reservation.tool_calls.saturating_sub(used_tools)),
+        );
     }
 }
 
@@ -243,5 +388,78 @@ impl Summarizer for LiveSummarizer {
             Ok(r) if !r.content.trim().is_empty() => Some(r.content.trim().to_string()),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ncx_core::{ContextEditStats, TurnResult};
+    use std::collections::BTreeMap;
+
+    fn result(iterations: usize, tools: usize) -> TurnResult {
+        TurnResult {
+            final_text: "done".into(),
+            iterations,
+            stop_reason: "completed".into(),
+            tools_used: (0..tools).map(|i| format!("tool-{i}")).collect(),
+            usage: BTreeMap::new(),
+            context_edit: ContextEditStats::default(),
+        }
+    }
+
+    #[test]
+    fn reason_reservation_uses_one_model_and_no_tools() {
+        let pool = BudgetPool::new(TaskBudget {
+            max_model_calls: 5,
+            max_tool_calls: 9,
+        });
+        let res = pool.reserve_reason().unwrap();
+
+        assert_eq!(res.model_calls, 1);
+        assert_eq!(res.tool_calls, 0);
+        assert_eq!(pool.remaining(), (4, 9));
+    }
+
+    #[test]
+    fn worker_reservations_split_remaining_budget() {
+        let pool = BudgetPool::new(TaskBudget {
+            max_model_calls: 6,
+            max_tool_calls: 9,
+        });
+        let first = pool.reserve_worker(0, 3).unwrap();
+        let second = pool.reserve_worker(1, 3).unwrap();
+        let third = pool.reserve_worker(2, 3).unwrap();
+
+        assert_eq!(
+            first.model_calls + second.model_calls + third.model_calls,
+            6
+        );
+        assert_eq!(first.tool_calls + second.tool_calls + third.tool_calls, 9);
+        assert_eq!(pool.remaining(), (0, 0));
+    }
+
+    #[test]
+    fn finishing_node_refunds_unused_budget() {
+        let pool = BudgetPool::new(TaskBudget {
+            max_model_calls: 6,
+            max_tool_calls: 9,
+        });
+        let res = pool.reserve_turn().unwrap();
+        pool.finish(res, &result(2, 3));
+
+        assert_eq!(pool.remaining(), (4, 6));
+    }
+
+    #[test]
+    fn exhausted_pool_denies_new_nodes() {
+        let pool = BudgetPool::new(TaskBudget {
+            max_model_calls: 1,
+            max_tool_calls: 0,
+        });
+        let _ = pool.reserve_reason().unwrap();
+
+        assert!(pool.reserve_reason().is_none());
+        assert!(pool.reserve_worker(0, 1).is_none());
     }
 }

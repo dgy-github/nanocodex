@@ -110,6 +110,9 @@ tool.
   limits, session use, and last-turn remaining budget; completed turns append
   `.nanocodex/task-ledger.jsonl`, and `/budget report` / `--budget-report` show
   recent task records with wall time, approvals, stop reasons, and token totals.
+  The orchestrator shares the same parent budget across reasoning nodes and
+  parallel workers so subagents cannot each spend a full independent task
+  budget.
 - **Context editing:** the full local session remains intact, but the provider
   sees a send-time edited view that compresses old tool results and drops older
   prefixes once the context budget is exceeded. The Rust REPL exposes `/context`
@@ -188,7 +191,7 @@ are local-runtime implementations:
 
 | Capability | Current coverage | Remaining gap |
 | --- | ---: | --- |
-| Task budget | 75-85% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI now write/read a task ledger with wall time, approval count, stop reason, and usage totals. Remaining gaps are cloud task quotas, nested subagent budget accounting, and richer analytics. |
+| Task budget | 80-88% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and richer analytics. |
 | Context editing | 55-65% | Send-time editing compresses tool results and drops old prefixes under budget, and provider payload snapshots make the actual model input auditable. Still missing Anthropic-scale long-context model variants and policy-driven context packs. |
 | Tool search | 55-65% | Tool catalogs, `tool_search`, and GUI MCP runtime status reduce schema overload and make tool availability visible; missing a managed connector/plugin ecosystem, remote auth UX, and large-scale dynamic tool ranking. |
 | Semantic memory | 45-55% | Query-scoped lexical-semantic recall, `remember`, and LLM merge exist; missing fully automatic correction-derived memory, stronger embedding/vector retrieval, and cross-surface memory governance. |

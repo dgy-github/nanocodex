@@ -315,8 +315,9 @@ async fn run_orchestrated(cfg: Config, prompt: &str) -> i32 {
     let runner = LiveRunner::new(cfg);
     let orch = Orchestrator::new(&runner, OrchestratorConfig::default());
     let outcome = orch.handle(prompt).await;
+    let (model_remaining, tool_remaining) = runner.budget_remaining();
     eprintln!(
-        "[orchestrator] complexity={:?}  verify={}  rounds={}  best_worker={}",
+        "[orchestrator] complexity={:?}  verify={}  rounds={}  best_worker={}  budget_remaining=model:{} tool:{}",
         outcome.complexity,
         if outcome.verify_passed {
             "PASS"
@@ -325,6 +326,8 @@ async fn run_orchestrated(cfg: Config, prompt: &str) -> i32 {
         },
         outcome.verify_rounds,
         outcome.best_worker,
+        model_remaining,
+        tool_remaining,
     );
     println!("{}", outcome.final_text);
     if outcome.verify_passed {
