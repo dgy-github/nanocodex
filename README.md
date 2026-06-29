@@ -214,6 +214,7 @@ first-party memory behavior, and model-side code execution/analysis ability.
 - [A/B Worktree Comparison](#ab-worktree-comparison)
 - [GUI](#gui)
 - [Tests](#tests)
+- [Release Packaging](#release-packaging)
 - [Security Notes](#security-notes)
 
 ## Highlights
@@ -746,6 +747,9 @@ Windows job installs the MinGW linker before testing the
 local Windows machine is missing the Rust toolchain.
 
 ## Release Packaging
+
+Use [docs/release-checklist.md](docs/release-checklist.md) before cutting a
+release or merging a release branch.
 
 Recommended Windows release entry point:
 

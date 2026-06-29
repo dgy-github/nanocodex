@@ -173,6 +173,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.6、Sonnet 4.6 的 1M context
 - [A/B worktree 对比](#ab-worktree-对比)
 - [GUI](#gui)
 - [测试](#测试)
+- [Release 打包](#release-打包)
 - [安全说明](#安全说明)
 
 ## 亮点
@@ -642,6 +643,9 @@ GitHub Actions 也会在 push、pull request 和手动触发时运行同一条 W
 release gate。
 
 ## Release 打包
+
+切 release 或合并 release 分支前，先按
+[docs/release-checklist.md](docs/release-checklist.md) 逐项检查。
 
 推荐的 Windows release 入口：
 

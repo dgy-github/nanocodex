@@ -12,7 +12,7 @@
   （会探测 cargo / 打印 rustup target 提示），release 脚本 `.\scripts\build-rust-release.ps1`
   也支持 `-Cargo C:\path\to\cargo.exe`；GitHub Actions `CI` workflow 会安装 MinGW linker，
   再跑 Windows Rust fmt/test/Tauri check + Python offline tests，可作为本地缺 cargo 时的
-  release gate。
+  release gate；发布前按 `docs/release-checklist.md` 逐项确认。
 - ✅ **`feat/train` 已并入 rust-capability**（merge `a26793b`）：ncx-forge 训练框架全部回灌 —— `genome.rs` 读 `NCX_GENOME` 覆盖 prompt/工具描述、`--dump-genome`/`--from-genome` CLI、`train/` 纯 Python 框架。详见下节 + `train/DESIGN.md`。
 
 ## ncx-forge 训练框架（分支 `feat/train`，已推 origin）— 当前活跃工作线
