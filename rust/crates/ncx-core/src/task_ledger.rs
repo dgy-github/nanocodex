@@ -216,8 +216,13 @@ impl TaskLedger {
         for row in rows {
             let visible = compact_tool_list(&row.visible_tools, 8);
             let called = compact_tool_list(&row.called_tools, 8);
+            let continuation = if row.stop_reason == "task_budget" {
+                " continuation=resume_same_session compact_focus_then_continue"
+            } else {
+                ""
+            };
             out.push_str(&format!(
-                "\n- [{}] {} model={}/{} tools={}/{} visible={} called={} approvals={} time={}ms session={} model_name={} visible_tools=[{}] called_tools=[{}]",
+                "\n- [{}] {} model={}/{} tools={}/{} visible={} called={} approvals={} time={}ms session={} model_name={} visible_tools=[{}] called_tools=[{}]{}",
                 row.started_at,
                 row.stop_reason,
                 row.model_calls,
@@ -231,7 +236,8 @@ impl TaskLedger {
                 short_id(&row.session_id),
                 row.model,
                 visible,
-                called
+                called,
+                continuation
             ));
         }
         out
@@ -600,6 +606,9 @@ mod tests {
         assert!(report.contains("Recent tasks:"));
         assert!(report.contains("visible_tools=[read_file,tool_search]"));
         assert!(report.contains("called_tools=[(none)]"));
+        assert!(report.contains(
+            "continuation=resume_same_session compact_focus_then_continue"
+        ));
     }
 
     #[test]

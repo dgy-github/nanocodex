@@ -586,10 +586,7 @@ impl AgentLoop {
             }
         }
 
-        let text = format!(
-            "Reached the task budget of {} model calls without finishing. The task may be incomplete.",
-            max_model_calls
-        );
+        let text = self.budget_exhausted_text(max_model_calls, tools_used.len());
         self.session.add_assistant(&text, None, "");
         TurnResult {
             final_text: text,
@@ -610,6 +607,26 @@ impl AgentLoop {
             tool_calls_used,
             self.task_budget.max_tool_calls,
             self.context_edit.max_chars,
+        )
+    }
+
+    fn budget_exhausted_text(&self, model_calls_used: usize, tool_calls_used: usize) -> String {
+        format!(
+            concat!(
+                "Stopped because the task budget was exhausted (model calls: {}/{}, ",
+                "tool calls: {}/{}). The task may be incomplete.\n\n",
+                "Continuation strategy:\n",
+                "- Resume this same session instead of starting a fresh task, so the existing ",
+                "context, approvals, checkpoints, and task ledger stay connected.\n",
+                "- If the transcript is large, compact first with a short focus phrase for ",
+                "the unfinished work, then continue from the latest task_budget stop.\n",
+                "- On continuation, inspect the latest state before editing and finish only ",
+                "the remaining work."
+            ),
+            model_calls_used,
+            self.task_budget.max_model_calls,
+            tool_calls_used,
+            self.task_budget.max_tool_calls,
         )
     }
 
@@ -683,13 +700,7 @@ impl AgentLoop {
         self.session.backfill_unanswered_tool_calls(
             "[interrupted: task budget exhausted before this tool ran]",
         );
-        let text = format!(
-            "Stopped because the task budget was exhausted (model calls: {}/{}, tool calls: {}/{}). The task may be incomplete.",
-            iteration + 1,
-            self.task_budget.max_model_calls,
-            tools_used.len(),
-            self.task_budget.max_tool_calls,
-        );
+        let text = self.budget_exhausted_text(iteration + 1, tools_used.len());
         self.session.add_assistant(&text, None, "");
         TurnResult {
             final_text: text,
@@ -1058,6 +1069,8 @@ mod tests {
         let r = loop_.run_turn(json!("loop forever"), None).await;
         assert_eq!(r.stop_reason, "task_budget");
         assert_eq!(r.iterations, 10);
+        assert!(r.final_text.contains("Continuation strategy"));
+        assert!(r.final_text.contains("Resume this same session"));
     }
 
     struct CapturingProvider {
@@ -1355,6 +1368,8 @@ mod tests {
         let r = loop_.run_turn(json!("read three files"), None).await;
         assert_eq!(r.stop_reason, "task_budget");
         assert_eq!(r.tools_used.len(), 2);
+        assert!(r.final_text.contains("Continuation strategy"));
+        assert!(r.final_text.contains("compact first with a short focus phrase"));
         assert!(answered(&loop_.session.messages));
         assert!(loop_.session.messages.iter().any(|m| {
             m["role"] == "tool"

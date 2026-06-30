@@ -87,7 +87,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   tool result，保证消息历史仍然有效。Rust REPL 提供 `/budget` 查看每任务限额、session
   用量和上一轮剩余额度；每个完成任务会追加 `.nanocodex/task-ledger.jsonl`，`/budget report`
   和 `--budget-report` 可查看最近任务的 wall time、审批数、停止原因、token 汇总、平均耗时、
-  预算耗尽率，以及模型/工具预算利用率。编排器会在
+  预算耗尽率，以及模型/工具预算利用率。任务以 `task_budget` 停止时，assistant 结果和
+  budget report 现在会给出同会话续跑策略：保留 session，必要时先 `/compact <focus>`，再检查当前状态并从最近预算停止处继续。编排器会在
   reasoning 节点和并行 worker/subagent 之间共享同一份父任务预算，避免每个 worker 都拿到一份
   独立满额预算。
 - **Context editing：** 本地完整 session 不会被删；发给 provider 的是发送时编辑视图，
@@ -168,7 +169,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.8、Sonnet 4.6 的 1M context
 
 | 能力 | 当前覆盖 | 剩余差距 |
 | --- | ---: | --- |
-| Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
+| Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；预算耗尽 turn 会输出同会话续跑策略；CLI 和 GUI 会写入/读取带趋势/利用率分析与 continuation hint 的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
 | Context editing | 72-80% | 发送时编辑会压缩旧 tool result，按 `context_token_budget`/`context_window` 自动推导适配 1M context 的字符与分桶上限，并在丢弃旧前缀前物化带 focus anchors 的确定性摘要 checkpoint；`/compact <focus>` 现在可显式写入 focus instruction 并用于旧历史 anchor 排名；provider payload snapshot、context-pack 分桶 telemetry，以及大工具输出/长历史回归覆盖已让真实模型输入更可审计。还缺 Anthropic 级长上下文质量、模型引导的自动 focus compaction、平台自动 compact 和更完整的质量评估套件。 |
 | Tool search / connectors | 70-80% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、29 条跨类别 gold-case 排名测试、确定性 MCP category/capability hints、visible-vs-called task-ledger trace、`/tools eval` / `--tools-eval-report` schema-recall 报告，以及可审计的 `connectors.toml` install/auth spec 已降低 schema 和 connector 歧义；还缺完整 OAuth login UX、远程 transport 启动、托管 registry、更大的真实 trace 样本、更丰富的类别体系和大规模动态工具排序。 |
 | Semantic memory | 74-82% | query-scoped lexical-semantic recall、本地 vector sidecar recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼、运行时纠正/失败 proposal 提炼，以及外部 embedding 配置/状态审计已有；还缺真正执行外部 embedding 调用和平台级长期 memory。 |

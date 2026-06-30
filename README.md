@@ -113,8 +113,11 @@ tool.
   `.nanocodex/task-ledger.jsonl`, and `/budget report` / `--budget-report` show
   recent task records with wall time, approvals, stop reasons, token totals,
   average task time, budget-exhaustion rate, model/tool budget utilization, and
-  visible-vs-called tool traces for tool-search evaluation. `/tools eval [N]`
-  and `--tools-eval-report` turn the same ledger rows into offline
+  visible-vs-called tool traces for tool-search evaluation. When a task stops
+  on `task_budget`, the assistant result and budget report now include a
+  continuation strategy: resume the same session, optionally `/compact <focus>`,
+  then continue from the latest budget stop after inspecting current state.
+  `/tools eval [N]` and `--tools-eval-report` turn the same ledger rows into offline
   schema-recall reports.
   The orchestrator shares the same parent budget across reasoning nodes and
   parallel workers so subagents cannot each spend a full independent task
@@ -224,7 +227,7 @@ are local-runtime implementations:
 
 | Capability | Current coverage | Remaining gap |
 | --- | ---: | --- |
-| Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
+| Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; budget-exhausted turns now emit a same-session continuation strategy; CLI and GUI write/read a task ledger with trend/utilization analytics and continuation hints; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
 | Context editing | 72-80% | Send-time editing compresses tool results, derives 1M-friendly character and bucket caps from `context_token_budget`/`context_window`, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; `/compact <focus>` can now record an explicit focus instruction and use it for anchor ranking; provider payload snapshots, context-pack bucket telemetry, and regression coverage for large tool outputs/long histories make the actual model input more auditable. Still missing Anthropic-scale long-context model quality, model-guided automatic focus compaction, platform automatic compact, and broader quality evaluation suites. |
 | Tool search / connectors | 70-80% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, 29-query cross-category gold-case ranking tests, deterministic MCP category/capability hints, visible-vs-called task-ledger traces, `/tools eval` / `--tools-eval-report` schema-recall reporting, and an auditable `connectors.toml` install/auth spec reduce schema and connector ambiguity. Missing complete OAuth login UX, remote transport startup, a managed registry, broader trace corpus, richer category ontologies, and large-scale dynamic tool ranking. |
 | Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, runtime correction/failure proposal harvesting, and auditable external-embedding config/status exist. Remaining gaps are executing external embedding calls and platform-grade long-term memory. |
