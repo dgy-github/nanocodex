@@ -179,7 +179,18 @@ impl Session {
         system_notes: &[String],
         policy: &ContextEditPolicy,
     ) -> ContextMessages {
-        let (body, mut stats) = self.edited_body(system_notes, policy);
+        self.for_model_edited_with_focus(system_notes, policy, "")
+    }
+
+    /// Like [`Self::for_model_edited`], but adds an explicit focus hint to any
+    /// summary checkpoint created while truncating older history.
+    pub fn for_model_edited_with_focus(
+        &self,
+        system_notes: &[String],
+        policy: &ContextEditPolicy,
+        focus: &str,
+    ) -> ContextMessages {
+        let (body, mut stats) = self.edited_body(system_notes, policy, focus);
 
         let mut out = Vec::with_capacity(self.messages.len() + 1);
         out.push(json!({"role": "system", "content": self.system}));
@@ -200,9 +211,20 @@ impl Session {
     /// This powers `/compact`: after it runs, future turns and `--resume` see
     /// the compacted history instead of only a temporary provider view.
     pub fn compact(&mut self, policy: &ContextEditPolicy) -> ContextEditStats {
+        self.compact_with_focus(policy, "")
+    }
+
+    /// Materialize context editing with a user-supplied focus hint. This mirrors
+    /// Claude-style focused compaction while keeping the local deterministic
+    /// summary auditable.
+    pub fn compact_with_focus(
+        &mut self,
+        policy: &ContextEditPolicy,
+        focus: &str,
+    ) -> ContextEditStats {
         let mut policy = policy.clone();
         policy.enabled = true;
-        let (body, stats) = self.edited_body(&[], &policy);
+        let (body, stats) = self.edited_body(&[], &policy, focus);
         if stats.compressed_tool_results > 0 || stats.dropped_messages > 0 {
             self.messages = body;
             self.rewrite_log();
@@ -214,6 +236,7 @@ impl Session {
         &self,
         system_notes: &[String],
         policy: &ContextEditPolicy,
+        focus: &str,
     ) -> (Vec<Value>, ContextEditStats) {
         let original_chars = total_chars(&self.system, system_notes, &self.messages);
         let mut body = self.messages.clone();
@@ -242,7 +265,7 @@ impl Session {
 
             if body.iter().map(json_chars).sum::<usize>() > policy.max_history_chars {
                 let (dropped, summaries) =
-                    compact_old_prefix(&mut body, policy.keep_recent_messages);
+                    compact_old_prefix(&mut body, policy.keep_recent_messages, focus);
                 stats.dropped_messages += dropped;
                 stats.summary_checkpoints += summaries;
             }
@@ -251,7 +274,7 @@ impl Session {
                 && body.len() > policy.keep_recent_messages
             {
                 let (dropped, summaries) =
-                    compact_old_prefix(&mut body, policy.keep_recent_messages);
+                    compact_old_prefix(&mut body, policy.keep_recent_messages, focus);
                 stats.dropped_messages += dropped;
                 stats.summary_checkpoints += summaries;
             }
@@ -548,7 +571,11 @@ fn summarize_tool_result(msg: &mut Value) -> bool {
     true
 }
 
-fn compact_old_prefix(body: &mut Vec<Value>, keep_recent_messages: usize) -> (usize, usize) {
+fn compact_old_prefix(
+    body: &mut Vec<Value>,
+    keep_recent_messages: usize,
+    focus: &str,
+) -> (usize, usize) {
     if body.len() <= keep_recent_messages {
         return (0, 0);
     }
@@ -562,7 +589,7 @@ fn compact_old_prefix(body: &mut Vec<Value>, keep_recent_messages: usize) -> (us
     if start > 0 && start < body.len() {
         let prefix = body[..start].to_vec();
         let mut tail = body[start..].to_vec();
-        let summaries = context_summary_checkpoint(&prefix, &tail)
+        let summaries = context_summary_checkpoint(&prefix, &tail, focus)
             .map(|summary| {
                 tail.insert(0, summary);
                 1
@@ -575,16 +602,17 @@ fn compact_old_prefix(body: &mut Vec<Value>, keep_recent_messages: usize) -> (us
     }
 }
 
-fn context_summary_checkpoint(prefix: &[Value], tail: &[Value]) -> Option<Value> {
+fn context_summary_checkpoint(prefix: &[Value], tail: &[Value], focus: &str) -> Option<Value> {
     if prefix.is_empty() {
         return None;
     }
+    let focus = truncate_one_line(focus, 180);
     let mut roles: BTreeMap<String, usize> = BTreeMap::new();
     let mut first_user = None;
     let mut recent_user = None;
     let mut recent_assistant = None;
     let mut tools = Vec::<String>::new();
-    let focus_anchors = focus_anchors(prefix, tail, 3);
+    let focus_anchors = focus_anchors(prefix, tail, &focus, 3);
     for msg in prefix {
         let role = role(msg).unwrap_or("unknown").to_string();
         *roles.entry(role.clone()).or_insert(0) += 1;
@@ -646,6 +674,9 @@ fn context_summary_checkpoint(prefix: &[Value], tail: &[Value]) -> Option<Value>
             tools.into_iter().take(12).collect::<Vec<_>>().join(", ")
         ));
     }
+    if !focus.is_empty() {
+        lines.push(format!("- focus_instruction: {focus}"));
+    }
     if !focus_anchors.is_empty() {
         lines.push("- focus_anchors:".into());
         for anchor in focus_anchors {
@@ -675,8 +706,13 @@ struct FocusAnchor {
     text: String,
 }
 
-fn focus_anchors(prefix: &[Value], tail: &[Value], limit: usize) -> Vec<FocusAnchor> {
-    let terms = focus_terms(tail);
+fn focus_anchors(
+    prefix: &[Value],
+    tail: &[Value],
+    explicit_focus: &str,
+    limit: usize,
+) -> Vec<FocusAnchor> {
+    let terms = focus_terms(tail, explicit_focus);
     if terms.is_empty() || limit == 0 {
         return Vec::new();
     }
@@ -707,7 +743,7 @@ fn focus_anchors(prefix: &[Value], tail: &[Value], limit: usize) -> Vec<FocusAnc
     anchors
 }
 
-fn focus_terms(tail: &[Value]) -> HashSet<String> {
+fn focus_terms(tail: &[Value], explicit_focus: &str) -> HashSet<String> {
     let query = tail
         .iter()
         .rev()
@@ -719,7 +755,9 @@ fn focus_terms(tail: &[Value]) -> HashSet<String> {
                 .collect::<Vec<_>>()
                 .join(" ")
         });
-    lexical_terms(&query)
+    let mut terms = lexical_terms(&query);
+    terms.extend(lexical_terms(explicit_focus));
+    terms
 }
 
 fn lexical_terms(text: &str) -> HashSet<String> {
@@ -959,6 +997,53 @@ mod tests {
             .unwrap_or("");
         assert!(summary.contains("focus_anchors"), "{summary}");
         assert!(summary.contains("authentication budget regression"), "{summary}");
+    }
+
+    #[test]
+    fn context_summary_checkpoint_uses_explicit_focus_hint() {
+        let mut s = Session::new("sys");
+        s.add_user_text("authentication budget regression root cause is in shared worker pooling");
+        s.add_assistant(
+            "the auth budget fix must preserve parent task accounting",
+            None,
+            "",
+        );
+        for i in 0..8 {
+            s.add_user_text(&format!("release packaging noise {i} {}", "x".repeat(50)));
+            s.add_assistant(&format!("installer answer {i} {}", "y".repeat(50)), None, "");
+        }
+        s.add_user_text("continue polishing the installer UI");
+
+        let out = s.for_model_edited_with_focus(
+            &[],
+            &ContextEditPolicy {
+                enabled: true,
+                max_chars: 100_000,
+                keep_recent_messages: 1,
+                max_tool_result_chars: 20,
+                max_history_chars: 900,
+                max_tool_result_total_chars: 10_000,
+            },
+            "auth budget parent task accounting",
+        );
+
+        let summary = out
+            .messages
+            .iter()
+            .find(|m| {
+                m["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("[context summary checkpoint]")
+            })
+            .and_then(|m| m["content"].as_str())
+            .unwrap_or("");
+        assert!(
+            summary.contains("focus_instruction: auth budget parent task accounting"),
+            "{summary}"
+        );
+        assert!(summary.contains("focus_anchors"), "{summary}");
+        assert!(summary.contains("auth budget fix"), "{summary}");
     }
 
     #[test]
@@ -1242,6 +1327,46 @@ mod tests {
             .as_str()
             .unwrap_or("")
             .contains("[context summary checkpoint]"));
+    }
+
+    #[test]
+    fn compact_materializes_explicit_focus_hint() {
+        let dir = std::env::temp_dir().join(format!(
+            "ncx_session_compact_focus_{}",
+            now_stamp()
+        ));
+        let path = dir.join("session.jsonl");
+        let mut s = Session::with_log("sys", Some(path.clone()));
+        s.add_user_text("semantic memory embedding provider should stay auditable");
+        s.add_assistant("embedding provider config stores env var names only", None, "");
+        for i in 0..8 {
+            s.add_user_text(&format!("unrelated connector audit {i} {}", "x".repeat(40)));
+            s.add_assistant(&format!("connector answer {i} {}", "y".repeat(40)), None, "");
+        }
+
+        let stats = s.compact_with_focus(
+            &ContextEditPolicy {
+                enabled: true,
+                max_chars: 500,
+                keep_recent_messages: 4,
+                max_tool_result_chars: 20,
+                ..Default::default()
+            },
+            "semantic memory embedding provider audit",
+        );
+
+        assert!(stats.summary_checkpoints > 0);
+        let summary = s.messages[0]["content"].as_str().unwrap_or("");
+        assert!(
+            summary.contains("focus_instruction: semantic memory embedding provider audit"),
+            "{summary}"
+        );
+        assert!(summary.contains("embedding provider"), "{summary}");
+        let resumed = Session::resume("fresh", Some(path));
+        assert_eq!(
+            resumed.messages[0]["content"].as_str().unwrap_or(""),
+            summary
+        );
     }
 
     #[test]

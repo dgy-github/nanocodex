@@ -94,7 +94,8 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
   会压缩旧 tool result，并在超过上下文预算时丢弃更早的前缀。丢弃旧前缀前，
   Rust 会先生成确定性的 assistant 摘要 checkpoint，方便 `/compact`、`--resume`、
   payload snapshot 和 Usage telemetry 审计被省略的历史。摘要里还会带确定性的
-  focus anchors：从旧历史中挑出与最新用户请求词面重合的消息片段。Rust REPL 提供
+  focus anchors：从旧历史中挑出与最新用户请求词面重合的消息片段；如果用户执行
+  `/compact <focus>`，这个显式 focus 也会参与 anchor 排名。Rust REPL 提供
   `/context` 查看当前策略、session 大小、上一轮 telemetry、下一次发送预览，并可通过
   `/context payload [N]` 查看最近 provider payload 快照。telemetry 会把发送 payload
   拆成 context-pack 桶：system prompt、运行注记、memory recall、历史和 tool result 字符数；
@@ -168,7 +169,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.8、Sonnet 4.6 的 1M context
 | 能力 | 当前覆盖 | 剩余差距 |
 | --- | ---: | --- |
 | Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
-| Context editing | 72-80% | 发送时编辑会压缩旧 tool result，按 `context_token_budget`/`context_window` 自动推导适配 1M context 的字符与分桶上限，并在丢弃旧前缀前物化带 focus anchors 的确定性摘要 checkpoint；provider payload snapshot、context-pack 分桶 telemetry，以及大工具输出/长历史回归覆盖已让真实模型输入更可审计。还缺 Anthropic 级长上下文质量、模型引导的 focus compaction、平台自动 compact 和更完整的质量评估套件。 |
+| Context editing | 72-80% | 发送时编辑会压缩旧 tool result，按 `context_token_budget`/`context_window` 自动推导适配 1M context 的字符与分桶上限，并在丢弃旧前缀前物化带 focus anchors 的确定性摘要 checkpoint；`/compact <focus>` 现在可显式写入 focus instruction 并用于旧历史 anchor 排名；provider payload snapshot、context-pack 分桶 telemetry，以及大工具输出/长历史回归覆盖已让真实模型输入更可审计。还缺 Anthropic 级长上下文质量、模型引导的自动 focus compaction、平台自动 compact 和更完整的质量评估套件。 |
 | Tool search / connectors | 70-80% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、29 条跨类别 gold-case 排名测试、确定性 MCP category/capability hints、visible-vs-called task-ledger trace、`/tools eval` / `--tools-eval-report` schema-recall 报告，以及可审计的 `connectors.toml` install/auth spec 已降低 schema 和 connector 歧义；还缺完整 OAuth login UX、远程 transport 启动、托管 registry、更大的真实 trace 样本、更丰富的类别体系和大规模动态工具排序。 |
 | Semantic memory | 74-82% | query-scoped lexical-semantic recall、本地 vector sidecar recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼、运行时纠正/失败 proposal 提炼，以及外部 embedding 配置/状态审计已有；还缺真正执行外部 embedding 调用和平台级长期 memory。 |
 
@@ -604,13 +605,15 @@ Look for behavior regressions first, then missing tests, then maintainability.
 触发估算用偏中文的 chars/token 比例，所以中文为主的对话不会压缩得太晚。
 
 Rust CLI 里的 `/compact` 会把当前 context-edit 策略物化到 live session，并重写工作区
-session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。Rust `/context` 会用同一套
+session 日志；后续对话和 `--resume` 都会从压缩后的历史继续。`/compact <focus>` 会把
+focus 指令写入摘要 checkpoint，并用它给旧历史 anchors 排名，所以最新可见尾部已经切到别的
+主题时，也能保留任务相关事实。Rust `/context` 会用同一套
 发送时编辑策略做无变异预览，展示策略旋钮、消息数、上一轮 telemetry，以及下一次发送会
 压缩/丢弃多少。Rust `/usage` 和 Tauri GUI 的 `U` 面板也会展示 send-time context editing
 telemetry：原始字符数、编辑后字符数、节省字符数、压缩工具结果数、丢弃消息数、摘要
 checkpoint 数和 context-pack 桶。摘要 checkpoint 会以 assistant 消息插入到截断点前，
 且只有在它小于被省略前缀时才物化，所以 `/compact` 与后续 `--resume` 能保留可审计桥梁。
-摘要还会包含与最新用户请求相关的旧消息 focus anchors，让长历史裁剪后仍保留少量任务相关事实。
+摘要还会包含与最新用户请求或显式 compact focus 相关的旧消息 focus anchors，让长历史裁剪后仍保留少量任务相关事实。
 `context_edit_max_chars`、`context_edit_max_history_chars`、`context_edit_max_tool_result_chars`
 和 `context_edit_max_tool_result_total_chars` 留空或设为 `0` 时会按 `context_token_budget` 与
 `context_window` 自动推导；发送时策略随后执行 `context_edit_max_history_chars` 和

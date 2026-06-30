@@ -68,7 +68,10 @@ pub const SLASH_HELP: &[(&str, &str)] = &[
         "/loop",
         "Repeat a prompt on an interval: /loop [5m] <prompt> (Ctrl+C stops).",
     ),
-    ("/compact", "Fold the conversation now to the token budget."),
+    (
+        "/compact",
+        "Fold the conversation now; optional /compact <focus> guides the summary checkpoint.",
+    ),
     ("/clear", "Start a fresh conversation (keep settings)."),
     ("/exit", "Quit the REPL (also /quit)."),
 ];
@@ -184,6 +187,10 @@ mod tests {
         assert_eq!(
             ps("/approvals never"),
             (Some("/approvals".into()), "never".into())
+        );
+        assert_eq!(
+            ps("/compact auth budget regression"),
+            (Some("/compact".into()), "auth budget regression".into())
         );
     }
 

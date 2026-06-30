@@ -555,7 +555,7 @@ fn dispatch_slash(
             20,
         )),
         "/restore" => SlashOutcome::Printed(restore_checkpoint_text(&cfg.workspace, arg)),
-        "/compact" => SlashOutcome::Printed(compact_session_text(agent, recorder)),
+        "/compact" => SlashOutcome::Printed(compact_session_text(agent, recorder, arg)),
         "/model" => {
             if arg.is_empty() {
                 SlashOutcome::Printed(format!("model: {}", cfg.model))
@@ -1618,17 +1618,28 @@ fn render_history(entries: &[SessionSummary], limit: usize) -> String {
     out
 }
 
-fn compact_session_text(agent: &mut AgentLoop, recorder: &mut SessionRecorder) -> String {
-    let stats = agent.session.compact(&agent.context_edit);
+fn compact_session_text(
+    agent: &mut AgentLoop,
+    recorder: &mut SessionRecorder,
+    focus: &str,
+) -> String {
+    let focus = focus.trim();
+    let stats = agent
+        .session
+        .compact_with_focus(&agent.context_edit, focus);
     recorder.record(&agent.session);
-    format!(
+    let mut out = format!(
         "Compacted session: chars {} -> {}; compressed_tool_results={} dropped_messages={} summary_checkpoints={}",
         stats.original_chars,
         stats.edited_chars,
         stats.compressed_tool_results,
         stats.dropped_messages,
         stats.summary_checkpoints
-    )
+    );
+    if !focus.is_empty() {
+        out.push_str(&format!(" focus={}", truncate_one_line(focus, 120)));
+    }
+    out
 }
 
 fn checkpoint_before_turn(workspace: &Path, prompt: &str) {

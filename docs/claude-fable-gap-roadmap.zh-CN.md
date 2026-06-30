@@ -30,7 +30,7 @@
 | 能力 | 当前 nanocodex 状态 | 下一步缺口 |
 | --- | --- | --- |
 | Task budget | Rust loop 强制 per-turn model/tool call budget；CLI `/budget` 可见；Tauri GUI 已恢复每轮模型/工具调用累计面板；`TaskLedger` 写入 `.nanocodex/task-ledger.jsonl` 并报告平均耗时、预算耗尽率和模型/工具预算利用率；orchestrator reason/worker 节点共享父任务预算，worker 会按并行度预留预算并退回未用额度。 | 云端/队列额度、预算超限后的续跑策略、更完整的 CI/端到端预算回归测试。 |
-| Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、按 `context_token_budget`/`context_window` 自动推导 1M-friendly 字符与分桶上限、按预算丢旧前缀，并在截断前生成带 focus anchors 的确定性 assistant 摘要 checkpoint；CLI `/context` 与 Tauri Usage 面板展示 telemetry；每次 provider 调用会写脱敏 payload snapshot 供 `/context payload [N]` 和 GUI Usage 面板审计；telemetry 已按 system/runtime notes/memory/history/tool result 拆出 context-pack 桶；context regression 已覆盖大工具输出、长会话、memory/runtime note 竞争预算和 tool_call/tool_result 配对合法性。 | 模型引导的 focus compaction、长上下文质量验证、更强质量评估套件。 |
+| Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、按 `context_token_budget`/`context_window` 自动推导 1M-friendly 字符与分桶上限、按预算丢旧前缀，并在截断前生成带 focus anchors 的确定性 assistant 摘要 checkpoint；CLI `/compact <focus>` 可显式指导摘要 checkpoint 的 focus instruction 与旧历史 anchor 排名；CLI `/context` 与 Tauri Usage 面板展示 telemetry；每次 provider 调用会写脱敏 payload snapshot 供 `/context payload [N]` 和 GUI Usage 面板审计；telemetry 已按 system/runtime notes/memory/history/tool result 拆出 context-pack 桶；context regression 已覆盖大工具输出、长会话、memory/runtime note 竞争预算和 tool_call/tool_result 配对合法性。 | 模型引导的 focus compaction、长上下文质量验证、更强质量评估套件。 |
 | Tool search / connectors | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog；GUI 也显示 MCP server 连接状态、工具数、启动耗时和最近错误；新增 `connectors.toml` install/auth spec 可审计 transport/source/trusted/permission/allowed_tools/auth/OAuth 元数据，并在 stdio MCP 注册时执行 allow-list 与 permission 策略；tool_search 已加入 MCP namespace-aware 评分和 29 条跨类别 tool-selection gold-case 回归测试；MCP tool description 已自动补充确定性 category/capability hints；TaskLedger 已记录 visible tools 与实际 called tools，`/tools eval [N]` 与 `--tools-eval-report` 可输出 schema recall / missed calls / MCP recall。 | 更大的真实 trace 样本、完整 OAuth login UX、远程 transport 启动、connector registry 治理、更丰富的类别体系和大规模动态工具排序。 |
 | Semantic memory | `.ncx/memory/LEARNINGS.md`、query-scoped recall、本地 `.ncx/memory/INDEX.json` vector sidecar、`remember`、启发式/LLM merge、`.ncx/memory/PROPOSALS.md` review queue、CLI `/memory edit/accept/reject/accept-all/reject-all/harvest/index`、Tauri Memory 面板编辑/批量 review/文档提炼/重建索引、运行时纠正/工具失败/修复说明提炼，以及外部 embedding provider 配置/状态审计已有。 | 真正执行外部 embedding 调用、平台级长期 memory。 |
 
@@ -81,13 +81,13 @@
 - CLI `/context`、payload snapshot 和 Tauri Usage 面板已展示 context-pack 分桶 telemetry：system prompt、runtime notes、memory recall、history、tool result 字符数。
 - 新增 context bucket budget：`context_edit_max_history_chars` 和 `context_edit_max_tool_result_total_chars` 会在发送时主动压缩旧工具结果、丢弃旧历史前缀；CLI flag、config/env 和 Tauri Settings 均可调。
 - 新增长期任务摘要 checkpoint：旧前缀被截断前会物化为确定性的 assistant 摘要消息，`/compact`、`--resume`、payload snapshot、CLI `/usage` 和 Tauri Usage 面板都能审计 `summary_checkpoints`。
-- 新增基础 focus compaction anchors：摘要 checkpoint 会从被截断旧前缀中挑出与最新用户请求词面重合的旧消息片段，避免相关事实被完全埋掉；已有 session 回归测试覆盖。
+- 新增基础 focus compaction anchors：摘要 checkpoint 会从被截断旧前缀中挑出与最新用户请求词面重合的旧消息片段，避免相关事实被完全埋掉；`/compact <focus>` 也可显式给摘要 checkpoint 写入 focus instruction 并参与旧历史 anchor 排名；已有 session 回归测试覆盖。
 - 新增 1M context 本地适配策略：`context_edit_max_chars`、history/tool-result 分桶留空或为 `0` 时，会从 `context_token_budget` 和 `context_window` 自动推导；Tauri Settings 也暴露 token budget/window 入口。
 - 新增 context regression 覆盖：大工具输出、长历史、runtime note / memory recall 竞争预算，以及压缩后的 tool_call/tool_result 配对合法性。
 
 下一步：
 
-- 继续扩大长上下文质量验证和模型引导 focus compaction 评估，补更接近真实 Claude Code 自动 compact 行为的端到端场景。
+- 继续扩大长上下文质量验证和模型引导 focus compaction 评估，补更接近真实 Claude Code 自动 compact/自动 focus 行为的端到端场景。
 
 4. Tool search
 
@@ -149,7 +149,7 @@
 - 已新增 context-pack bucket telemetry：CLI、payload snapshot 和 Tauri Usage 面板能看到 system/runtime notes/memory/history/tool result 字符占比。
 - 已新增 context bucket budget：发送时策略会根据 history/tool-result 桶上限压缩旧工具输出或丢弃旧历史前缀；CLI/config/env/Tauri Settings 均可配置。
 - 已新增长期任务摘要 checkpoint：旧历史前缀在截断前会变成确定性 assistant 摘要，CLI/Tauri telemetry 会暴露 summary checkpoint 计数。
-- 已新增基础 focus anchors：摘要 checkpoint 会保留与最新用户请求相关的旧历史片段，并用回归测试覆盖。
+- 已新增基础 focus anchors 和显式 focused compact：摘要 checkpoint 会保留与最新用户请求或 `/compact <focus>` 相关的旧历史片段，并用回归测试覆盖。
 - 已新增 context regression：覆盖大工具输出、长历史、runtime note / memory recall 竞争预算，以及压缩后仍保持 tool_call/tool_result 配对合法。
 - 已新增 1M context 本地适配策略：config loader 会从 `context_token_budget`/`context_window` 自动推导 send-time 字符与分桶上限，GUI Settings 可配置这两个入口。
 - 已新增 orchestrator/subagent shared budget：CLI live runner 中的 reason/worker 节点共用父任务预算，parallel worker 按剩余 worker 数公平预留预算，未用额度退回池中，并在 orchestrator 状态行输出剩余预算。

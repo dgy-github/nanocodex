@@ -125,7 +125,8 @@ tool.
   dropped, Rust creates a deterministic assistant summary checkpoint so
   `/compact`, `--resume`, payload snapshots, and Usage telemetry can still audit
   what was omitted. The checkpoint also carries deterministic focus anchors:
-  older messages whose lexical terms overlap the latest user request. The Rust
+  older messages whose lexical terms overlap the latest user request, or an
+  explicit `/compact <focus>` instruction when the user supplies one. The Rust
   REPL exposes `/context` for active policy, session size, last-turn telemetry,
   next-send preview, and recent provider payload snapshots via
   `/context payload [N]`. Telemetry now breaks the edited payload into
@@ -224,7 +225,7 @@ are local-runtime implementations:
 | Capability | Current coverage | Remaining gap |
 | --- | ---: | --- |
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
-| Context editing | 72-80% | Send-time editing compresses tool results, derives 1M-friendly character and bucket caps from `context_token_budget`/`context_window`, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; provider payload snapshots, context-pack bucket telemetry, and regression coverage for large tool outputs/long histories make the actual model input more auditable. Still missing Anthropic-scale long-context model quality, model-guided focus compaction, platform automatic compact, and broader quality evaluation suites. |
+| Context editing | 72-80% | Send-time editing compresses tool results, derives 1M-friendly character and bucket caps from `context_token_budget`/`context_window`, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; `/compact <focus>` can now record an explicit focus instruction and use it for anchor ranking; provider payload snapshots, context-pack bucket telemetry, and regression coverage for large tool outputs/long histories make the actual model input more auditable. Still missing Anthropic-scale long-context model quality, model-guided automatic focus compaction, platform automatic compact, and broader quality evaluation suites. |
 | Tool search / connectors | 70-80% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, 29-query cross-category gold-case ranking tests, deterministic MCP category/capability hints, visible-vs-called task-ledger traces, `/tools eval` / `--tools-eval-report` schema-recall reporting, and an auditable `connectors.toml` install/auth spec reduce schema and connector ambiguity. Missing complete OAuth login UX, remote transport startup, a managed registry, broader trace corpus, richer category ontologies, and large-scale dynamic tool ranking. |
 | Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, runtime correction/failure proposal harvesting, and auditable external-embedding config/status exist. Remaining gaps are executing external embedding calls and platform-grade long-term memory. |
 
@@ -717,7 +718,10 @@ don't compact too late.
 
 In the Rust CLI, `/compact` materializes the active context-edit policy into the
 live session and rewrites the workspace session log, so future turns and
-`--resume` continue from the compacted history. Rust `/context` previews that
+`--resume` continue from the compacted history. `/compact <focus>` records a
+focus instruction in the summary checkpoint and uses it to rank older anchors,
+which helps preserve task-specific facts even when the latest visible tail has
+drifted to another topic. Rust `/context` previews that
 same send-time edit without mutating the session, including policy knobs,
 message counts, last-turn telemetry, and the next-send compression/drop stats.
 Rust `/usage` and the Tauri GUI's `U` panel also surface send-time context
@@ -726,8 +730,9 @@ results, dropped messages, summary checkpoints, and context-pack buckets. The
 summary checkpoint is inserted as an assistant message before truncation when it
 is smaller than the omitted prefix, so `/compact` and later `--resume` keep an
 auditable bridge over older history. The summary also includes deterministic
-focus anchors from older messages that overlap the latest user request, which
-keeps a few task-relevant facts visible after long-history trimming. The
+focus anchors from older messages that overlap the latest user request or an
+explicit compact focus instruction, which keeps a few task-relevant facts
+visible after long-history trimming. The
 send-time policy derives `context_edit_max_chars`,
 `context_edit_max_history_chars`, `context_edit_max_tool_result_chars`, and
 `context_edit_max_tool_result_total_chars` from `context_token_budget` and
