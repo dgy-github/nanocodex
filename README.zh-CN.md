@@ -114,7 +114,9 @@ agent 循环、工具体验、审批模型和桌面流程跑通，再决定哪�
 - **Semantic memory：** 每轮都会按当前 prompt 做 query-scoped 记忆召回，并以发送时
   system note 注入；排序使用关键词、标签、短语、Jaccard 相似度、时间新近度，以及一小组
   agent/runtime 领域同义词。Rust REPL 提供 `/memory` 查看记忆文件、条目数、最近记录、
-  tag 摘要和 query-scoped recall 预览。
+  tag 摘要、query-scoped recall 预览，以及当前 embedding backend/gap。`~/.nanocodex/config.toml`
+  现在可声明外部 embedding provider/model/base URL/API-key env var 作为审计入口；真正召回仍使用
+  本地确定性 vector sidecar，直到 runtime 外部 embedding 调用落地。
 
 ### 第二阶段为什么改用 Rust
 
@@ -168,7 +170,7 @@ cloud/scheduled sessions；以及 Fable 5、Opus 4.8、Sonnet 4.6 的 1M context
 | Task budget | 82-90% | 模型/工具预算已执行，并对模型可见；CLI 和 GUI 会写入/读取带趋势/利用率分析的 task ledger；orchestrator worker 已共享父任务预算，而不是每个 subagent 拿一份独立满额预算。还缺云端任务额度、远端队列治理和托管执行分析面。 |
 | Context editing | 72-80% | 发送时编辑会压缩旧 tool result，按 `context_token_budget`/`context_window` 自动推导适配 1M context 的字符与分桶上限，并在丢弃旧前缀前物化带 focus anchors 的确定性摘要 checkpoint；provider payload snapshot、context-pack 分桶 telemetry，以及大工具输出/长历史回归覆盖已让真实模型输入更可审计。还缺 Anthropic 级长上下文质量、模型引导的 focus compaction、平台自动 compact 和更完整的质量评估套件。 |
 | Tool search / connectors | 70-80% | 工具 catalog、namespace-aware `tool_search`、GUI MCP runtime 状态、29 条跨类别 gold-case 排名测试、确定性 MCP category/capability hints、visible-vs-called task-ledger trace、`/tools eval` / `--tools-eval-report` schema-recall 报告，以及可审计的 `connectors.toml` install/auth spec 已降低 schema 和 connector 歧义；还缺完整 OAuth login UX、远程 transport 启动、托管 registry、更大的真实 trace 样本、更丰富的类别体系和大规模动态工具排序。 |
-| Semantic memory | 74-82% | query-scoped lexical-semantic recall、本地 vector sidecar recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼，以及运行时纠正/失败 proposal 提炼已有；还缺外部 embedding provider 和平台级长期 memory。 |
+| Semantic memory | 74-82% | query-scoped lexical-semantic recall、本地 vector sidecar recall、`remember`、LLM merge、CLI/Tauri proposal review、提议编辑、批量接受/拒绝、handoff/release 文档提炼、运行时纠正/失败 proposal 提炼，以及外部 embedding 配置/状态审计已有；还缺真正执行外部 embedding 调用和平台级长期 memory。 |
 
 最大的剩余差距不是普通 Rust 代码量，而是平台能力：Anthropic 原生工具/connector
 生态、托管 task budget 与云端执行、模型集成的 context 管理、一方 memory 行为，以及
@@ -368,6 +370,10 @@ reasoning_effort = "auto"          # auto | low | high | max | off
 # context_edit_max_tool_result_chars = 0     # 0/留空 = 按 max chars 推导
 # context_edit_max_history_chars = 0         # 0/留空 = 按 max chars 推导
 # context_edit_max_tool_result_total_chars = 0
+# memory_embedding_provider = "local"        # local | openai-compatible | ollama | custom
+# memory_embedding_model = ""
+# memory_embedding_base_url = ""
+# memory_embedding_api_key_env = ""          # 环境变量名；这里不存密钥明文
 # available_models = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"]
 
 # [[hooks]]
@@ -546,7 +552,10 @@ Look for behavior regressions first, then missing tests, then maintainability.
   `ncx --memory-merge`、启发式 Merge 或 LLM merge 维护。Rust `/memory [query]`
   会显示文件路径、向量索引路径、条目数、最近记录、tags 和 recall 预览。已验证笔记也会生成
   `.ncx/memory/INDEX.json` 本地确定性 vector sidecar；手工改 `LEARNINGS.md` 后可用
-  `/memory index` 或 Tauri Memory 面板重建。
+  `/memory index` 或 Tauri Memory 面板重建。`/memory` 还会显示 `embedding_backend`、
+  `embedding_provider` 和 `embedding_gap`；GUI Settings 可保存 `memory_embedding_provider`、
+  `memory_embedding_model`、`memory_embedding_base_url`、`memory_embedding_api_key_env`，
+  作为后续外部 embedding recall 的审计配置入口，密钥本身仍只放在环境变量里。
 - **记忆提议**（`.ncx/memory/PROPOSALS.md`）—— 有用但尚未可信的候选经验。`remember`
   可传 `propose=true`，CLI 可用 `/memory propose <note>`、`/memory edit <id> <note>`、
   `/memory accept <id>`、`/memory reject <id>`、`/memory accept-all`、`/memory reject-all`，

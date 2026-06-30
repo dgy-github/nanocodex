@@ -569,6 +569,7 @@ fn dispatch_slash(
         "/skills" => SlashOutcome::Printed(render_skills(&agent.tools.ctx.skills)),
         "/memory" => SlashOutcome::Printed(handle_memory_command(
             agent.tools.ctx.memory.as_deref(),
+            cfg,
             arg,
             &cfg.workspace,
         )),
@@ -630,7 +631,12 @@ fn render_skills(skills: &[ncx_core::Skill]) -> String {
     out
 }
 
-fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str, workspace: &Path) -> String {
+fn handle_memory_command(
+    memory: Option<&MemoryStore>,
+    cfg: &Config,
+    arg: &str,
+    workspace: &Path,
+) -> String {
     let Some(memory) = memory else {
         return "Project memory is not enabled in this runtime.".into();
     };
@@ -746,7 +752,7 @@ fn handle_memory_command(memory: Option<&MemoryStore>, arg: &str, workspace: &Pa
             Err(e) => format!("Error queuing memory proposal: {e}"),
         };
     }
-    render_memory_status(Some(memory), arg)
+    render_memory_status(Some(memory), cfg, arg)
 }
 
 fn default_memory_harvest_paths(workspace: &Path) -> Vec<PathBuf> {
@@ -778,7 +784,16 @@ fn epoch_seconds() -> u64 {
         .unwrap_or(0)
 }
 
-fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
+fn display_or_unset(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        "(unset)".into()
+    } else {
+        trimmed.into()
+    }
+}
+
+fn render_memory_status(memory: Option<&MemoryStore>, cfg: &Config, query: &str) -> String {
     let Some(memory) = memory else {
         return "Project memory is not enabled in this runtime.".into();
     };
@@ -807,7 +822,7 @@ fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
     };
 
     let mut out = format!(
-        "Project memory\npath: {}\nproposals_path: {}\nindex_path: {}\nentries: {}\npending_proposals: {}\nmax_entries: {}\nmax_proposals: {}\nvector_dims: {}\ntop_tags: {}",
+        "Project memory\npath: {}\nproposals_path: {}\nindex_path: {}\nentries: {}\npending_proposals: {}\nmax_entries: {}\nmax_proposals: {}\nvector_dims: {}\nembedding_backend: {}\nembedding_provider: {}\nembedding_model: {}\nembedding_base_url: {}\nembedding_api_key_env: {}\nembedding_gap: {}\ntop_tags: {}",
         memory.path().display(),
         memory.proposal_path().display(),
         memory.index_path().display(),
@@ -816,6 +831,12 @@ fn render_memory_status(memory: Option<&MemoryStore>, query: &str) -> String {
         ncx_core::memory::MAX_ENTRIES,
         ncx_core::memory::MAX_PROPOSALS,
         ncx_core::memory::VECTOR_DIMS,
+        cfg.memory_embedding_backend_status(),
+        cfg.memory_embedding_provider_normalized(),
+        display_or_unset(&cfg.memory_embedding_model),
+        display_or_unset(&cfg.memory_embedding_base_url),
+        display_or_unset(&cfg.memory_embedding_api_key_env),
+        cfg.memory_embedding_gap_reason(),
         tag_line
     );
     out.push_str("\n\nRecent notes:");
@@ -1200,7 +1221,7 @@ fn render_help_for_workspace(workspace: &Path) -> String {
 fn render_status(cfg: &ncx_config::Config) -> String {
     let red = cfg.redacted();
     format!(
-        "model:     {}\nbase_url:  {}\nsandbox:   {}\napproval:  {}\nworkspace: {}\napi_key:   {}\nmodel_budget: {}  tool_budget: {}  retries: {}\ncontext_edit: {}  max_chars: {}  keep_recent: {}  tool_result_chars: {}  history_chars: {}  tool_total_chars: {}\nhooks:     {}",
+        "model:     {}\nbase_url:  {}\nsandbox:   {}\napproval:  {}\nworkspace: {}\napi_key:   {}\nmodel_budget: {}  tool_budget: {}  retries: {}\ncontext_edit: {}  max_chars: {}  keep_recent: {}  tool_result_chars: {}  history_chars: {}  tool_total_chars: {}\nmemory_embedding: {} provider={} gap={}\nhooks:     {}",
         cfg.model,
         cfg.base_url,
         cfg.sandbox_mode,
@@ -1216,6 +1237,9 @@ fn render_status(cfg: &ncx_config::Config) -> String {
         cfg.context_edit_max_tool_result_chars,
         cfg.context_edit_max_history_chars,
         cfg.context_edit_max_tool_result_total_chars,
+        cfg.memory_embedding_backend_status(),
+        cfg.memory_embedding_provider_normalized(),
+        cfg.memory_embedding_gap_reason(),
         cfg.hooks.len(),
     )
 }
@@ -1341,7 +1365,7 @@ fn config_text_at(cfg: &ncx_config::Config, arg: &str, path: &Path) -> String {
     updates.insert(key.as_str(), value.as_str());
     match write_nanocodex_config(&updates, path) {
         Ok(()) => {
-            let shown = if key.contains("key") {
+            let shown = if is_secret_config_key(&key) {
                 "<redacted>"
             } else {
                 value.as_str()
@@ -1366,6 +1390,13 @@ fn render_config_overview(cfg: &ncx_config::Config, path: &Path) -> String {
         cfg.approval_policy,
         red.get("api_key").cloned().unwrap_or_default(),
         WRITABLE_KEYS.join(", ")
+    )
+}
+
+fn is_secret_config_key(key: &str) -> bool {
+    matches!(
+        key,
+        "api_key" | "vl_api_key" | "ark_api_key" | "search_api_key"
     )
 }
 
@@ -2131,6 +2162,24 @@ mod tests {
     }
 
     #[test]
+    fn config_text_writes_memory_embedding_key_env_without_redacting_name() {
+        let dir = std::env::temp_dir().join(format!(
+            "ncx_config_slash_memory_embedding_{}",
+            new_session_id()
+        ));
+        let path = dir.join("config.toml");
+        let cfg = ncx_config::Config::default();
+        let out = config_text_at(&cfg, "memory_embedding_api_key_env=OPENAI_API_KEY", &path);
+
+        assert!(out.contains("OPENAI_API_KEY"), "{out}");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("memory_embedding_api_key_env = \"OPENAI_API_KEY\""),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn config_text_rejects_unknown_key() {
         let dir = std::env::temp_dir().join(format!("ncx_config_slash_bad_{}", new_session_id()));
         let path = dir.join("config.toml");
@@ -2203,7 +2252,8 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        let out = render_memory_status(Some(&memory), "native installer release");
+        let cfg = Config::default();
+        let out = render_memory_status(Some(&memory), &cfg, "native installer release");
 
         assert!(out.contains("Project memory"));
         assert!(out.contains("LEARNINGS.md"));
@@ -2212,6 +2262,10 @@ mod tests {
         assert!(out.contains("entries: 2"));
         assert!(out.contains("pending_proposals: 1"));
         assert!(out.contains("vector_dims:"));
+        assert!(out.contains("embedding_backend: local-vector-sidecar"));
+        assert!(out.contains(
+            "embedding_gap: external_embedding_provider_not_configured"
+        ));
         assert!(out.contains("release=1"));
         assert!(out.contains("Recent notes:"));
         assert!(out.contains("Pending proposals:"));
@@ -2221,14 +2275,47 @@ mod tests {
     }
 
     #[test]
+    fn memory_status_renders_external_embedding_audit_gap() {
+        let dir = std::env::temp_dir().join(format!(
+            "ncx_memory_embedding_status_{}",
+            new_session_id()
+        ));
+        let memory = MemoryStore::new(&dir);
+        let cfg = Config {
+            memory_embedding_provider: "openai-compatible".into(),
+            memory_embedding_model: "text-embedding-3-small".into(),
+            memory_embedding_base_url: "https://api.openai.com/v1".into(),
+            memory_embedding_api_key_env: "OPENAI_API_KEY".into(),
+            ..Config::default()
+        };
+
+        let out = render_memory_status(Some(&memory), &cfg, "");
+
+        assert!(out.contains("embedding_backend: external-configured"));
+        assert!(out.contains("embedding_provider: openai-compatible"));
+        assert!(out.contains("embedding_model: text-embedding-3-small"));
+        assert!(out.contains("embedding_base_url: https://api.openai.com/v1"));
+        assert!(out.contains("embedding_api_key_env: OPENAI_API_KEY"));
+        assert!(out.contains(
+            "embedding_gap: external_embedding_runtime_not_implemented"
+        ));
+    }
+
+    #[test]
     fn memory_command_accepts_and_rejects_proposals() {
         let dir = std::env::temp_dir().join(format!("ncx_memory_review_{}", new_session_id()));
         let memory = MemoryStore::new(&dir);
-        let accept = handle_memory_command(Some(&memory), "propose Accept this memory", &dir);
+        let cfg = Config::default();
+        let accept = handle_memory_command(
+            Some(&memory),
+            &cfg,
+            "propose Accept this memory",
+            &dir,
+        );
         assert!(accept.contains("Queued memory proposal"), "{accept}");
         let first = memory.proposals().first().unwrap().id.clone();
 
-        let out = handle_memory_command(Some(&memory), &format!("accept {first}"), &dir);
+        let out = handle_memory_command(Some(&memory), &cfg, &format!("accept {first}"), &dir);
         assert!(out.contains("Accepted memory proposal"), "{out}");
         assert!(memory.proposals().is_empty());
         assert_eq!(memory.entries().len(), 1);
@@ -2237,7 +2324,7 @@ mod tests {
             .propose("Reject this memory", &[], "test", 10)
             .unwrap()
             .unwrap();
-        let out = handle_memory_command(Some(&memory), &format!("reject {}", p.id), &dir);
+        let out = handle_memory_command(Some(&memory), &cfg, &format!("reject {}", p.id), &dir);
         assert!(out.contains("Rejected memory proposal"), "{out}");
         assert!(memory.proposals().is_empty());
         assert_eq!(memory.entries().len(), 1);
@@ -2247,12 +2334,14 @@ mod tests {
     fn memory_command_edits_and_batches_proposals() {
         let dir = std::env::temp_dir().join(format!("ncx_memory_batch_{}", new_session_id()));
         let memory = MemoryStore::new(&dir);
-        let _ = handle_memory_command(Some(&memory), "propose Draft one", &dir);
-        let _ = handle_memory_command(Some(&memory), "propose Draft two", &dir);
+        let cfg = Config::default();
+        let _ = handle_memory_command(Some(&memory), &cfg, "propose Draft one", &dir);
+        let _ = handle_memory_command(Some(&memory), &cfg, "propose Draft two", &dir);
         let first = memory.proposals().first().unwrap().id.clone();
 
         let out = handle_memory_command(
             Some(&memory),
+            &cfg,
             &format!("edit {first} Edited memory note"),
             &dir,
         );
@@ -2262,13 +2351,13 @@ mod tests {
             .iter()
             .any(|p| p.text == "Edited memory note"));
 
-        let out = handle_memory_command(Some(&memory), "accept-all", &dir);
+        let out = handle_memory_command(Some(&memory), &cfg, "accept-all", &dir);
         assert!(out.contains("Accepted 2 memory proposals"), "{out}");
         assert!(memory.proposals().is_empty());
         assert_eq!(memory.entries().len(), 2);
 
-        let _ = handle_memory_command(Some(&memory), "propose Draft three", &dir);
-        let out = handle_memory_command(Some(&memory), "reject-all", &dir);
+        let _ = handle_memory_command(Some(&memory), &cfg, "propose Draft three", &dir);
+        let out = handle_memory_command(Some(&memory), &cfg, "reject-all", &dir);
         assert!(out.contains("Rejected 1 memory proposals"), "{out}");
         assert!(memory.proposals().is_empty());
     }
@@ -2282,7 +2371,8 @@ mod tests {
             .unwrap();
         let _ = std::fs::remove_file(memory.index_path());
 
-        let out = handle_memory_command(Some(&memory), "index", &dir);
+        let cfg = Config::default();
+        let out = handle_memory_command(Some(&memory), &cfg, "index", &dir);
 
         assert!(out.contains("Rebuilt memory vector index"), "{out}");
         assert!(memory.index_path().exists());
@@ -2300,7 +2390,8 @@ mod tests {
         .unwrap();
         let memory = MemoryStore::new(ws.join(".ncx").join("memory"));
 
-        let out = handle_memory_command(Some(&memory), "harvest RELEASE_TASK.md", &ws);
+        let cfg = Config::default();
+        let out = handle_memory_command(Some(&memory), &cfg, "harvest RELEASE_TASK.md", &ws);
 
         assert!(out.contains("Memory proposal harvest"), "{out}");
         assert!(out.contains("queued_total: 1"), "{out}");
@@ -2311,7 +2402,8 @@ mod tests {
 
     #[test]
     fn memory_status_mentions_when_disabled() {
-        let out = render_memory_status(None, "");
+        let cfg = Config::default();
+        let out = render_memory_status(None, &cfg, "");
 
         assert!(out.contains("not enabled"));
     }

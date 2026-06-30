@@ -26,6 +26,10 @@ reasoning_effort = "auto"
 # context_edit_max_tool_result_chars = 0     # 0/omitted = derive from max chars
 # context_edit_max_history_chars = 0         # 0/omitted = derive from max chars
 # context_edit_max_tool_result_total_chars = 0
+# memory_embedding_provider = "local"        # local | openai-compatible | ollama | custom
+# memory_embedding_model = ""
+# memory_embedding_base_url = ""
+# memory_embedding_api_key_env = ""          # env var name; secret is not stored here
 # available_models = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"]
 
 # Deterministic hooks around tool execution and turn lifecycle. A non-zero

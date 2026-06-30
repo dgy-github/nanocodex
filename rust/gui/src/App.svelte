@@ -40,6 +40,10 @@
     context_edit_max_tool_result_chars: number;
     context_edit_max_history_chars: number;
     context_edit_max_tool_result_total_chars: number;
+    memory_embedding_provider: string;
+    memory_embedding_model: string;
+    memory_embedding_base_url: string;
+    memory_embedding_api_key_env: string;
     price_in: number;
     price_out: number;
     api_key_masked: string;
@@ -741,6 +745,10 @@
       context_edit_max_tool_result_chars: String(settings.context_edit_max_tool_result_chars),
       context_edit_max_history_chars: String(settings.context_edit_max_history_chars),
       context_edit_max_tool_result_total_chars: String(settings.context_edit_max_tool_result_total_chars),
+      memory_embedding_provider: settings.memory_embedding_provider,
+      memory_embedding_model: settings.memory_embedding_model,
+      memory_embedding_base_url: settings.memory_embedding_base_url,
+      memory_embedding_api_key_env: settings.memory_embedding_api_key_env,
       price_in: String(settings.price_in),
       price_out: String(settings.price_out),
     };
@@ -1981,6 +1989,22 @@
         <label>
           <span>工具结果总桶上限</span>
           <input type="number" min="0" bind:value={settings.context_edit_max_tool_result_total_chars} />
+        </label>
+        <label>
+          <span>Memory embedding provider</span>
+          <input bind:value={settings.memory_embedding_provider} placeholder="local | openai-compatible | ollama" />
+        </label>
+        <label>
+          <span>Memory embedding model</span>
+          <input bind:value={settings.memory_embedding_model} placeholder="text-embedding-3-small" />
+        </label>
+        <label>
+          <span>Memory embedding base URL</span>
+          <input bind:value={settings.memory_embedding_base_url} placeholder="https://api.openai.com/v1" />
+        </label>
+        <label>
+          <span>Memory embedding key env</span>
+          <input bind:value={settings.memory_embedding_api_key_env} placeholder="OPENAI_API_KEY" />
         </label>
         <label>
           <span>输入单价 ¥/百万</span>

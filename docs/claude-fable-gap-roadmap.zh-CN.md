@@ -32,7 +32,7 @@
 | Task budget | Rust loop 强制 per-turn model/tool call budget；CLI `/budget` 可见；Tauri GUI 已恢复每轮模型/工具调用累计面板；`TaskLedger` 写入 `.nanocodex/task-ledger.jsonl` 并报告平均耗时、预算耗尽率和模型/工具预算利用率；orchestrator reason/worker 节点共享父任务预算，worker 会按并行度预留预算并退回未用额度。 | 云端/队列额度、预算超限后的续跑策略、更完整的 CI/端到端预算回归测试。 |
 | Context editing | `Session::for_model_edited` 发送时压缩旧 tool result、按 `context_token_budget`/`context_window` 自动推导 1M-friendly 字符与分桶上限、按预算丢旧前缀，并在截断前生成带 focus anchors 的确定性 assistant 摘要 checkpoint；CLI `/context` 与 Tauri Usage 面板展示 telemetry；每次 provider 调用会写脱敏 payload snapshot 供 `/context payload [N]` 和 GUI Usage 面板审计；telemetry 已按 system/runtime notes/memory/history/tool result 拆出 context-pack 桶；context regression 已覆盖大工具输出、长会话、memory/runtime note 竞争预算和 tool_call/tool_result 配对合法性。 | 模型引导的 focus compaction、长上下文质量验证、更强质量评估套件。 |
 | Tool search / connectors | Tool catalog 有 read-only/effectful 标记，`schemas_for_query`/`tool_search` 降低 schema 过载；CLI `/tools` 与 Tauri Tools 面板都可检查 runtime catalog；GUI 也显示 MCP server 连接状态、工具数、启动耗时和最近错误；新增 `connectors.toml` install/auth spec 可审计 transport/source/trusted/permission/allowed_tools/auth/OAuth 元数据，并在 stdio MCP 注册时执行 allow-list 与 permission 策略；tool_search 已加入 MCP namespace-aware 评分和 29 条跨类别 tool-selection gold-case 回归测试；MCP tool description 已自动补充确定性 category/capability hints；TaskLedger 已记录 visible tools 与实际 called tools，`/tools eval [N]` 与 `--tools-eval-report` 可输出 schema recall / missed calls / MCP recall。 | 更大的真实 trace 样本、完整 OAuth login UX、远程 transport 启动、connector registry 治理、更丰富的类别体系和大规模动态工具排序。 |
-| Semantic memory | `.ncx/memory/LEARNINGS.md`、query-scoped recall、本地 `.ncx/memory/INDEX.json` vector sidecar、`remember`、启发式/LLM merge、`.ncx/memory/PROPOSALS.md` review queue、CLI `/memory edit/accept/reject/accept-all/reject-all/harvest/index`、Tauri Memory 面板编辑/批量 review/文档提炼/重建索引，以及运行时纠正/工具失败/修复说明提炼已有。 | 外部 embedding provider、平台级长期 memory。 |
+| Semantic memory | `.ncx/memory/LEARNINGS.md`、query-scoped recall、本地 `.ncx/memory/INDEX.json` vector sidecar、`remember`、启发式/LLM merge、`.ncx/memory/PROPOSALS.md` review queue、CLI `/memory edit/accept/reject/accept-all/reject-all/harvest/index`、Tauri Memory 面板编辑/批量 review/文档提炼/重建索引、运行时纠正/工具失败/修复说明提炼，以及外部 embedding provider 配置/状态审计已有。 | 真正执行外部 embedding 调用、平台级长期 memory。 |
 
 ## 平台级差距
 
@@ -104,7 +104,7 @@
 
 当前差距：约 18-26% 仍未补齐。
 
-当前 memory 是本地 project memory，适合仓库级经验；已具备可审计的 verified/pending 两层文件、CLI/Tauri review queue、提议编辑/批量处理、从 handoff/release/roadmap 文档启发式提炼候选、每轮结束后从用户纠正/工具失败/assistant 修复验证说明里生成待审 proposals，以及已验证 memory 的本地 deterministic vector sidecar recall。但它仍不是模型/平台级的长期 memory，外部 embedding provider 也还没有接入。
+当前 memory 是本地 project memory，适合仓库级经验；已具备可审计的 verified/pending 两层文件、CLI/Tauri review queue、提议编辑/批量处理、从 handoff/release/roadmap 文档启发式提炼候选、每轮结束后从用户纠正/工具失败/assistant 修复验证说明里生成待审 proposals、已验证 memory 的本地 deterministic vector sidecar recall，以及外部 embedding provider 的配置/状态审计入口。但它仍不是模型/平台级的长期 memory，外部 embedding 目前还没有真正执行网络调用参与召回。
 
 已完成：
 
@@ -114,10 +114,11 @@
 - 新增 edit/batch review：CLI 支持 `/memory edit <id> <note>`、`/memory accept-all`、`/memory reject-all`；Tauri Memory 面板可编辑提议文本/tags，并单条或批量接受/拒绝。
 - 新增 runtime 自动提炼：AgentLoop 每轮结束后会从本轮用户纠正、工具失败输出、assistant 修复/验证说明中生成 pending proposals，只有 review 接受后才进入 recall。
 - 新增本地 vector sidecar：已验证笔记会写入 `.ncx/memory/INDEX.json`，recall 会融合词法/同义词分数和本地向量分数；CLI `/memory index` 与 Tauri Memory 面板可重建索引。
+- 新增外部 embedding 审计配置：`~/.nanocodex/config.toml`/GUI Settings 可保存 `memory_embedding_provider`、`memory_embedding_model`、`memory_embedding_base_url`、`memory_embedding_api_key_env`；CLI `/memory` 展示 `embedding_backend` 和 `embedding_gap`，避免把配置完整误判成 runtime 已接入。
 
 下一步：
 
-- 外部 embedding provider 作为增强 recall，不替代文本文件的可审计性。
+- 真正执行外部 embedding provider 调用，把它作为增强 recall，不替代文本文件的可审计性。
 
 6. 模型内建 memory / code execution / 长上下文能力
 
@@ -152,7 +153,7 @@
 - 已新增 context regression：覆盖大工具输出、长历史、runtime note / memory recall 竞争预算，以及压缩后仍保持 tool_call/tool_result 配对合法。
 - 已新增 1M context 本地适配策略：config loader 会从 `context_token_budget`/`context_window` 自动推导 send-time 字符与分桶上限，GUI Settings 可配置这两个入口。
 - 已新增 orchestrator/subagent shared budget：CLI live runner 中的 reason/worker 节点共用父任务预算，parallel worker 按剩余 worker 数公平预留预算，未用额度退回池中，并在 orchestrator 状态行输出剩余预算。
-- 已新增 memory proposal review queue 和本地 vector recall：候选经验写入 `.ncx/memory/PROPOSALS.md`，CLI `/memory` 可 propose/edit/accept/reject/accept-all/reject-all/harvest/index，Tauri Memory 面板可从文档提炼、编辑、重建索引并单条/批量接受拒绝；AgentLoop 也会从运行时纠正/失败/修复说明自动生成待审 proposals，只有接受后的内容才进入 `.ncx/memory/LEARNINGS.md` 并参与 recall。
+- 已新增 memory proposal review queue、本地 vector recall 和外部 embedding 审计配置：候选经验写入 `.ncx/memory/PROPOSALS.md`，CLI `/memory` 可 propose/edit/accept/reject/accept-all/reject-all/harvest/index 并展示 embedding backend/gap，Tauri Memory 面板可从文档提炼、编辑、重建索引并单条/批量接受拒绝；GUI Settings 可保存外部 embedding provider/model/base URL/API-key env；AgentLoop 也会从运行时纠正/失败/修复说明自动生成待审 proposals，只有接受后的内容才进入 `.ncx/memory/LEARNINGS.md` 并参与 recall。
 - `cmd /c npm run build` 已通过，证明 Svelte/Tauri 前端合并后可构建。
 
 ## 最近可执行 backlog

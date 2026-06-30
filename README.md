@@ -155,7 +155,11 @@ tool.
   send time. Retrieval uses a hybrid lexical semantic ranker: keywords, tags,
   phrase matches, Jaccard similarity, recency, and a small domain synonym map
   for agent/runtime terms. The Rust REPL exposes `/memory` for the backing file,
-  entry count, recent notes, tag summary, and query-scoped recall preview.
+  entry count, recent notes, tag summary, query-scoped recall preview, and the
+  active embedding backend/gap. `~/.nanocodex/config.toml` can now declare an
+  external embedding provider/model/base URL/API-key env var for audit, while
+  recall still uses the local deterministic vector sidecar until runtime
+  embedding calls land.
 - **Deterministic hooks:** `[[hooks]]` can run project commands before or after
   matching tools and at turn lifecycle points. A failing `pre_tool` or
   `user_prompt` hook blocks the action; `post_tool` and `stop` output is
@@ -222,7 +226,7 @@ are local-runtime implementations:
 | Task budget | 82-90% | Runtime model/tool budgets are enforced and visible to the model; CLI and GUI write/read a task ledger with trend/utilization analytics; orchestrator workers now share the parent budget instead of each receiving a fresh full budget. Remaining gaps are cloud task quotas, remote queue governance, and hosted execution analytics. |
 | Context editing | 72-80% | Send-time editing compresses tool results, derives 1M-friendly character and bucket caps from `context_token_budget`/`context_window`, and materializes deterministic summary checkpoints with focus anchors before old prefixes are dropped; provider payload snapshots, context-pack bucket telemetry, and regression coverage for large tool outputs/long histories make the actual model input more auditable. Still missing Anthropic-scale long-context model quality, model-guided focus compaction, platform automatic compact, and broader quality evaluation suites. |
 | Tool search / connectors | 70-80% | Tool catalogs, namespace-aware `tool_search`, GUI MCP runtime status, 29-query cross-category gold-case ranking tests, deterministic MCP category/capability hints, visible-vs-called task-ledger traces, `/tools eval` / `--tools-eval-report` schema-recall reporting, and an auditable `connectors.toml` install/auth spec reduce schema and connector ambiguity. Missing complete OAuth login UX, remote transport startup, a managed registry, broader trace corpus, richer category ontologies, and large-scale dynamic tool ranking. |
-| Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, and runtime correction/failure proposal harvesting exist. Remaining gaps are external embedding providers and platform-grade long-term memory. |
+| Semantic memory | 74-82% | Query-scoped lexical-semantic recall, local vector sidecar recall, `remember`, LLM merge, CLI/Tauri proposal review, proposal editing, batch accept/reject, handoff/release-document harvesting, runtime correction/failure proposal harvesting, and auditable external-embedding config/status exist. Remaining gaps are executing external embedding calls and platform-grade long-term memory. |
 
 The largest remaining gaps are not ordinary Rust code gaps. They are
 platform-level gaps: Anthropic's native tool/connectors ecosystem, managed
@@ -432,6 +436,10 @@ reasoning_effort = "auto"          # auto | low | high | max | off
 # context_edit_max_tool_result_chars = 0     # 0/omitted = derive from max chars
 # context_edit_max_history_chars = 0         # 0/omitted = derive from max chars
 # context_edit_max_tool_result_total_chars = 0
+# memory_embedding_provider = "local"        # local | openai-compatible | ollama | custom
+# memory_embedding_model = ""
+# memory_embedding_base_url = ""
+# memory_embedding_api_key_env = ""          # env var name; secret is not stored here
 # available_models = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"]
 
 # [[hooks]]
@@ -641,7 +649,11 @@ Three complementary layers of persistent context:
   shows the file path, vector index path, entry count, recent notes, tags, and
   a recall preview. Verified notes also build `.ncx/memory/INDEX.json`, a local
   deterministic vector sidecar; `/memory index` or the Tauri Memory panel can
-  rebuild it after manual edits.
+  rebuild it after manual edits. `/memory` also reports `embedding_backend`,
+  `embedding_provider`, and `embedding_gap`; GUI Settings can persist
+  `memory_embedding_provider`, `memory_embedding_model`,
+  `memory_embedding_base_url`, and `memory_embedding_api_key_env` for future
+  external embedding recall without storing the secret itself.
 - **Memory proposals** (`.ncx/memory/PROPOSALS.md`) — candidate learnings that
   are useful but not trusted yet. `remember` can set `propose=true`, the CLI can
   run `/memory propose <note>`, `/memory edit <id> <note>`, `/memory accept

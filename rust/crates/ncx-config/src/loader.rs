@@ -164,6 +164,10 @@ fn nanocodex_values(raw: &Table) -> BTreeMap<String, String> {
         "ark_api_key",
         "search_provider",
         "search_api_key",
+        "memory_embedding_provider",
+        "memory_embedding_model",
+        "memory_embedding_base_url",
+        "memory_embedding_api_key_env",
         "max_iterations",
         "max_tool_calls",
         "max_retries",
@@ -215,6 +219,10 @@ const PROFILE_KEYS: &[&str] = &[
     "vl_api_key",
     "vl_model",
     "ark_api_key",
+    "memory_embedding_provider",
+    "memory_embedding_model",
+    "memory_embedding_base_url",
+    "memory_embedding_api_key_env",
     "max_iterations",
     "max_tool_calls",
     "max_retries",
@@ -780,6 +788,22 @@ pub(crate) fn load_config_impl(
             "search_api_key",
             &["TAVILY_API_KEY", "NANOCODEX_SEARCH_API_KEY"],
         ),
+        (
+            "memory_embedding_provider",
+            &["NANOCODEX_MEMORY_EMBEDDING_PROVIDER"],
+        ),
+        (
+            "memory_embedding_model",
+            &["NANOCODEX_MEMORY_EMBEDDING_MODEL"],
+        ),
+        (
+            "memory_embedding_base_url",
+            &["NANOCODEX_MEMORY_EMBEDDING_BASE_URL"],
+        ),
+        (
+            "memory_embedding_api_key_env",
+            &["NANOCODEX_MEMORY_EMBEDDING_API_KEY_ENV"],
+        ),
         ("sandbox_mode", &["NANOCODEX_SANDBOX"]),
         ("approval_policy", &["NANOCODEX_APPROVAL"]),
         ("permission_mode", &["NANOCODEX_PERMISSION_MODE"]),
@@ -938,6 +962,22 @@ pub(crate) fn load_config_impl(
             .cloned()
             .unwrap_or_else(|| "duckduckgo".into()),
         search_api_key: merged.get("search_api_key").cloned().unwrap_or_default(),
+        memory_embedding_provider: merged
+            .get("memory_embedding_provider")
+            .cloned()
+            .unwrap_or_else(|| "local".into()),
+        memory_embedding_model: merged
+            .get("memory_embedding_model")
+            .cloned()
+            .unwrap_or_default(),
+        memory_embedding_base_url: merged
+            .get("memory_embedding_base_url")
+            .cloned()
+            .unwrap_or_default(),
+        memory_embedding_api_key_env: merged
+            .get("memory_embedding_api_key_env")
+            .cloned()
+            .unwrap_or_default(),
         workspace,
         writable_roots: vec![],
         network_access,
@@ -1272,6 +1312,59 @@ approval_policy = "on-request"
         assert_eq!(cfg.context_edit_max_tool_result_chars, 700);
         assert_eq!(cfg.context_edit_max_history_chars, 8000);
         assert_eq!(cfg.context_edit_max_tool_result_total_chars, 2000);
+    }
+
+    #[test]
+    fn memory_embedding_fields_load_from_file_and_env() {
+        let tmp = std::env::temp_dir().join("ncx_config_test_memory_embedding");
+        fs::create_dir_all(&tmp).unwrap();
+        let nano = tmp.join("nano.toml");
+        write(
+            &nano,
+            concat!(
+                "api_key = \"sk-base\"\n",
+                "memory_embedding_provider = \"openai-compatible\"\n",
+                "memory_embedding_model = \"text-embedding-3-small\"\n",
+                "memory_embedding_base_url = \"https://api.example.test/v1\"\n",
+                "memory_embedding_api_key_env = \"EMBEDDINGS_API_KEY\"\n",
+            ),
+        );
+        let paths = ConfigPaths {
+            deepseek: tmp.join("nope-ds.toml"),
+            codex: tmp.join("nope-cx.toml"),
+            nanocodex: nano,
+        };
+        let mut env = HashMap::new();
+        env.insert(
+            "NANOCODEX_MEMORY_EMBEDDING_MODEL".into(),
+            "embed-large".into(),
+        );
+
+        let cfg = load_config_impl(
+            Overrides {
+                workspace: Some(tmp),
+                ..Default::default()
+            },
+            &paths,
+            &env,
+        )
+        .unwrap();
+
+        assert_eq!(cfg.memory_embedding_provider, "openai-compatible");
+        assert_eq!(cfg.memory_embedding_model, "embed-large");
+        assert_eq!(
+            cfg.memory_embedding_base_url,
+            "https://api.example.test/v1"
+        );
+        assert_eq!(cfg.memory_embedding_api_key_env, "EMBEDDINGS_API_KEY");
+        assert_eq!(
+            cfg.memory_embedding_backend_status(),
+            "external-configured"
+        );
+        assert_eq!(
+            cfg.memory_embedding_gap_reason(),
+            "external_embedding_runtime_not_implemented"
+        );
     }
 
     #[test]

@@ -20,6 +20,10 @@ pub const WRITABLE_KEYS: &[&str] = &[
     "vl_api_key",
     "vl_model",
     "ark_api_key",
+    "memory_embedding_provider",
+    "memory_embedding_model",
+    "memory_embedding_base_url",
+    "memory_embedding_api_key_env",
     "max_iterations",
     "max_tool_calls",
     "context_token_budget",
@@ -201,6 +205,10 @@ mod tests {
             ("context_edit_max_tool_result_chars", "600"),
             ("context_edit_max_history_chars", "8000"),
             ("context_edit_max_tool_result_total_chars", "1200"),
+            ("memory_embedding_provider", "openai-compatible"),
+            ("memory_embedding_model", "text-embedding-3-small"),
+            ("memory_embedding_base_url", "https://api.openai.com/v1"),
+            ("memory_embedding_api_key_env", "OPENAI_API_KEY"),
         ]));
         let parsed = text.parse::<toml::Value>().unwrap();
         assert_eq!(parsed["max_iterations"].as_str().unwrap(), "12");
@@ -230,6 +238,22 @@ mod tests {
                 .as_str()
                 .unwrap(),
             "1200"
+        );
+        assert_eq!(
+            parsed["memory_embedding_provider"].as_str().unwrap(),
+            "openai-compatible"
+        );
+        assert_eq!(
+            parsed["memory_embedding_model"].as_str().unwrap(),
+            "text-embedding-3-small"
+        );
+        assert_eq!(
+            parsed["memory_embedding_base_url"].as_str().unwrap(),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(
+            parsed["memory_embedding_api_key_env"].as_str().unwrap(),
+            "OPENAI_API_KEY"
         );
     }
 }

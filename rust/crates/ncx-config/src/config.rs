@@ -176,6 +176,15 @@ pub struct Config {
     pub search_provider: String,
     /// API key for the keyed search backend (Tavily). Empty = fall back to DDG.
     pub search_api_key: String,
+    /// Project-memory embedding provider. "local" keeps the deterministic
+    /// vector sidecar; non-local values are audited until runtime embedding
+    /// calls are implemented.
+    pub memory_embedding_provider: String,
+    pub memory_embedding_model: String,
+    pub memory_embedding_base_url: String,
+    /// Env var name for an external embedding API key. The secret is never
+    /// stored in config.
+    pub memory_embedding_api_key_env: String,
     pub workspace: PathBuf,
     pub writable_roots: Vec<PathBuf>,
     pub network_access: bool,
@@ -219,6 +228,10 @@ impl Default for Config {
             ark_api_key: String::new(),
             search_provider: "duckduckgo".to_string(),
             search_api_key: String::new(),
+            memory_embedding_provider: "local".to_string(),
+            memory_embedding_model: String::new(),
+            memory_embedding_base_url: String::new(),
+            memory_embedding_api_key_env: String::new(),
             workspace: std::env::current_dir().unwrap_or_default(),
             writable_roots: vec![],
             network_access: false,
@@ -244,6 +257,44 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn memory_embedding_provider_normalized(&self) -> String {
+        let provider = self
+            .memory_embedding_provider
+            .trim()
+            .to_ascii_lowercase();
+        if provider.is_empty()
+            || matches!(
+                provider.as_str(),
+                "local" | "deterministic" | "local-vector" | "local-vector-sidecar"
+            )
+        {
+            "local".to_string()
+        } else {
+            provider
+        }
+    }
+
+    pub fn memory_embedding_backend_status(&self) -> &'static str {
+        if self.memory_embedding_provider_normalized() == "local" {
+            return "local-vector-sidecar";
+        }
+        if !self.memory_embedding_model.trim().is_empty()
+            && !self.memory_embedding_base_url.trim().is_empty()
+        {
+            "external-configured"
+        } else {
+            "external-incomplete"
+        }
+    }
+
+    pub fn memory_embedding_gap_reason(&self) -> &'static str {
+        match self.memory_embedding_backend_status() {
+            "local-vector-sidecar" => "external_embedding_provider_not_configured",
+            "external-configured" => "external_embedding_runtime_not_implemented",
+            _ => "external_embedding_config_incomplete",
+        }
+    }
+
     /// Validate required/enum fields; returns `ConfigError` on first violation.
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.api_key.is_empty() {
@@ -317,6 +368,22 @@ impl Config {
         m.insert("vl_api_key", mask(&self.vl_api_key));
         m.insert("vl_model", self.vl_model.clone());
         m.insert("ark_api_key", mask(&self.ark_api_key));
+        m.insert(
+            "memory_embedding_provider",
+            self.memory_embedding_provider_normalized(),
+        );
+        m.insert(
+            "memory_embedding_model",
+            self.memory_embedding_model.clone(),
+        );
+        m.insert(
+            "memory_embedding_base_url",
+            self.memory_embedding_base_url.clone(),
+        );
+        m.insert(
+            "memory_embedding_api_key_env",
+            self.memory_embedding_api_key_env.clone(),
+        );
         m.insert("workspace", self.workspace.to_string_lossy().to_string());
         m.insert("max_iterations", self.max_iterations.to_string());
         m.insert("max_tool_calls", self.max_tool_calls.to_string());
@@ -408,5 +475,48 @@ mod tests {
         }
         .validate()
         .expect("default permission_mode validates");
+    }
+
+    #[test]
+    fn memory_embedding_status_reports_local_and_external_gaps() {
+        let cfg = Config::default();
+        assert_eq!(cfg.memory_embedding_provider_normalized(), "local");
+        assert_eq!(
+            cfg.memory_embedding_backend_status(),
+            "local-vector-sidecar"
+        );
+        assert_eq!(
+            cfg.memory_embedding_gap_reason(),
+            "external_embedding_provider_not_configured"
+        );
+
+        let external = Config {
+            memory_embedding_provider: "openai-compatible".into(),
+            memory_embedding_model: "text-embedding-3-small".into(),
+            memory_embedding_base_url: "https://api.openai.com/v1".into(),
+            memory_embedding_api_key_env: "OPENAI_API_KEY".into(),
+            ..Config::default()
+        };
+        assert_eq!(
+            external.memory_embedding_backend_status(),
+            "external-configured"
+        );
+        assert_eq!(
+            external.memory_embedding_gap_reason(),
+            "external_embedding_runtime_not_implemented"
+        );
+
+        let incomplete = Config {
+            memory_embedding_provider: "openai-compatible".into(),
+            ..Config::default()
+        };
+        assert_eq!(
+            incomplete.memory_embedding_backend_status(),
+            "external-incomplete"
+        );
+        assert_eq!(
+            incomplete.memory_embedding_gap_reason(),
+            "external_embedding_config_incomplete"
+        );
     }
 }
