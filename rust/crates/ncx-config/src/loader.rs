@@ -1363,7 +1363,7 @@ approval_policy = "on-request"
         );
         assert_eq!(
             cfg.memory_embedding_gap_reason(),
-            "external_embedding_runtime_not_implemented"
+            "external_embedding_api_key_env_unset"
         );
     }
 

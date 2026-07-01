@@ -290,7 +290,19 @@ impl Config {
     pub fn memory_embedding_gap_reason(&self) -> &'static str {
         match self.memory_embedding_backend_status() {
             "local-vector-sidecar" => "external_embedding_provider_not_configured",
-            "external-configured" => "external_embedding_runtime_not_implemented",
+            "external-configured" => {
+                let provider = self.memory_embedding_provider_normalized();
+                if !matches!(provider.as_str(), "openai" | "openai-compatible") {
+                    return "external_embedding_provider_unsupported";
+                }
+                if self.memory_embedding_api_key_env.trim().is_empty() {
+                    return "external_embedding_config_incomplete";
+                }
+                match std::env::var(self.memory_embedding_api_key_env.trim()) {
+                    Ok(value) if !value.trim().is_empty() => "external_embedding_runtime_available",
+                    _ => "external_embedding_api_key_env_unset",
+                }
+            }
             _ => "external_embedding_config_incomplete",
         }
     }
@@ -489,12 +501,14 @@ mod tests {
             cfg.memory_embedding_gap_reason(),
             "external_embedding_provider_not_configured"
         );
+        let env_name = format!("NCX_TEST_EMBED_KEY_{}", std::process::id());
+        std::env::remove_var(&env_name);
 
         let external = Config {
             memory_embedding_provider: "openai-compatible".into(),
             memory_embedding_model: "text-embedding-3-small".into(),
             memory_embedding_base_url: "https://api.openai.com/v1".into(),
-            memory_embedding_api_key_env: "OPENAI_API_KEY".into(),
+            memory_embedding_api_key_env: env_name.clone(),
             ..Config::default()
         };
         assert_eq!(
@@ -503,7 +517,25 @@ mod tests {
         );
         assert_eq!(
             external.memory_embedding_gap_reason(),
-            "external_embedding_runtime_not_implemented"
+            "external_embedding_api_key_env_unset"
+        );
+        std::env::set_var(&env_name, "sk-test");
+        assert_eq!(
+            external.memory_embedding_gap_reason(),
+            "external_embedding_runtime_available"
+        );
+        std::env::remove_var(&env_name);
+
+        let unsupported = Config {
+            memory_embedding_provider: "custom".into(),
+            memory_embedding_model: "embedding-model".into(),
+            memory_embedding_base_url: "https://api.example.test/v1".into(),
+            memory_embedding_api_key_env: env_name,
+            ..Config::default()
+        };
+        assert_eq!(
+            unsupported.memory_embedding_gap_reason(),
+            "external_embedding_provider_unsupported"
         );
 
         let incomplete = Config {

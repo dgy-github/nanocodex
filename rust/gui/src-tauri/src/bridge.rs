@@ -31,8 +31,8 @@ use ncx_core::{
     discover_skills, expand_file_mentions, load_workspace_instructions, new_session_id,
     register_mcp_server_with_policy, skills_index_block, AgentLoop, ApprovalDecision,
     ApprovalHandler, ApprovalRequest, CheckpointStore, ContextEditPolicy, LoopEvent,
-    McpToolPolicy, MemoryStore, Provider, Session, SessionGrants, SessionIndex, TaskBudget,
-    TaskLedger, TaskLedgerRecord, ToolContext, ToolRegistry, TurnResult,
+    McpToolPolicy, MemoryEmbeddingConfig, MemoryStore, Provider, Session, SessionGrants,
+    SessionIndex, TaskBudget, TaskLedger, TaskLedgerRecord, ToolContext, ToolRegistry, TurnResult,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -319,7 +319,10 @@ async fn build_agent(
         permission_mode_to_knobs(&cfg.permission_mode);
     let network = sandbox_mode == "danger-full-access";
     let policy = SandboxPolicy::new(sandbox_mode, &cfg.workspace).with_network_access(network);
-    let memory = Rc::new(MemoryStore::new(cfg.workspace.join(".ncx").join("memory")));
+    let memory = Rc::new(
+        MemoryStore::new(cfg.workspace.join(".ncx").join("memory"))
+            .with_embedding_config(MemoryEmbeddingConfig::from_config(&cfg)),
+    );
     let recall = memory.recall("", 8, 4000); // recency at session start (no task yet)
     // Workspace-only: do NOT inject the developer's global ~/.claude/~/.codex
     // files (their handoff protocol would make a plain "hi" read HANDOFF.md etc.).

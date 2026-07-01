@@ -365,7 +365,8 @@ impl AgentLoop {
             &tool_query,
             MEMORY_RECALL_MAX_ENTRIES,
             MEMORY_RECALL_MAX_CHARS,
-        );
+        )
+        .await;
         self.session.add_user(user_input);
 
         let mut tools_used: Vec<String> = Vec::new();
@@ -822,7 +823,7 @@ fn add_context_edit_stats(acc: &mut ContextEditStats, stats: &ContextEditStats) 
     acc.summary_checkpoints += stats.summary_checkpoints;
 }
 
-fn memory_recall_notes(
+async fn memory_recall_notes(
     memory: &Option<std::rc::Rc<crate::memory::MemoryStore>>,
     query: &str,
     max_entries: usize,
@@ -831,7 +832,7 @@ fn memory_recall_notes(
     let Some(memory) = memory else {
         return Vec::new();
     };
-    let recall = memory.recall(query, max_entries, max_chars);
+    let recall = memory.recall_augmented(query, max_entries, max_chars).await;
     if recall.trim().is_empty() {
         Vec::new()
     } else {

@@ -15,6 +15,9 @@
 //! auto-detected learnings can be reviewed before they become trusted recall.
 //! A deterministic local vector sidecar, `.ncx/memory/INDEX.json`, is built
 //! from verified notes only and blended with lexical ranking during recall.
+//! When configured, an OpenAI-compatible external embedding sidecar,
+//! `.ncx/memory/EMBEDDINGS.json`, can augment recall without replacing the
+//! auditable markdown source of truth.
 //! On write: deduplicate (normalized text) and cap to the newest [`MAX_ENTRIES`].
 //! On recall: score by a lightweight semantic lexical ranker (keywords, tags,
 //! phrases, Jaccard, and a tiny domain synonym map), tie-break by recency, and
@@ -25,6 +28,8 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use ncx_config::Config;
+use ncx_provider::EmbeddingProvider;
 use serde_json::{json, Value};
 
 /// Merges several same-topic facts into one concise note (the LLM-backed
@@ -41,8 +46,59 @@ pub const MAX_PROPOSALS: usize = 100;
 pub const MAX_HARVEST_PROPOSALS: usize = 20;
 pub const VECTOR_DIMS: usize = 96;
 const VECTOR_INDEX_VERSION: u64 = 1;
+const EXTERNAL_EMBEDDING_INDEX_VERSION: u64 = 1;
 const RECALL_HEADER: &str =
     "Project memory (verified notes from past work — treat as leads, verify before acting):";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryEmbeddingConfig {
+    pub provider: String,
+    pub model: String,
+    pub base_url: String,
+    pub api_key_env: String,
+    pub timeout_s: u64,
+    pub max_retries: u32,
+}
+
+impl MemoryEmbeddingConfig {
+    pub fn from_config(cfg: &Config) -> Option<Self> {
+        let provider = cfg.memory_embedding_provider_normalized();
+        if provider == "local" {
+            return None;
+        }
+        if !is_supported_external_embedding_provider(&provider) {
+            return None;
+        }
+        let model = cfg.memory_embedding_model.trim();
+        let base_url = cfg.memory_embedding_base_url.trim();
+        let api_key_env = cfg.memory_embedding_api_key_env.trim();
+        if model.is_empty() || base_url.is_empty() || api_key_env.is_empty() {
+            return None;
+        }
+        Some(MemoryEmbeddingConfig {
+            provider,
+            model: model.to_string(),
+            base_url: base_url.to_string(),
+            api_key_env: api_key_env.to_string(),
+            timeout_s: cfg.timeout_s as u64,
+            max_retries: cfg.max_retries as u32,
+        })
+    }
+
+    pub fn api_key(&self) -> Option<String> {
+        std::env::var(self.api_key_env.trim())
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+}
+
+pub fn is_supported_external_embedding_provider(provider: &str) -> bool {
+    matches!(
+        provider.trim().to_ascii_lowercase().as_str(),
+        "openai" | "openai-compatible"
+    )
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryEntry {
@@ -70,6 +126,8 @@ pub struct MemoryStore {
     path: PathBuf,
     proposal_path: PathBuf,
     index_path: PathBuf,
+    external_embedding_index_path: PathBuf,
+    embedding: Option<MemoryEmbeddingConfig>,
 }
 
 impl MemoryStore {
@@ -80,7 +138,16 @@ impl MemoryStore {
             path: dir.join("LEARNINGS.md"),
             proposal_path: dir.join("PROPOSALS.md"),
             index_path: dir.join("INDEX.json"),
+            external_embedding_index_path: dir.join("EMBEDDINGS.json"),
+            embedding: None,
         }
+    }
+
+    /// Attach an optional external embedding runtime. Local recall still works
+    /// when this is unset, incomplete, or unavailable at runtime.
+    pub fn with_embedding_config(mut self, embedding: Option<MemoryEmbeddingConfig>) -> Self {
+        self.embedding = embedding;
+        self
     }
 
     /// Path to the backing markdown file.
@@ -96,6 +163,11 @@ impl MemoryStore {
     /// Path to the local vector sidecar built from verified project memory.
     pub fn index_path(&self) -> &std::path::Path {
         &self.index_path
+    }
+
+    /// Path to the optional external embedding sidecar.
+    pub fn external_embedding_index_path(&self) -> &std::path::Path {
+        &self.external_embedding_index_path
     }
 
     /// Record a verified note. Returns `Ok(false)` if it duplicates an existing
@@ -322,26 +394,76 @@ impl MemoryStore {
         if entries.is_empty() {
             return String::new();
         }
+        self.recall_from_entries(query, max_entries, max_chars, &entries, None)
+    }
+
+    /// Build a recall block using configured external embeddings when they are
+    /// available. Any runtime/config/network failure falls back to local recall.
+    pub async fn recall_augmented(
+        &self,
+        query: &str,
+        max_entries: usize,
+        max_chars: usize,
+    ) -> String {
+        let entries = self.entries();
+        if entries.is_empty() {
+            return String::new();
+        }
+        if let Some((query_vector, doc_vectors)) =
+            self.external_embeddings_for_recall(&entries, query).await
+        {
+            return self.recall_from_entries(
+                query,
+                max_entries,
+                max_chars,
+                &entries,
+                Some((&query_vector, &doc_vectors)),
+            );
+        }
+        self.recall_from_entries(query, max_entries, max_chars, &entries, None)
+    }
+
+    fn recall_from_entries(
+        &self,
+        query: &str,
+        max_entries: usize,
+        max_chars: usize,
+        entries: &[MemoryEntry],
+        external_vectors: Option<(&[f64], &[Vec<f64>])>,
+    ) -> String {
         let qwords = expanded_keywords(query);
         let qset = word_set(query);
         let qphrases = phrases(query);
         let qvec = vectorize_text(query);
         let vectors = self
-            .read_vector_index(&entries)
+            .read_vector_index(entries)
             .unwrap_or_else(|| entries.iter().map(vectorize_entry).collect());
         let mut scored: Vec<(i64, &MemoryEntry)> = entries
             .iter()
             .enumerate()
             .map(|(i, e)| {
                 let overlap = semantic_score(e, &qwords, &qset, &qphrases);
-                let vector = vectors
+                let local_vector = vectors
                     .get(i)
                     .map(|v| dot(&qvec, v))
                     .unwrap_or(0.0)
                     .clamp(0.0, 1.0);
+                let external_vector = external_vectors
+                    .and_then(|(query_vector, doc_vectors)| {
+                        doc_vectors
+                            .get(i)
+                            .map(|doc_vector| normalized_cosine(query_vector, doc_vector))
+                    })
+                    .unwrap_or(0.0);
+                let local_weight = if external_vectors.is_some() {
+                    500_000.0
+                } else {
+                    1_000_000.0
+                };
                 // Pack recency into the low bits so higher ts wins ties.
                 let s = overlap * 10_000_000
-                    + (vector * 1_000_000.0).round() as i64
+                    + (external_vector * 2_000_000.0).round() as i64
+                    + (local_vector * local_weight).round() as i64
                     + (e.ts.min(999_999) as i64);
                 (s, e)
             })
@@ -591,6 +713,138 @@ impl MemoryStore {
         }
         Some(out)
     }
+
+    async fn external_embeddings_for_recall(
+        &self,
+        entries: &[MemoryEntry],
+        query: &str,
+    ) -> Option<(Vec<f64>, Vec<Vec<f64>>)> {
+        let query = query.trim();
+        if query.is_empty() {
+            return None;
+        }
+        let cfg = self.embedding.as_ref()?;
+        let api_key = cfg.api_key()?;
+        let client = EmbeddingProvider::new(
+            api_key,
+            &cfg.base_url,
+            cfg.model.clone(),
+            cfg.timeout_s.max(5),
+            cfg.max_retries,
+        );
+
+        if let Some(doc_vectors) = self.read_external_embedding_index(cfg, entries) {
+            let query_inputs = vec![query.to_string()];
+            let mut query_vectors = client.embed_texts(&query_inputs).await.ok()?;
+            let query_vector = query_vectors.pop()?;
+            return Some((query_vector, doc_vectors));
+        }
+
+        let mut inputs = entries
+            .iter()
+            .map(external_embedding_text)
+            .collect::<Vec<_>>();
+        inputs.push(query.to_string());
+        let mut vectors = client.embed_texts(&inputs).await.ok()?;
+        let query_vector = vectors.pop()?;
+        if vectors.len() != entries.len() {
+            return None;
+        }
+        let _ = self.write_external_embedding_index(cfg, entries, &vectors);
+        Some((query_vector, vectors))
+    }
+
+    fn write_external_embedding_index(
+        &self,
+        cfg: &MemoryEmbeddingConfig,
+        entries: &[MemoryEntry],
+        vectors: &[Vec<f64>],
+    ) -> std::io::Result<()> {
+        if entries.len() != vectors.len() {
+            return Ok(());
+        }
+        if let Some(parent) = self.external_embedding_index_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let docs = entries
+            .iter()
+            .zip(vectors)
+            .map(|(e, vector)| {
+                json!({
+                    "ts": e.ts,
+                    "tags": e.tags.clone(),
+                    "text": e.text.clone(),
+                    "embedding": vector,
+                })
+            })
+            .collect::<Vec<_>>();
+        let value = json!({
+            "version": EXTERNAL_EMBEDDING_INDEX_VERSION,
+            "provider": cfg.provider.clone(),
+            "model": cfg.model.clone(),
+            "base_url": cfg.base_url.clone(),
+            "docs": docs,
+        });
+        let text = serde_json::to_string_pretty(&value)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(&self.external_embedding_index_path, text)
+    }
+
+    fn read_external_embedding_index(
+        &self,
+        cfg: &MemoryEmbeddingConfig,
+        entries: &[MemoryEntry],
+    ) -> Option<Vec<Vec<f64>>> {
+        let text = std::fs::read_to_string(&self.external_embedding_index_path).ok()?;
+        let value: Value = serde_json::from_str(&text).ok()?;
+        if value.get("version").and_then(|v| v.as_u64())
+            != Some(EXTERNAL_EMBEDDING_INDEX_VERSION)
+        {
+            return None;
+        }
+        if value.get("provider").and_then(|v| v.as_str()) != Some(cfg.provider.as_str()) {
+            return None;
+        }
+        if value.get("model").and_then(|v| v.as_str()) != Some(cfg.model.as_str()) {
+            return None;
+        }
+        if value.get("base_url").and_then(|v| v.as_str()) != Some(cfg.base_url.as_str()) {
+            return None;
+        }
+        let docs = value.get("docs")?.as_array()?;
+        if docs.len() != entries.len() {
+            return None;
+        }
+        let mut out = Vec::with_capacity(docs.len());
+        for (doc, entry) in docs.iter().zip(entries) {
+            if doc.get("ts").and_then(|v| v.as_u64()) != Some(entry.ts) {
+                return None;
+            }
+            if doc.get("text").and_then(|v| v.as_str()) != Some(entry.text.as_str()) {
+                return None;
+            }
+            let tags = doc
+                .get("tags")?
+                .as_array()?
+                .iter()
+                .map(|v| v.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()?;
+            if tags.as_slice() != entry.tags.as_slice() {
+                return None;
+            }
+            let vector = doc
+                .get("embedding")?
+                .as_array()?
+                .iter()
+                .map(|v| v.as_f64().filter(|f| f.is_finite()))
+                .collect::<Option<Vec<_>>>()?;
+            if vector.is_empty() {
+                return None;
+            }
+            out.push(vector);
+        }
+        Some(out)
+    }
 }
 
 fn proposal_id(now: u64, source: &str, tags: &[String], text: &str) -> String {
@@ -626,6 +880,14 @@ fn vectorize_entry(entry: &MemoryEntry) -> Vec<f64> {
     vectorize_text(&format!("{} {}", entry.text, entry.tags.join(" ")))
 }
 
+fn external_embedding_text(entry: &MemoryEntry) -> String {
+    if entry.tags.is_empty() {
+        entry.text.clone()
+    } else {
+        format!("{} tags: {}", entry.text, entry.tags.join(", "))
+    }
+}
+
 fn vectorize_text(text: &str) -> Vec<f64> {
     let mut v = vec![0.0_f64; VECTOR_DIMS];
     let mut terms = expanded_keywords(text);
@@ -645,6 +907,19 @@ fn vectorize_text(text: &str) -> Vec<f64> {
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+fn normalized_cosine(a: &[f64], b: &[f64]) -> f64 {
+    if a.is_empty() || b.is_empty() || a.len() != b.len() {
+        return 0.0;
+    }
+    let dot = dot(a, b);
+    let an = a.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let bn = b.iter().map(|x| x * x).sum::<f64>().sqrt();
+    if an == 0.0 || bn == 0.0 {
+        return 0.0;
+    }
+    ((dot / (an * bn)).clamp(-1.0, 1.0) + 1.0) / 2.0
 }
 
 fn stable_hash(text: &str) -> u64 {
@@ -1417,6 +1692,73 @@ mod tests {
         let block = s.recall("subagent limits", 1, 4000);
 
         assert!(block.contains("Task budget"), "tag mismatch should fall back to live entries: {block}");
+    }
+
+    #[test]
+    fn external_embedding_index_round_trips_without_secrets() {
+        let s = store("external_embedding_index");
+        s.remember(
+            "Semantic memory can use external embeddings as recall hints",
+            &["memory".into()],
+            1,
+        )
+        .unwrap();
+        let cfg = MemoryEmbeddingConfig {
+            provider: "openai-compatible".into(),
+            model: "text-embedding-3-small".into(),
+            base_url: "https://api.example.test/v1".into(),
+            api_key_env: "NCX_TEST_EMBEDDING_KEY".into(),
+            timeout_s: 30,
+            max_retries: 1,
+        };
+        let entries = s.entries();
+
+        s.write_external_embedding_index(&cfg, &entries, &[vec![1.0, 0.0]])
+            .unwrap();
+
+        let text = std::fs::read_to_string(s.external_embedding_index_path()).unwrap();
+        assert!(text.contains("openai-compatible"));
+        assert!(text.contains("text-embedding-3-small"));
+        assert!(!text.contains("NCX_TEST_EMBEDDING_KEY"));
+        assert_eq!(
+            s.read_external_embedding_index(&cfg, &entries).unwrap(),
+            vec![vec![1.0, 0.0]]
+        );
+
+        let stale = MemoryEmbeddingConfig {
+            model: "other-model".into(),
+            ..cfg
+        };
+        assert!(s.read_external_embedding_index(&stale, &entries).is_none());
+    }
+
+    #[tokio::test]
+    async fn augmented_recall_falls_back_when_external_key_is_missing() {
+        let env_name = format!(
+            "NCX_TEST_MISSING_EMBEDDING_KEY_{}",
+            std::process::id()
+        );
+        std::env::remove_var(&env_name);
+        let s = store("external_embedding_no_key").with_embedding_config(Some(
+            MemoryEmbeddingConfig {
+                provider: "openai-compatible".into(),
+                model: "text-embedding-3-small".into(),
+                base_url: "https://api.example.test/v1".into(),
+                api_key_env: env_name,
+                timeout_s: 5,
+                max_retries: 0,
+            },
+        ));
+        s.remember(
+            "Tauri installer release requires NSIS",
+            &["release".into()],
+            1,
+        )
+        .unwrap();
+
+        let block = s.recall_augmented("native package", 1, 4000).await;
+
+        assert!(block.contains("NSIS"), "fallback recall failed: {block}");
     }
 
     #[test]

@@ -18,8 +18,8 @@ use ncx_config::Config;
 use ncx_core::isolate::copy_tree;
 use ncx_core::{
     discover_skills, load_project_instructions, skills_index_block, AgentLoop, AgentRunner,
-    ContextEditPolicy, MemoryStore, Session, Summarizer, TaskBudget, Tier, ToolContext,
-    ToolRegistry,
+    ContextEditPolicy, MemoryEmbeddingConfig, MemoryStore, Session, Summarizer, TaskBudget, Tier,
+    ToolContext, ToolRegistry,
 };
 use ncx_provider::DeepSeekProvider;
 use ncx_sandbox::SandboxPolicy;
@@ -39,7 +39,10 @@ pub struct LiveRunner {
 
 impl LiveRunner {
     pub fn new(cfg: Config) -> Self {
-        let memory = Rc::new(MemoryStore::new(cfg.workspace.join(".ncx").join("memory")));
+        let memory = Rc::new(
+            MemoryStore::new(cfg.workspace.join(".ncx").join("memory"))
+                .with_embedding_config(MemoryEmbeddingConfig::from_config(&cfg)),
+        );
         let _ = memory.consolidate(0.85); // tidy near-dups at startup (idempotent)
         let budget = BudgetPool::new(task_budget_from_config(&cfg));
         LiveRunner {

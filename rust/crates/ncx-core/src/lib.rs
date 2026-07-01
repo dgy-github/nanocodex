@@ -41,7 +41,7 @@ pub use hooks::{HookEvent, HookOutcome};
 pub use mcp_tool::{
     register_mcp_server, register_mcp_server_with_policy, McpToolPolicy,
 };
-pub use memory::{MemoryEntry, MemoryStore, Summarizer};
+pub use memory::{MemoryEmbeddingConfig, MemoryEntry, MemoryStore, Summarizer};
 pub use mentions::{expand_file_mentions, find_mentions};
 pub use orchestrator::{
     AgentRunner, Complexity, Orchestrator, OrchestratorConfig, OrchestratorOutcome, Tier,

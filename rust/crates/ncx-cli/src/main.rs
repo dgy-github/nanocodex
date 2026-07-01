@@ -29,8 +29,8 @@ use ncx_core::{
     load_project_instructions, new_session_id, parse_custom_command_query,
     register_mcp_server_with_policy, skills_index_block, AgentLoop, CheckpointMeta,
     CheckpointStore, ContextEditPolicy, ContextEditStats, ContextPayloadSnapshotStore, Genome,
-    McpToolPolicy, MemoryStore, Orchestrator, OrchestratorConfig, Provider, Session,
-    SessionIndex, SessionSummary, TaskBudget, TaskLedger, TaskLedgerRecord, ToolContext,
+    McpToolPolicy, MemoryEmbeddingConfig, MemoryStore, Orchestrator, OrchestratorConfig, Provider,
+    Session, SessionIndex, SessionSummary, TaskBudget, TaskLedger, TaskLedgerRecord, ToolContext,
     ToolRegistry, TurnResult,
 };
 use ncx_provider::DeepSeekProvider;
@@ -175,7 +175,10 @@ async fn run(args: Args) -> i32 {
     let policy = SandboxPolicy::new(sandbox_mode, &cfg.workspace).with_network_access(network);
     // Project memory: recalled per prompt by AgentLoop; the `remember`
     // tool lets the agent append verified notes (it gets smarter on THIS repo).
-    let memory = Rc::new(MemoryStore::new(cfg.workspace.join(".ncx").join("memory")));
+    let memory = Rc::new(
+        MemoryStore::new(cfg.workspace.join(".ncx").join("memory"))
+            .with_embedding_config(MemoryEmbeddingConfig::from_config(&cfg)),
+    );
     // Periodic consolidation: fold near-duplicate notes on every start (cheap,
     // idempotent) so the store stays tidy as it grows.
     let _ = memory.consolidate(0.85);
@@ -822,10 +825,11 @@ fn render_memory_status(memory: Option<&MemoryStore>, cfg: &Config, query: &str)
     };
 
     let mut out = format!(
-        "Project memory\npath: {}\nproposals_path: {}\nindex_path: {}\nentries: {}\npending_proposals: {}\nmax_entries: {}\nmax_proposals: {}\nvector_dims: {}\nembedding_backend: {}\nembedding_provider: {}\nembedding_model: {}\nembedding_base_url: {}\nembedding_api_key_env: {}\nembedding_gap: {}\ntop_tags: {}",
+        "Project memory\npath: {}\nproposals_path: {}\nindex_path: {}\nexternal_embedding_index_path: {}\nentries: {}\npending_proposals: {}\nmax_entries: {}\nmax_proposals: {}\nvector_dims: {}\nembedding_backend: {}\nembedding_provider: {}\nembedding_model: {}\nembedding_base_url: {}\nembedding_api_key_env: {}\nembedding_gap: {}\ntop_tags: {}",
         memory.path().display(),
         memory.proposal_path().display(),
         memory.index_path().display(),
+        memory.external_embedding_index_path().display(),
         entries.len(),
         proposals.len(),
         ncx_core::memory::MAX_ENTRIES,
@@ -2270,6 +2274,7 @@ mod tests {
         assert!(out.contains("LEARNINGS.md"));
         assert!(out.contains("PROPOSALS.md"));
         assert!(out.contains("INDEX.json"));
+        assert!(out.contains("EMBEDDINGS.json"));
         assert!(out.contains("entries: 2"));
         assert!(out.contains("pending_proposals: 1"));
         assert!(out.contains("vector_dims:"));
@@ -2286,17 +2291,19 @@ mod tests {
     }
 
     #[test]
-    fn memory_status_renders_external_embedding_audit_gap() {
+    fn memory_status_renders_external_embedding_runtime_state() {
         let dir = std::env::temp_dir().join(format!(
             "ncx_memory_embedding_status_{}",
             new_session_id()
         ));
         let memory = MemoryStore::new(&dir);
+        let env_name = format!("NCX_TEST_MEMORY_STATUS_EMBED_KEY_{}", std::process::id());
+        std::env::remove_var(&env_name);
         let cfg = Config {
             memory_embedding_provider: "openai-compatible".into(),
             memory_embedding_model: "text-embedding-3-small".into(),
             memory_embedding_base_url: "https://api.openai.com/v1".into(),
-            memory_embedding_api_key_env: "OPENAI_API_KEY".into(),
+            memory_embedding_api_key_env: env_name.clone(),
             ..Config::default()
         };
 
@@ -2306,10 +2313,16 @@ mod tests {
         assert!(out.contains("embedding_provider: openai-compatible"));
         assert!(out.contains("embedding_model: text-embedding-3-small"));
         assert!(out.contains("embedding_base_url: https://api.openai.com/v1"));
-        assert!(out.contains("embedding_api_key_env: OPENAI_API_KEY"));
+        assert!(out.contains(&format!("embedding_api_key_env: {env_name}")));
+        assert!(out.contains("embedding_gap: external_embedding_api_key_env_unset"));
+
+        std::env::set_var(&env_name, "sk-test");
+        let ready = render_memory_status(Some(&memory), &cfg, "");
         assert!(out.contains(
-            "embedding_gap: external_embedding_runtime_not_implemented"
+            "embedding_gap: external_embedding_api_key_env_unset"
         ));
+        assert!(ready.contains("embedding_gap: external_embedding_runtime_available"));
+        std::env::remove_var(&env_name);
     }
 
     #[test]

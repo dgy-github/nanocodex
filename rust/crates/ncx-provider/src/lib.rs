@@ -8,13 +8,17 @@
 //! * [`response`] — parse a completion JSON into a [`ModelResponse`]; usage
 //!   normalization including DeepSeek's cache-accounting fields.
 //! * [`provider`] — [`DeepSeekProvider`], the async HTTP client over `reqwest`.
+//! * [`embedding`] — [`EmbeddingProvider`], an OpenAI-compatible embeddings
+//!   client used by project memory.
 
+pub mod embedding;
 pub mod provider;
 pub mod request;
 pub mod response;
 pub mod types;
 pub mod web;
 
+pub use embedding::EmbeddingProvider;
 pub use provider::{stream_open_timeout_s, DeepSeekProvider};
 pub use request::{build_body, is_deepseek_model};
 pub use response::{extract_reasoning, parse_completion};
